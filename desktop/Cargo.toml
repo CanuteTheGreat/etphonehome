@@ -1,0 +1,45 @@
+[workspace]
+members = [
+    "common",
+    "windows",
+    "linux",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["ET Phone Home Contributors"]
+license = "MIT"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Networking
+socket2 = "0.5"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+
+# TUN/TAP interface
+tun = { version = "0.6", features = ["async"] }
+
+# Directories
+dirs = "5.0"
+
+# mDNS/Service Discovery
+mdns-sd = "0.11"

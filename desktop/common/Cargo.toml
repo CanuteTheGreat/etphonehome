@@ -1,0 +1,20 @@
+[package]
+name = "etphonehome-common"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+tun = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+dirs = { workspace = true }
+
+[lib]
+name = "etphonehome_common"
+path = "src/lib.rs"

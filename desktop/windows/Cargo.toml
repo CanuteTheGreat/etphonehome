@@ -1,0 +1,23 @@
+[package]
+name = "etphonehome-windows"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "etphonehome"
+path = "src/main.rs"
+
+[dependencies]
+etphonehome-common = { path = "../common" }
+
+tokio = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+clap = { workspace = true }
+mdns-sd = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winsock2", "ws2def", "ws2bth", "bthsdpdef", "bluetoothapis"] }

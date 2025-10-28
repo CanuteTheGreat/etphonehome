@@ -1,0 +1,57 @@
+# ET Phone Home - Configuration File
+# This file contains connection profiles for quick access
+
+# Default connection settings
+[default]
+# Auto-reconnect on disconnect (true/false)
+auto_reconnect = true
+# Maximum retry attempts (0 = infinite)
+max_retries = 0
+# TUN interface name
+interface = "etph0"
+
+# Connection profiles
+# You can define multiple profiles and use them with: etphonehome connect <profile-name>
+
+[[profiles]]
+name = "usb"
+type = "usb"
+port = 8888
+description = "USB connection via ADB"
+
+[[profiles]]
+name = "home-wifi"
+type = "wifi"
+host = "192.168.1.100"
+port = 8888
+description = "Home WiFi network"
+
+[[profiles]]
+name = "work-wifi"
+type = "wifi"
+host = "192.168.0.50"
+port = 8888
+description = "Work WiFi network"
+
+[[profiles]]
+name = "my-phone-bt"
+type = "bluetooth"
+address = "AA:BB:CC:DD:EE:FF"
+description = "My phone via Bluetooth"
+
+# Authentication tokens (optional)
+# If set, these will be used for WiFi/Bluetooth connections
+[auth]
+# Token for WiFi connections (leave empty for no auth)
+wifi_token = ""
+# Token for Bluetooth connections (leave empty for no auth)
+bluetooth_token = ""
+
+# Advanced settings
+[advanced]
+# Enable debug logging (true/false)
+debug = false
+# Connection timeout in seconds
+timeout = 30
+# Packet buffer size
+buffer_size = 100

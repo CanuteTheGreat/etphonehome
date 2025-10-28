@@ -1,0 +1,42 @@
+# Rust
+desktop/target/
+desktop/**/target/
+**/*.rs.bk
+Cargo.lock
+
+# Android
+android/.gradle/
+android/.idea/
+android/local.properties
+android/*.iml
+android/build/
+android/app/build/
+android/.DS_Store
+android/captures/
+android/.externalNativeBuild/
+android/.cxx/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+*.apk
+*.aab
+*.so
+*.exe
+*.dll
+
+# Logs
+*.log
+
+# Local configuration
+.env
+config.local.*

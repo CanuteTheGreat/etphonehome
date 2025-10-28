@@ -1,0 +1,22 @@
+[package]
+name = "etphonehome-linux"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "etphonehome"
+path = "src/main.rs"
+
+[dependencies]
+etphonehome-common = { path = "../common" }
+
+tokio = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+clap = { workspace = true }
+mdns-sd = { workspace = true }
+bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"] }
+libc = "0.2"

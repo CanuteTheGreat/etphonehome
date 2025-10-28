@@ -1,0 +1,119 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/rust-ci.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/rust-ci.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        rust: [stable]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ matrix.rust }}
+        components: rustfmt, clippy
+
+    - name: Cache cargo registry
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo index
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo build
+      uses: actions/cache@v3
+      with:
+        path: desktop/target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Run tests
+      run: |
+        cd desktop
+        cargo test --verbose
+
+    - name: Run clippy
+      run: |
+        cd desktop
+        cargo clippy -- -D warnings
+
+    - name: Check formatting
+      run: |
+        cd desktop
+        cargo fmt -- --check
+
+  build:
+    name: Build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            package: etphonehome-linux
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            package: etphonehome-windows
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        targets: ${{ matrix.target }}
+
+    - name: Cache cargo
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          desktop/target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build
+      run: |
+        cd desktop
+        cargo build --release -p ${{ matrix.package }} --target ${{ matrix.target }}
+
+    - name: Upload artifacts (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v3
+      with:
+        name: etphonehome-linux
+        path: desktop/target/${{ matrix.target }}/release/etphonehome
+
+    - name: Upload artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v3
+      with:
+        name: etphonehome-windows
+        path: desktop/target/${{ matrix.target }}/release/etphonehome.exe

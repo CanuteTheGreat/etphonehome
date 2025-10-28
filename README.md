@@ -1,85 +1,419 @@
 # ET Phone Home
 
-A modern, open-source tethering solution for Android with companion apps for Windows and Linux.
+A modern, open-source tethering solution for Android with companion apps for Windows and Linux - an alternative to PDANet and EasyTether.
 
-## Features
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](https://github.com/yourusername/etphonehome)
 
-- **Multiple Connection Methods**
-  - USB tethering (most reliable)
-  - WiFi hotspot
-  - Bluetooth tethering
+## 🚀 Quick Start
 
-- **Root Optional**
-  - Works without root using Android VPN API
-  - Enhanced features when root is available
+**Linux:**
+```bash
+sudo ./scripts/quick-start-linux.sh
+```
 
-- **Cross-Platform Desktop Support**
-  - Windows companion app
-  - Linux companion app
-  - Built with Rust for performance and reliability
+**Windows (PowerShell as Administrator):**
+```powershell
+.\scripts\quick-start-windows.ps1
+```
 
-## Project Structure
+See the [Setup Guide](docs/SETUP.md) for detailed instructions.
+
+## ✨ Features
+
+### Current Features (v0.4.0)
+
+- ✅ **USB Tethering** - Fast and reliable connection via USB cable
+- ✅ **WiFi Tethering** - Wireless connection over local network
+- ✅ **Bluetooth Tethering** - Full RFCOMM implementation on all platforms
+- ✅ **No Root Required** - Uses Android VPN API
+- ✅ **Cross-Platform** - Windows and Linux desktop clients
+- ✅ **Multi-threaded I/O** - Async packet forwarding for better performance
+- ✅ **Open Protocol** - Well-documented binary protocol
+- ✅ **Real-time Statistics** - Monitor connection speed and data usage
+- ✅ **Modern Tech Stack** - Kotlin (Android) + Rust (Desktop)
+- ✅ **Auto-Reconnect** - Exponential backoff retry logic for reliable connections
+- ✅ **Token Authentication** - Secure WiFi and Bluetooth connections with random tokens
+- ✅ **mDNS Discovery** - Automatic device discovery on local network
+- ✅ **Connection Profiles** - Save and reuse connection configurations
+- ✅ **IP Discovery** - Automatic WiFi IP detection via ADB or mDNS
+
+### Planned Features
+
+- 🔲 Root mode for improved performance
+- 🔲 Desktop GUI application
+- 🔲 Connection encryption (TLS/DTLS)
+- 🔲 Multi-device support
+- 🔲 Mobile data usage tracking
+- 🔲 Custom DNS servers
+
+## 📋 Requirements
+
+### Android Device
+- Android 5.0+ (API Level 21+)
+- USB debugging enabled (for USB tethering)
+- VPN permission (granted through the app)
+
+### Desktop Computer
+
+**Linux:**
+- Root/sudo access
+- TUN kernel module (usually built-in)
+- ADB (Android Debug Bridge)
+
+**Windows:**
+- Administrator privileges
+- TAP-Windows adapter (install OpenVPN or TAP-Windows separately)
+- ADB (Android Debug Bridge)
+
+## 🏗️ Project Structure
 
 ```
 etphonehome/
-├── android/          # Android app
-├── desktop/          # Rust-based desktop apps
-│   ├── common/       # Shared Rust code
-│   ├── windows/      # Windows-specific code
-│   └── linux/        # Linux-specific code
-├── protocol/         # Communication protocol definitions
-└── docs/             # Documentation
+├── android/              # Android application (Kotlin)
+│   └── app/src/main/
+│       ├── java/com/etphonehome/
+│       │   ├── MainActivity.kt           # Main UI
+│       │   ├── protocol/Protocol.kt      # Protocol implementation
+│       │   └── service/VpnService.kt     # VPN service
+│       └── res/                          # Android resources
+│
+├── desktop/              # Desktop applications (Rust)
+│   ├── common/           # Shared library
+│   │   └── src/
+│   │       ├── protocol.rs      # Protocol implementation
+│   │       ├── client.rs        # Connection client
+│   │       └── tun_interface.rs # TUN interface manager
+│   ├── linux/            # Linux-specific client
+│   └── windows/          # Windows-specific client
+│
+├── protocol/             # Protocol specification
+│   └── PROTOCOL.md       # Binary protocol documentation
+│
+├── docs/                 # Documentation
+│   ├── BUILD.md          # Build instructions
+│   ├── SETUP.md          # Setup and usage guide
+│   ├── DEVELOPMENT.md    # Developer guide
+│   └── FAQ.md            # Frequently asked questions
+│
+└── scripts/              # Helper scripts
+    ├── quick-start-linux.sh      # Linux quick start
+    └── quick-start-windows.ps1   # Windows quick start
 ```
 
-## Getting Started
+## 🔧 Building from Source
 
 ### Prerequisites
 
-**For Android Development:**
-- Android Studio (latest version)
-- Android SDK (API level 21+, targeting API 34)
-- Java Development Kit (JDK) 17+
+**For Android:**
+- Android Studio (latest)
+- JDK 17+
+- Android SDK API 21-34
 
-**For Desktop Development:**
+**For Desktop:**
 - Rust (latest stable)
-- Cargo
+- Platform build tools (see [BUILD.md](docs/BUILD.md))
 
-**For USB Tethering:**
-- Android Debug Bridge (ADB)
-- USB drivers for your device
-
-### Building the Android App
+### Build Android App
 
 ```bash
 cd android
 ./gradlew assembleDebug
+
+# Install on device
+adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### Building the Desktop Apps
+### Build Desktop Client
 
+**Linux:**
 ```bash
 cd desktop
-cargo build --release
+cargo build --release -p etphonehome-linux
+sudo cp target/release/etphonehome /usr/local/bin/
 ```
 
-## How It Works
+**Windows:**
+```cmd
+cd desktop
+cargo build --release -p etphonehome-windows
+```
 
-### Non-Root Mode (VPN API)
-The app creates a local VPN connection that captures all network traffic and forwards it through the tethering connection to the desktop companion app.
+See [BUILD.md](docs/BUILD.md) for detailed build instructions.
 
-### Root Mode (Optional)
-When root is available, the app can directly manipulate iptables for more efficient routing and better performance.
+## 📖 How It Works
+
+ET Phone Home uses different approaches based on what's available:
+
+### VPN Mode (Default - No Root)
+
+```
+┌─────────────┐                           ┌──────────────┐
+│   Android   │                           │   Desktop    │
+│   Device    │                           │   Computer   │
+│             │                           │              │
+│  ┌────────┐ │                           │  ┌────────┐  │
+│  │ VPN    │ │  ←── Protocol Messages ──→  │  TUN   │  │
+│  │ Service│ │  (via USB/WiFi/Bluetooth)   │  iface │  │
+│  └────────┘ │                           │  └────────┘  │
+│      ↕      │                           │      ↕       │
+│  Mobile     │                           │   Internet   │
+│  Internet   │                           │   Apps       │
+└─────────────┘                           └──────────────┘
+```
+
+1. **Android:** VPN service captures all network traffic
+2. **Transport:** Traffic is sent via USB/WiFi/Bluetooth to desktop
+3. **Desktop:** TUN interface receives traffic and routes to internet
+4. **Return:** Response packets follow reverse path
 
 ### Connection Methods
 
-1. **USB**: Uses ADB reverse port forwarding or custom USB protocol
-2. **WiFi**: Creates a WiFi hotspot or direct connection
-3. **Bluetooth**: Standard Bluetooth PAN (Personal Area Network) profile
+**USB (Recommended - Fastest):**
+- Uses ADB reverse port forwarding: `adb reverse tcp:8888 tcp:8888`
+- Android app listens on localhost:8888
+- Desktop connects to localhost:8888 (tunneled via ADB)
+- Most reliable and fastest
+- Charges device while tethering
 
-## License
+**WiFi (Wireless Convenience):**
+- Android creates server socket on WiFi interface
+- Desktop connects directly to Android's WiFi IP
+- No cables required
+- Slightly higher latency (+10-25ms)
+- Token authentication for security
+- Use `discover-wifi` command for automatic discovery
 
-[Choose your license]
+**Bluetooth (Low Power):**
+- Full RFCOMM socket implementation
+- Works on Linux (BlueZ) and Windows
+- Token authentication for security
+- Lower power consumption than WiFi
+- Slowest connection method (typical Bluetooth speeds)
 
-## Contributing
+## 🎯 Usage Examples
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+### Basic USB Tethering
+
+**On Android:**
+1. Enable USB debugging
+2. Connect to computer via USB
+3. Open ET Phone Home app
+4. Tap "Start Tethering"
+
+**On Desktop:**
+```bash
+# Set up ADB forwarding
+sudo etphonehome setup-adb
+
+# Connect
+sudo etphonehome usb
+```
+
+### WiFi Tethering
+
+**Method 1: Automatic Discovery (Recommended)**
+
+**On Android:**
+1. Open ET Phone Home app
+2. Select "WiFi" mode
+3. Tap "Start Tethering"
+4. Note the WiFi IP and Auth Token displayed
+
+**On Desktop:**
+```bash
+# Discover Android devices on local network
+sudo etphonehome discover-wifi
+
+# Connect to discovered device (use token from Android app)
+sudo etphonehome wifi --host 192.168.1.100 --token AbC123XyZ4567890
+```
+
+**Method 2: ADB Discovery (USB connected)**
+
+```bash
+# Discover Android WiFi IP via ADB
+sudo etphonehome discover-ip
+# Output: ✓ Android WiFi IP: 192.168.1.100
+
+# Connect using discovered IP and token from Android app
+sudo etphonehome wifi --host 192.168.1.100 --token AbC123XyZ4567890
+```
+
+**Method 3: Manual IP Entry**
+
+Find Android's WiFi IP in Settings → About → Status, then:
+```bash
+sudo etphonehome wifi --host 192.168.1.100 --token AbC123XyZ4567890
+```
+
+### Bluetooth Tethering
+
+**On Android:**
+1. Open ET Phone Home app
+2. Select "Bluetooth" mode
+3. Tap "Start Tethering"
+4. Note the Bluetooth Address and Auth Token displayed
+
+**On Desktop (Linux):**
+```bash
+# Pair device first (one-time setup)
+bluetoothctl
+# > pair XX:XX:XX:XX:XX:XX
+# > trust XX:XX:XX:XX:XX:XX
+# > exit
+
+# Connect to Bluetooth device
+sudo etphonehome bluetooth --address XX:XX:XX:XX:XX:XX --token AbC123XyZ4567890
+```
+
+**On Desktop (Windows):**
+```bash
+# Pair device via Windows Settings first
+# Then connect using Bluetooth address
+etphonehome bluetooth --address XX:XX:XX:XX:XX:XX --token AbC123XyZ4567890
+```
+
+### Connection Profiles
+
+Save frequently used connections for quick access:
+
+```bash
+# Save a WiFi profile
+etphonehome save-profile my-home-wifi --type wifi --host 192.168.1.100 --description "Home WiFi connection"
+
+# Save a Bluetooth profile
+etphonehome save-profile my-phone-bt --type bluetooth --address XX:XX:XX:XX:XX:XX
+
+# List all profiles
+etphonehome list-profiles
+
+# Connect using a profile
+sudo etphonehome connect my-home-wifi
+
+# Delete a profile
+etphonehome delete-profile my-home-wifi
+```
+
+### Auto-Reconnect
+
+Enable automatic reconnection on connection drops:
+
+```bash
+# WiFi with auto-reconnect (infinite retries)
+sudo etphonehome wifi --host 192.168.1.100 --token XXX --reconnect
+
+# With maximum retry limit
+sudo etphonehome wifi --host 192.168.1.100 --token XXX --reconnect --max-retries 10
+
+# USB with auto-reconnect
+sudo etphonehome usb --reconnect
+```
+
+### Custom Configuration
+
+```bash
+# Custom port
+etphonehome usb --port 9999
+
+# Custom interface name
+etphonehome usb --interface mytun0
+```
+
+See [SETUP.md](docs/SETUP.md) for more usage examples.
+
+## 🐛 Troubleshooting
+
+**Connection fails:**
+```bash
+# Check ADB connection
+adb devices
+
+# Check ADB forwarding
+adb reverse --list
+
+# Check logs
+adb logcat -s ETPhoneHome:V
+```
+
+**TUN interface issues (Linux):**
+```bash
+# Load TUN module
+sudo modprobe tun
+
+# Check if loaded
+lsmod | grep tun
+```
+
+**Windows TAP adapter:**
+- Install OpenVPN (includes TAP-Windows)
+- Or install TAP-Windows separately
+- Run as Administrator
+
+See [FAQ.md](docs/FAQ.md) for more troubleshooting help.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please see [DEVELOPMENT.md](docs/DEVELOPMENT.md) for:
+- Development setup
+- Architecture overview
+- Coding standards
+- How to contribute
+
+## 📚 Documentation
+
+- **[BUILD.md](docs/BUILD.md)** - Building from source
+- **[SETUP.md](docs/SETUP.md)** - Setup and usage guide
+- **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development guide
+- **[FAQ.md](docs/FAQ.md)** - Frequently asked questions
+- **[PROTOCOL.md](protocol/PROTOCOL.md)** - Protocol specification
+
+## 🔒 Security
+
+- **USB mode:** Traffic is local to USB connection (secure)
+- **VPN API:** Standard Android VPN implementation
+- **Open Source:** All code is auditable under MIT license
+- **No telemetry:** No data collection or tracking
+- **Encryption:** WiFi encryption planned for future release
+
+See [FAQ.md](docs/FAQ.md) for more security information.
+
+## 🆚 Comparison
+
+|Feature|ET Phone Home|PDANet|EasyTether|Native Tethering|
+|-------|-------------|------|----------|----------------|
+|Price|Free|Freemium|Paid|Free|
+|Open Source|✅|❌|❌|N/A|
+|No Root|✅|✅|✅|✅|
+|USB|✅|✅|✅|✅|
+|WiFi|✅|✅|✅|✅|
+|Bluetooth|✅|✅|❌|✅|
+|Token Auth|✅|❌|❌|N/A|
+|Auto-Reconnect|✅|Unknown|Unknown|N/A|
+|Connection Profiles|✅|Unknown|Unknown|N/A|
+|mDNS Discovery|✅|❌|❌|N/A|
+|Bypass Carrier|✅|✅|✅|❌|
+|Multi-threaded I/O|✅|Unknown|Unknown|N/A|
+|Desktop GUI|🔲|✅|✅|N/A|
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
+
+You are free to use, modify, and distribute this software for any purpose, including commercial use. See the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Inspired by PDANet and EasyTether
+- Built with [Rust](https://www.rust-lang.org/) and [Kotlin](https://kotlinlang.org/)
+- Uses [tun-rs](https://github.com/meh/rust-tun) for TUN interface
+
+## 📞 Support
+
+- 📖 [Documentation](docs/)
+- 🐛 [Issue Tracker](https://github.com/yourusername/etphonehome/issues)
+- 💬 [Discussions](https://github.com/yourusername/etphonehome/discussions)
+
+---
+
+**Note:** Current version is v0.4.0 (Beta). All three tethering modes (USB, WiFi, Bluetooth) are fully functional with token authentication, auto-reconnect, and connection profiles. See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.

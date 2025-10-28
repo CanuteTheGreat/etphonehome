@@ -1,0 +1,75 @@
+# ET Phone Home Configuration Example
+# Copy this file to config.toml and customize for your setup
+
+[connection]
+# Connection type: "usb", "wifi", or "bluetooth"
+type = "usb"
+
+# Port for USB/WiFi connection
+port = 8888
+
+# WiFi-specific settings
+# host = "192.168.1.100"  # Android device IP for WiFi mode
+
+[network]
+# TUN interface name
+interface = "etph0"
+
+# TUN interface IP address
+address = "10.0.0.1"
+
+# Network mask
+netmask = "255.255.255.0"
+
+# MTU size
+mtu = 1500
+
+# DNS server to use
+dns = "8.8.8.8"
+
+[logging]
+# Log level: "error", "warn", "info", "debug", "trace"
+level = "info"
+
+# Log to file
+# log_file = "/var/log/etphonehome.log"
+
+[android]
+# ADB path (if not in PATH)
+# adb_path = "/usr/bin/adb"
+
+# Auto-setup ADB reverse forwarding
+auto_adb_setup = true
+
+[advanced]
+# Connection timeout in seconds
+timeout = 30
+
+# Keepalive interval in seconds
+keepalive_interval = 30
+
+# Statistics update interval in seconds
+stats_interval = 5
+
+# Reconnect automatically on disconnect
+# auto_reconnect = true
+
+# Maximum reconnect attempts
+# max_reconnect_attempts = 5
+
+[performance]
+# Enable multi-threaded packet forwarding (experimental)
+# multithreaded = false
+
+# Packet queue size
+# queue_size = 1000
+
+# Read buffer size in bytes
+# buffer_size = 65536
+
+[security]
+# Enable encryption for WiFi mode (future feature)
+# encrypt_wifi = false
+
+# Shared secret for WiFi encryption
+# wifi_secret = "your-secret-key-here"

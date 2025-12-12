@@ -3,11 +3,12 @@ members = [
     "common",
     "windows",
     "linux",
+    "gui",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["ET Phone Home Contributors"]
 license = "MIT"
@@ -43,3 +44,8 @@ dirs = "5.0"
 
 # mDNS/Service Discovery
 mdns-sd = "0.11"
+
+# TLS support
+rustls = "0.23"
+tokio-rustls = "0.26"
+ring = "0.17"

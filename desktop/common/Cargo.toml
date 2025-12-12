@@ -14,6 +14,9 @@ tun = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }
+rustls = { workspace = true }
+tokio-rustls = { workspace = true }
+ring = { workspace = true }
 
 [lib]
 name = "etphonehome_common"

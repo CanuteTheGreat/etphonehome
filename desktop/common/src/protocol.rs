@@ -57,6 +57,8 @@ pub mod capabilities {
     pub const BLUETOOTH: u32 = 1 << 2;
     pub const ROOT: u32 = 1 << 3;
     pub const IPV6: u32 = 1 << 4;
+    pub const TLS: u32 = 1 << 5;
+    pub const TLS_PSK: u32 = 1 << 6;
 }
 
 /// Protocol errors
@@ -259,6 +261,22 @@ impl HandshakeResponse {
             ip_address: u32::from_be_bytes([data[6], data[7], data[8], data[9]]),
             dns: u32::from_be_bytes([data[10], data[11], data[12], data[13]]),
         })
+    }
+
+    /// Check if the server supports root mode
+    pub fn supports_root(&self) -> bool {
+        (self.capabilities & capabilities::ROOT) != 0
+    }
+
+    /// Check if root mode is currently active
+    /// Root mode is active when CAP_ROOT is set AND ip_address is 0 (no VPN interface)
+    pub fn is_root_mode_active(&self) -> bool {
+        self.supports_root() && self.ip_address == 0
+    }
+
+    /// Check if the server supports TLS
+    pub fn supports_tls(&self) -> bool {
+        (self.capabilities & capabilities::TLS) != 0
     }
 }
 

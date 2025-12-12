@@ -693,6 +693,7 @@ fn save_profile(
         port,
         host,
         address,
+        filter: etphonehome_common::FilterConfig::default(),
     };
 
     let mut config = Config::load_or_default()?;
@@ -765,7 +766,7 @@ async fn connect_bluetooth(address: &str, tun_name: &str) -> Result<()> {
         .context("Invalid Bluetooth address format (expected XX:XX:XX:XX:XX:XX)")?;
 
     info!("Initializing Bluetooth adapter...");
-    let session = bluer::session::Session::new().await
+    let session = bluer::Session::new().await
         .context("Failed to create BlueZ session. Is bluetooth service running?")?;
 
     let adapter_names = session.adapter_names().await

@@ -1,0 +1,34 @@
+[package]
+name = "etphonehome-gui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "ET Phone Home Desktop GUI"
+
+[[bin]]
+name = "etphonehome-gui"
+path = "src/main.rs"
+
+[dependencies]
+# GUI framework
+iced = { version = "0.13", features = ["tokio"] }
+
+# Shared library
+etphonehome-common = { path = "../common" }
+
+# Async runtime
+tokio.workspace = true
+
+# Logging
+log.workspace = true
+env_logger.workspace = true
+
+# Error handling
+anyhow.workspace = true
+
+# Serialization
+serde.workspace = true
+
+# Time formatting
+chrono = "0.4"

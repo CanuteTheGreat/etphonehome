@@ -37,6 +37,8 @@ object Protocol {
     const val CAP_BLUETOOTH: Int = 1 shl 2
     const val CAP_ROOT: Int = 1 shl 3
     const val CAP_IPV6: Int = 1 shl 4
+    const val CAP_TLS: Int = 1 shl 5
+    const val CAP_TLS_PSK: Int = 1 shl 6
 }
 
 /**

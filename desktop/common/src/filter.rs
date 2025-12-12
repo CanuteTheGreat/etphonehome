@@ -1,0 +1,384 @@
+use serde::{Deserialize, Serialize};
+use std::net::Ipv4Addr;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Traffic filter configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_filter_mode")]
+    pub mode: FilterMode,
+    #[serde(default)]
+    pub rules: Vec<FilterRule>,
+    #[serde(default = "default_log_blocked")]
+    pub log_blocked: bool,
+}
+
+fn default_filter_mode() -> FilterMode {
+    FilterMode::Blacklist
+}
+
+fn default_log_blocked() -> bool {
+    true
+}
+
+impl Default for FilterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: FilterMode::Blacklist,
+            rules: Vec::new(),
+            log_blocked: true,
+        }
+    }
+}
+
+/// Filter mode determines default behavior
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum FilterMode {
+    /// Block all traffic, allow only matching rules with ALLOW action
+    Whitelist,
+    /// Allow all traffic, block only matching rules with BLOCK action
+    Blacklist,
+}
+
+/// A single filter rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterRule {
+    pub id: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub action: FilterAction,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<Protocol>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dest_ip: Option<String>,   // CIDR notation: "192.168.1.0/24"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dest_port: Option<String>, // "80" or "80-443" or "80,443,8080"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_port: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Action to take when rule matches
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum FilterAction {
+    Allow,
+    Block,
+}
+
+/// Network protocol
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Protocol {
+    Tcp,
+    Udp,
+    Icmp,
+    Any,
+}
+
+impl Protocol {
+    fn from_number(num: u8) -> Self {
+        match num {
+            6 => Protocol::Tcp,
+            17 => Protocol::Udp,
+            1 => Protocol::Icmp,
+            _ => Protocol::Any,
+        }
+    }
+}
+
+/// IP range with CIDR prefix
+#[derive(Debug, Clone)]
+pub struct IpRange {
+    pub address: Ipv4Addr,
+    pub prefix_len: u8,
+}
+
+impl IpRange {
+    /// Parse CIDR notation (e.g., "192.168.1.0/24")
+    pub fn parse(cidr: &str) -> Option<Self> {
+        let parts: Vec<&str> = cidr.split('/').collect();
+        let address = parts[0].parse::<Ipv4Addr>().ok()?;
+        let prefix_len = if parts.len() > 1 {
+            parts[1].parse().ok()?
+        } else {
+            32
+        };
+        Some(IpRange { address, prefix_len })
+    }
+
+    /// Check if IP is within this range
+    pub fn contains(&self, ip: Ipv4Addr) -> bool {
+        let ip_bits = u32::from(ip);
+        let range_bits = u32::from(self.address);
+        let mask = if self.prefix_len >= 32 {
+            !0u32
+        } else {
+            !0u32 << (32 - self.prefix_len)
+        };
+        (ip_bits & mask) == (range_bits & mask)
+    }
+}
+
+/// Port range
+#[derive(Debug, Clone)]
+pub struct PortRange {
+    pub start: u16,
+    pub end: u16,
+}
+
+impl PortRange {
+    /// Parse port specification (e.g., "80", "80-443")
+    pub fn parse_all(spec: &str) -> Vec<Self> {
+        spec.split(',')
+            .filter_map(|part| {
+                let trimmed = part.trim();
+                if trimmed.contains('-') {
+                    let parts: Vec<&str> = trimmed.split('-').collect();
+                    let start = parts.get(0)?.trim().parse().ok()?;
+                    let end = parts.get(1)?.trim().parse().ok()?;
+                    Some(PortRange { start, end })
+                } else {
+                    let port = trimmed.parse().ok()?;
+                    Some(PortRange { start: port, end: port })
+                }
+            })
+            .collect()
+    }
+
+    /// Check if port is in range
+    pub fn contains(&self, port: u16) -> bool {
+        port >= self.start && port <= self.end
+    }
+}
+
+/// Parsed packet information
+#[derive(Debug)]
+struct ParsedPacket {
+    protocol: Protocol,
+    src_ip: Ipv4Addr,
+    dst_ip: Ipv4Addr,
+    src_port: Option<u16>,
+    dst_port: Option<u16>,
+}
+
+/// Parse IPv4 packet
+fn parse_packet(data: &[u8]) -> Option<ParsedPacket> {
+    if data.len() < 20 {
+        return None;
+    }
+
+    let version = (data[0] >> 4) & 0x0F;
+    if version != 4 {
+        return None; // Only IPv4 for now
+    }
+
+    let header_len = ((data[0] & 0x0F) * 4) as usize;
+    let protocol_byte = data[9];
+    let protocol = Protocol::from_number(protocol_byte);
+
+    let src_ip = Ipv4Addr::new(data[12], data[13], data[14], data[15]);
+    let dst_ip = Ipv4Addr::new(data[16], data[17], data[18], data[19]);
+
+    let (src_port, dst_port) = if matches!(protocol, Protocol::Tcp | Protocol::Udp)
+        && data.len() >= header_len + 4
+    {
+        let src = u16::from_be_bytes([data[header_len], data[header_len + 1]]);
+        let dst = u16::from_be_bytes([data[header_len + 2], data[header_len + 3]]);
+        (Some(src), Some(dst))
+    } else {
+        (None, None)
+    };
+
+    Some(ParsedPacket {
+        protocol,
+        src_ip,
+        dst_ip,
+        src_port,
+        dst_port,
+    })
+}
+
+/// Filter engine for packet filtering
+pub struct FilterEngine {
+    config: FilterConfig,
+    blocked_count: AtomicU64,
+    allowed_count: AtomicU64,
+}
+
+impl FilterEngine {
+    /// Create new filter engine
+    pub fn new(config: FilterConfig) -> Self {
+        Self {
+            config,
+            blocked_count: AtomicU64::new(0),
+            allowed_count: AtomicU64::new(0),
+        }
+    }
+
+    /// Update filter configuration
+    pub fn update_config(&mut self, config: FilterConfig) {
+        self.config = config;
+    }
+
+    /// Check if packet should be allowed
+    pub fn should_allow(&self, packet: &[u8]) -> bool {
+        if !self.config.enabled {
+            return true;
+        }
+
+        let parsed = match parse_packet(packet) {
+            Some(p) => p,
+            None => return true, // Can't parse = allow
+        };
+
+        for rule in &self.config.rules {
+            if !rule.enabled {
+                continue;
+            }
+
+            if self.matches_rule(&parsed, rule) {
+                let allowed = rule.action == FilterAction::Allow;
+
+                if allowed {
+                    self.allowed_count.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    self.blocked_count.fetch_add(1, Ordering::Relaxed);
+                    if self.config.log_blocked {
+                        log::debug!(
+                            "BLOCKED: {}:{} -> {}:{} ({:?}) by rule {}",
+                            parsed.src_ip,
+                            parsed.src_port.unwrap_or(0),
+                            parsed.dst_ip,
+                            parsed.dst_port.unwrap_or(0),
+                            parsed.protocol,
+                            rule.id
+                        );
+                    }
+                }
+
+                return match self.config.mode {
+                    FilterMode::Whitelist => allowed,
+                    FilterMode::Blacklist => !allowed || rule.action == FilterAction::Allow,
+                };
+            }
+        }
+
+        // No rule matched
+        match self.config.mode {
+            FilterMode::Whitelist => false,
+            FilterMode::Blacklist => true,
+        }
+    }
+
+    fn matches_rule(&self, packet: &ParsedPacket, rule: &FilterRule) -> bool {
+        // Protocol check
+        if let Some(proto) = rule.protocol {
+            if proto != Protocol::Any && proto != packet.protocol {
+                return false;
+            }
+        }
+
+        // Destination IP check
+        if let Some(ref ip_spec) = rule.dest_ip {
+            if let Some(ip_range) = IpRange::parse(ip_spec) {
+                if !ip_range.contains(packet.dst_ip) {
+                    return false;
+                }
+            }
+        }
+
+        // Destination port check
+        if let Some(ref port_spec) = rule.dest_port {
+            if let Some(port) = packet.dst_port {
+                let ranges = PortRange::parse_all(port_spec);
+                if !ranges.iter().any(|r| r.contains(port)) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        // Source IP check
+        if let Some(ref ip_spec) = rule.source_ip {
+            if let Some(ip_range) = IpRange::parse(ip_spec) {
+                if !ip_range.contains(packet.src_ip) {
+                    return false;
+                }
+            }
+        }
+
+        // Source port check
+        if let Some(ref port_spec) = rule.source_port {
+            if let Some(port) = packet.src_port {
+                let ranges = PortRange::parse_all(port_spec);
+                if !ranges.iter().any(|r| r.contains(port)) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Get statistics
+    pub fn get_stats(&self) -> (u64, u64) {
+        (
+            self.blocked_count.load(Ordering::Relaxed),
+            self.allowed_count.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Reset statistics
+    pub fn reset_stats(&self) {
+        self.blocked_count.store(0, Ordering::Relaxed);
+        self.allowed_count.store(0, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ip_range_parse() {
+        let range = IpRange::parse("192.168.1.0/24").unwrap();
+        assert!(range.contains(Ipv4Addr::new(192, 168, 1, 1)));
+        assert!(range.contains(Ipv4Addr::new(192, 168, 1, 255)));
+        assert!(!range.contains(Ipv4Addr::new(192, 168, 2, 1)));
+    }
+
+    #[test]
+    fn test_port_range_parse() {
+        let ranges = PortRange::parse_all("80,443,8080-8090");
+        assert_eq!(ranges.len(), 3);
+        assert!(ranges[0].contains(80));
+        assert!(ranges[1].contains(443));
+        assert!(ranges[2].contains(8085));
+        assert!(!ranges[2].contains(8091));
+    }
+
+    #[test]
+    fn test_filter_disabled() {
+        let config = FilterConfig::default();
+        let engine = FilterEngine::new(config);
+
+        // Any packet should be allowed when filtering is disabled
+        let packet = vec![0u8; 40];
+        assert!(engine.should_allow(&packet));
+    }
+}

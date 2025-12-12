@@ -14,6 +14,8 @@ import com.etphonehome.R
 import com.etphonehome.protocol.*
 import com.etphonehome.util.NsdAdvertiser
 import com.etphonehome.util.TokenManager
+import com.etphonehome.filter.FilterConfig
+import com.etphonehome.filter.FilterEngine
 import kotlinx.coroutines.*
 import java.io.*
 import java.net.ServerSocket
@@ -47,6 +49,7 @@ class VpnService : AndroidVpnService() {
     private var startTime: Long = 0
 
     private var isRunning = false
+    private var filterEngine: FilterEngine? = null
 
     companion object {
         private const val NOTIFICATION_ID = 1
@@ -267,6 +270,9 @@ class VpnService : AndroidVpnService() {
         vpnInterface = builder.establish() ?: throw Exception("Failed to establish VPN")
         Log.d(tag, "VPN interface established")
 
+        // Initialize filter engine (disabled by default, can be enabled via config update)
+        filterEngine = FilterEngine(FilterConfig.disabled())
+
         // Perform handshake using Bluetooth streams
         val input = bluetoothSocket.inputStream
         val output = bluetoothSocket.outputStream
@@ -317,9 +323,13 @@ class VpnService : AndroidVpnService() {
                 val length = vpnInput.read(buffer)
                 if (length > 0) {
                     val packet = buffer.copyOf(length)
-                    val message = IpPacket(packet)
-                    writeMessage(output, message)
-                    bytesSent += length
+
+                    // Apply traffic filter
+                    if (filterEngine?.shouldAllow(packet) != false) {
+                        val message = IpPacket(packet)
+                        writeMessage(output, message)
+                        bytesSent += length
+                    }
                 }
             } catch (e: Exception) {
                 if (isRunning) {
@@ -435,6 +445,9 @@ class VpnService : AndroidVpnService() {
         vpnInterface = builder.establish() ?: throw Exception("Failed to establish VPN")
         Log.d(tag, "VPN interface established")
 
+        // Initialize filter engine (disabled by default, can be enabled via config update)
+        filterEngine = FilterEngine(FilterConfig.disabled())
+
         // Perform handshake
         performHandshake()
 
@@ -510,11 +523,13 @@ class VpnService : AndroidVpnService() {
                     // Read IP packet from VPN
                     val packet = buffer.copyOf(length)
 
-                    // Wrap in protocol message and send to desktop
-                    val message = IpPacket(packet)
-                    writeMessage(output, message)
-
-                    bytesSent += length
+                    // Apply traffic filter
+                    if (filterEngine?.shouldAllow(packet) != false) {
+                        // Wrap in protocol message and send to desktop
+                        val message = IpPacket(packet)
+                        writeMessage(output, message)
+                        bytesSent += length
+                    }
                 }
             } catch (e: Exception) {
                 if (isRunning) {

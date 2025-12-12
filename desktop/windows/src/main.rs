@@ -847,6 +847,7 @@ fn save_profile(
         port,
         host,
         address,
+        filter: etphonehome_common::FilterConfig::default(),
     };
 
     let mut config = Config::load_or_default()?;

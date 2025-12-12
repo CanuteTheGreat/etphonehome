@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use crate::filter::FilterConfig;
 
 /// Connection profile configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +47,14 @@ pub struct Profile {
     // Bluetooth fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
+
+    // Traffic filtering
+    #[serde(default, skip_serializing_if = "is_filter_default")]
+    pub filter: FilterConfig,
+}
+
+fn is_filter_default(config: &FilterConfig) -> bool {
+    !config.enabled && config.rules.is_empty()
 }
 
 /// Connection type
@@ -235,6 +244,7 @@ mod tests {
             port: Some(8888),
             host: Some("192.168.1.100".to_string()),
             address: None,
+            filter: FilterConfig::default(),
         };
 
         let toml = toml::to_string(&profile).unwrap();

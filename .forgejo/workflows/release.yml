@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    name: Build Linux Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Build release
+        working-directory: desktop
+        run: cargo build --release -p etphonehome-linux
+      - name: Strip binary
+        run: strip desktop/target/release/etphonehome-linux
+      - name: Create tarball
+        run: |
+          cd desktop/target/release
+          tar -czvf etphonehome-linux-${{ github.ref_name }}.tar.gz etphonehome-linux
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: etphonehome-linux-${{ github.ref_name }}
+          path: desktop/target/release/etphonehome-linux-${{ github.ref_name }}.tar.gz
+
+  build-windows:
+    name: Build Windows Release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build release
+        working-directory: desktop
+        run: cargo build --release -p etphonehome-windows
+      - name: Create zip
+        shell: pwsh
+        run: |
+          cd desktop/target/release
+          Compress-Archive -Path etphonehome-windows.exe -DestinationPath etphonehome-windows-${{ github.ref_name }}.zip
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: etphonehome-windows-${{ github.ref_name }}
+          path: desktop/target/release/etphonehome-windows-${{ github.ref_name }}.zip
+
+  build-android:
+    name: Build Android Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease
+      - name: Rename APK
+        run: |
+          mv android/app/build/outputs/apk/release/app-release-unsigned.apk \
+             android/app/build/outputs/apk/release/etphonehome-${{ github.ref_name }}.apk
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: etphonehome-android-${{ github.ref_name }}
+          path: android/app/build/outputs/apk/release/etphonehome-${{ github.ref_name }}.apk
+
+  create-release:
+    name: Create Release
+    needs: [build-linux, build-windows, build-android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ET Phone Home ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          generate_release_notes: true
+          files: |
+            artifacts/etphonehome-linux-${{ github.ref_name }}/*.tar.gz
+            artifacts/etphonehome-windows-${{ github.ref_name }}/*.zip
+            artifacts/etphonehome-android-${{ github.ref_name }}/*.apk

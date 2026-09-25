@@ -117,11 +117,19 @@ impl Message {
         reader.read_exact(&mut payload)?;
 
         match msg_type {
-            MessageType::HandshakeReq => Ok(Message::HandshakeReq(HandshakeRequest::from_bytes(&payload)?)),
-            MessageType::HandshakeResp => Ok(Message::HandshakeResp(HandshakeResponse::from_bytes(&payload)?)),
+            MessageType::HandshakeReq => Ok(Message::HandshakeReq(HandshakeRequest::from_bytes(
+                &payload,
+            )?)),
+            MessageType::HandshakeResp => Ok(Message::HandshakeResp(
+                HandshakeResponse::from_bytes(&payload)?,
+            )),
             MessageType::IpPacket => Ok(Message::IpPacket(IpPacket::from_bytes(&payload)?)),
-            MessageType::StatsUpdate => Ok(Message::StatsUpdate(StatsUpdate::from_bytes(&payload)?)),
-            MessageType::ConfigUpdate => Ok(Message::ConfigUpdate(ConfigUpdate::from_bytes(&payload)?)),
+            MessageType::StatsUpdate => {
+                Ok(Message::StatsUpdate(StatsUpdate::from_bytes(&payload)?))
+            }
+            MessageType::ConfigUpdate => {
+                Ok(Message::ConfigUpdate(ConfigUpdate::from_bytes(&payload)?))
+            }
             MessageType::Disconnect => Ok(Message::Disconnect(Disconnect::from_bytes(&payload)?)),
             MessageType::Keepalive => Ok(Message::Keepalive),
             MessageType::ErrorMsg => Ok(Message::Error(ErrorMessage::from_bytes(&payload)?)),
@@ -214,7 +222,7 @@ impl HandshakeRequest {
                 if data.len() < 8 + token_len {
                     return Err(ProtocolError::MessageTooShort);
                 }
-                let token_str = String::from_utf8(data[8..8+token_len].to_vec())?;
+                let token_str = String::from_utf8(data[8..8 + token_len].to_vec())?;
                 Some(token_str)
             } else {
                 None

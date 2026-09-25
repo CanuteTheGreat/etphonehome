@@ -2,10 +2,13 @@
 
 use std::time::Duration;
 
-use iced::widget::{button, column, container, row, text, horizontal_space};
+use iced::widget::{button, column, container, horizontal_space, row, text};
 use iced::{Element, Length, Subscription, Task, Theme};
 
-use etphonehome_common::{Config, ConnectionService, ConnectionState, ConnectionStats, LogEntry, Profile, FilterConfig, ConnectionType};
+use etphonehome_common::{
+    Config, ConnectionService, ConnectionState, ConnectionStats, ConnectionType, FilterConfig,
+    LogEntry, Profile,
+};
 
 use crate::message::{Message, View};
 use crate::views;
@@ -71,8 +74,14 @@ impl ProfileForm {
     pub fn from_profile(profile: &Profile) -> Self {
         Self {
             name: profile.name.clone(),
-            host: profile.host.clone().unwrap_or_else(|| "192.168.1.1".to_string()),
-            port: profile.port.map(|p| p.to_string()).unwrap_or_else(|| "8765".to_string()),
+            host: profile
+                .host
+                .clone()
+                .unwrap_or_else(|| "192.168.1.1".to_string()),
+            port: profile
+                .port
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "8765".to_string()),
             connection_type: format!("{:?}", profile.connection_type).to_lowercase(),
             description: profile.description.clone().unwrap_or_default(),
             address: profile.address.clone().unwrap_or_default(),
@@ -138,7 +147,8 @@ impl EtPhoneHomeApp {
 
             Message::ToggleAutoReconnect => {
                 self.auto_reconnect = !self.auto_reconnect;
-                self.connection_service.set_auto_reconnect(self.auto_reconnect);
+                self.connection_service
+                    .set_auto_reconnect(self.auto_reconnect);
                 Task::none()
             }
 
@@ -268,9 +278,7 @@ impl EtPhoneHomeApp {
                 Task::none()
             }
 
-            Message::ProfileSaved(_) | Message::ConnectionResult(_) => {
-                Task::none()
-            }
+            Message::ProfileSaved(_) | Message::ConnectionResult(_) => Task::none(),
 
             // Periodic tick
             Message::Tick => {

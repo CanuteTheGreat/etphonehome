@@ -54,7 +54,7 @@ pub struct FilterRule {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<Protocol>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub dest_ip: Option<String>,   // CIDR notation: "192.168.1.0/24"
+    pub dest_ip: Option<String>, // CIDR notation: "192.168.1.0/24"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dest_port: Option<String>, // "80" or "80-443" or "80,443,8080"
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -115,7 +115,10 @@ impl IpRange {
         } else {
             32
         };
-        Some(IpRange { address, prefix_len })
+        Some(IpRange {
+            address,
+            prefix_len,
+        })
     }
 
     /// Check if IP is within this range
@@ -151,7 +154,10 @@ impl PortRange {
                     Some(PortRange { start, end })
                 } else {
                     let port = trimmed.parse().ok()?;
-                    Some(PortRange { start: port, end: port })
+                    Some(PortRange {
+                        start: port,
+                        end: port,
+                    })
                 }
             })
             .collect()
@@ -191,15 +197,14 @@ fn parse_packet(data: &[u8]) -> Option<ParsedPacket> {
     let src_ip = Ipv4Addr::new(data[12], data[13], data[14], data[15]);
     let dst_ip = Ipv4Addr::new(data[16], data[17], data[18], data[19]);
 
-    let (src_port, dst_port) = if matches!(protocol, Protocol::Tcp | Protocol::Udp)
-        && data.len() >= header_len + 4
-    {
-        let src = u16::from_be_bytes([data[header_len], data[header_len + 1]]);
-        let dst = u16::from_be_bytes([data[header_len + 2], data[header_len + 3]]);
-        (Some(src), Some(dst))
-    } else {
-        (None, None)
-    };
+    let (src_port, dst_port) =
+        if matches!(protocol, Protocol::Tcp | Protocol::Udp) && data.len() >= header_len + 4 {
+            let src = u16::from_be_bytes([data[header_len], data[header_len + 1]]);
+            let dst = u16::from_be_bytes([data[header_len + 2], data[header_len + 3]]);
+            (Some(src), Some(dst))
+        } else {
+            (None, None)
+        };
 
     Some(ParsedPacket {
         protocol,

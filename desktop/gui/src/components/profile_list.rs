@@ -8,17 +8,11 @@ use etphonehome_common::Profile;
 use crate::message::Message;
 
 /// Render a list of profiles
-pub fn view<'a>(
-    profiles: &'a [Profile],
-    selected: Option<&'a String>,
-) -> Element<'a, Message> {
+pub fn view<'a>(profiles: &'a [Profile], selected: Option<&'a String>) -> Element<'a, Message> {
     if profiles.is_empty() {
-        return container(
-            text("No profiles")
-                .color(iced::Color::from_rgb(0.5, 0.5, 0.5))
-        )
-        .center_x(Length::Fill)
-        .into();
+        return container(text("No profiles").color(iced::Color::from_rgb(0.5, 0.5, 0.5)))
+            .center_x(Length::Fill)
+            .into();
     }
 
     let items: Vec<Element<Message>> = profiles
@@ -32,17 +26,15 @@ pub fn view<'a>(
                 .size(10)
                 .color(iced::Color::from_rgb(0.5, 0.5, 0.5));
 
-            let item = button(
-                column![name, conn_type].spacing(2)
-            )
-            .padding(8)
-            .width(Length::Fill)
-            .style(if is_selected {
-                button::primary
-            } else {
-                button::secondary
-            })
-            .on_press(Message::SelectProfile(profile.name.clone()));
+            let item = button(column![name, conn_type].spacing(2))
+                .padding(8)
+                .width(Length::Fill)
+                .style(if is_selected {
+                    button::primary
+                } else {
+                    button::secondary
+                })
+                .on_press(Message::SelectProfile(profile.name.clone()));
 
             item.into()
         })

@@ -1,14 +1,16 @@
 //! Connection view - main dashboard
 
-use iced::widget::{button, column, container, pick_list, row, text, horizontal_space, vertical_space};
+use iced::widget::{
+    button, column, container, horizontal_space, pick_list, row, text, vertical_space,
+};
 use iced::{Element, Length};
 
 use etphonehome_common::ConnectionState;
 
 use crate::app::EtPhoneHomeApp;
+use crate::components::stats_card;
 use crate::message::Message;
 use crate::style::{format_bytes, format_duration};
-use crate::components::stats_card;
 
 /// Render the connection view
 pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
@@ -24,12 +26,9 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
     .placeholder("Select a profile")
     .width(Length::Fixed(200.0));
 
-    let profile_row = row![
-        text("Profile: "),
-        profile_selector,
-    ]
-    .spacing(10)
-    .align_y(iced::Alignment::Center);
+    let profile_row = row![text("Profile: "), profile_selector,]
+        .spacing(10)
+        .align_y(iced::Alignment::Center);
 
     // Connection buttons
     let (connect_btn, disconnect_btn) = match app.connection_state() {
@@ -43,18 +42,14 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
                 .style(button::secondary),
         ),
         ConnectionState::Connected { .. } => (
-            button(text("Connect"))
-                .padding(10)
-                .style(button::secondary),
+            button(text("Connect")).padding(10).style(button::secondary),
             button(text("Disconnect"))
                 .padding(10)
                 .style(button::danger)
                 .on_press(Message::Disconnect),
         ),
         _ => (
-            button(text("Connect"))
-                .padding(10)
-                .style(button::secondary),
+            button(text("Connect")).padding(10).style(button::secondary),
             button(text("Disconnect"))
                 .padding(10)
                 .style(button::danger)
@@ -62,11 +57,7 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
         ),
     };
 
-    let button_row = row![
-        connect_btn,
-        disconnect_btn,
-    ]
-    .spacing(10);
+    let button_row = row![connect_btn, disconnect_btn,].spacing(10);
 
     // Connection status
     let status_text = match app.connection_state() {
@@ -77,7 +68,11 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
         ConnectionState::Connected { profile, .. } => {
             format!("Connected to {}", profile.name)
         }
-        ConnectionState::Reconnecting { profile, attempt, delay_secs } => {
+        ConnectionState::Reconnecting {
+            profile,
+            attempt,
+            delay_secs,
+        } => {
             format!(
                 "Reconnecting to {} (attempt {}, waiting {}s)...",
                 profile.name, attempt, delay_secs
@@ -113,13 +108,11 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
     .spacing(20);
 
     // Auto-reconnect toggle
-    let auto_reconnect_btn = button(
-        text(if app.auto_reconnect() {
-            "Auto-reconnect: ON"
-        } else {
-            "Auto-reconnect: OFF"
-        })
-    )
+    let auto_reconnect_btn = button(text(if app.auto_reconnect() {
+        "Auto-reconnect: ON"
+    } else {
+        "Auto-reconnect: OFF"
+    }))
     .padding(8)
     .style(if app.auto_reconnect() {
         button::primary
@@ -141,10 +134,7 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
         vertical_space().height(10),
         stats_row,
         vertical_space().height(30),
-        row![
-            auto_reconnect_btn,
-            horizontal_space(),
-        ],
+        row![auto_reconnect_btn, horizontal_space(),],
     ]
     .spacing(5)
     .padding(10);

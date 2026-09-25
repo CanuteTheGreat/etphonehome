@@ -1,8 +1,8 @@
 use crate::protocol::*;
+use log::{debug, error, info};
 use std::io::{self, BufReader, BufWriter};
-use std::net::{TcpStream, SocketAddr};
+use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
-use log::{info, debug, error};
 
 /// ET Phone Home client
 pub struct Client {

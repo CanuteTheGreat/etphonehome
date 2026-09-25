@@ -3,7 +3,7 @@
 use iced::widget::{button, column, container, row, scrollable, text, text_input, vertical_space};
 use iced::{Element, Length};
 
-use etphonehome_common::{ConnectionType, Profile, FilterConfig};
+use etphonehome_common::{ConnectionType, FilterConfig, Profile};
 
 use crate::app::{EtPhoneHomeApp, ProfileForm};
 use crate::message::Message;
@@ -36,7 +36,11 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
                     let name = text(&profile.name).size(16);
                     let details = text(format!(
                         "{} - {:?}",
-                        profile.host.as_deref().or(profile.address.as_deref()).unwrap_or("N/A"),
+                        profile
+                            .host
+                            .as_deref()
+                            .or(profile.address.as_deref())
+                            .unwrap_or("N/A"),
                         profile.connection_type
                     ))
                     .size(12)
@@ -104,7 +108,12 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
 
 /// Render the profile edit form
 fn view_profile_form(form: &ProfileForm) -> Element<'static, Message> {
-    let title = text(if form.is_new { "New Profile" } else { "Edit Profile" }).size(28);
+    let title = text(if form.is_new {
+        "New Profile"
+    } else {
+        "Edit Profile"
+    })
+    .size(28);
 
     let name_input = column![
         text("Name"),
@@ -140,7 +149,9 @@ fn view_profile_form(form: &ProfileForm) -> Element<'static, Message> {
                 } else {
                     button::secondary
                 })
-                .on_press(Message::ProfileConnectionTypeChanged("bluetooth".to_string())),
+                .on_press(Message::ProfileConnectionTypeChanged(
+                    "bluetooth".to_string()
+                )),
         ]
         .spacing(10),
     ]
@@ -148,26 +159,30 @@ fn view_profile_form(form: &ProfileForm) -> Element<'static, Message> {
 
     // Show host field for WiFi
     let host_input = if form.connection_type == "wifi" {
-        Some(column![
-            text("Host"),
-            text_input("192.168.1.1", &form.host)
-                .padding(10)
-                .on_input(Message::ProfileHostChanged),
-        ]
-        .spacing(5))
+        Some(
+            column![
+                text("Host"),
+                text_input("192.168.1.1", &form.host)
+                    .padding(10)
+                    .on_input(Message::ProfileHostChanged),
+            ]
+            .spacing(5),
+        )
     } else {
         None
     };
 
     // Show address field for Bluetooth
     let address_input = if form.connection_type == "bluetooth" {
-        Some(column![
-            text("Bluetooth Address"),
-            text_input("AA:BB:CC:DD:EE:FF", &form.address)
-                .padding(10)
-                .on_input(Message::ProfileAddressChanged),
-        ]
-        .spacing(5))
+        Some(
+            column![
+                text("Bluetooth Address"),
+                text_input("AA:BB:CC:DD:EE:FF", &form.address)
+                    .padding(10)
+                    .on_input(Message::ProfileAddressChanged),
+            ]
+            .spacing(5),
+        )
     } else {
         None
     };
@@ -223,9 +238,7 @@ fn view_profile_form(form: &ProfileForm) -> Element<'static, Message> {
     content_items.push(vertical_space().height(20).into());
     content_items.push(row![save_btn, cancel_btn].spacing(10).into());
 
-    let content = column(content_items)
-        .spacing(5)
-        .padding(10);
+    let content = column(content_items).spacing(5).padding(10);
 
     container(content)
         .width(Length::Fill)

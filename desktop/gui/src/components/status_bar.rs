@@ -1,6 +1,6 @@
 //! Status bar component
 
-use iced::widget::{container, row, text, horizontal_space};
+use iced::widget::{container, horizontal_space, row, text};
 use iced::{Element, Length};
 
 use etphonehome_common::{ConnectionState, ConnectionStats};
@@ -27,9 +27,7 @@ pub fn view<'a>(state: &'a ConnectionState, stats: &'a ConnectionStats) -> Eleme
         ConnectionState::Disconnected => iced::Color::from_rgb(0.5, 0.5, 0.5),
     };
 
-    let status = text(status_text)
-        .size(12)
-        .color(status_color);
+    let status = text(status_text).size(12).color(status_color);
 
     let stats_text = if matches!(state, ConnectionState::Connected { .. }) {
         text(format!(
@@ -41,16 +39,10 @@ pub fn view<'a>(state: &'a ConnectionState, stats: &'a ConnectionStats) -> Eleme
         .size(12)
         .color(iced::Color::from_rgb(0.5, 0.5, 0.5))
     } else {
-        text("")
-            .size(12)
+        text("").size(12)
     };
 
-    let content = row![
-        status,
-        horizontal_space(),
-        stats_text,
-    ]
-    .align_y(iced::Alignment::Center);
+    let content = row![status, horizontal_space(), stats_text,].align_y(iced::Alignment::Center);
 
     container(content)
         .padding(5)

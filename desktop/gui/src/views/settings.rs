@@ -13,13 +13,11 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
     // Appearance section
     let appearance_title = text("Appearance").size(20);
 
-    let dark_mode_btn = button(
-        text(if app.dark_mode() {
-            "Dark Mode: ON"
-        } else {
-            "Dark Mode: OFF"
-        })
-    )
+    let dark_mode_btn = button(text(if app.dark_mode() {
+        "Dark Mode: ON"
+    } else {
+        "Dark Mode: OFF"
+    }))
     .padding(10)
     .style(if app.dark_mode() {
         button::primary
@@ -31,25 +29,19 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
     let appearance_section = column![
         appearance_title,
         vertical_space().height(10),
-        row![
-            text("Theme"),
-            text("").width(Length::Fill),
-            dark_mode_btn,
-        ]
-        .align_y(iced::Alignment::Center),
+        row![text("Theme"), text("").width(Length::Fill), dark_mode_btn,]
+            .align_y(iced::Alignment::Center),
     ]
     .spacing(5);
 
     // Connection section
     let connection_title = text("Connection").size(20);
 
-    let auto_reconnect_btn = button(
-        text(if app.auto_reconnect() {
-            "Auto-reconnect: ON"
-        } else {
-            "Auto-reconnect: OFF"
-        })
-    )
+    let auto_reconnect_btn = button(text(if app.auto_reconnect() {
+        "Auto-reconnect: ON"
+    } else {
+        "Auto-reconnect: OFF"
+    }))
     .padding(10)
     .style(if app.auto_reconnect() {
         button::primary
@@ -87,12 +79,7 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
     ]
     .spacing(5);
 
-    let about_section = column![
-        about_title,
-        vertical_space().height(10),
-        version_info,
-    ]
-    .spacing(5);
+    let about_section = column![about_title, vertical_space().height(10), version_info,].spacing(5);
 
     let content = column![
         title,

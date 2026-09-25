@@ -10,13 +10,10 @@ use crate::message::Message;
 /// Render a log viewer
 pub fn view<'a>(logs: &'a [LogEntry], max_entries: usize) -> Element<'a, Message> {
     if logs.is_empty() {
-        return container(
-            text("No logs")
-                .color(iced::Color::from_rgb(0.5, 0.5, 0.5))
-        )
-        .center_x(Length::Fill)
-        .center_y(Length::Fill)
-        .into();
+        return container(text("No logs").color(iced::Color::from_rgb(0.5, 0.5, 0.5)))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .into();
     }
 
     let entries: Vec<Element<Message>> = logs
@@ -52,9 +49,7 @@ fn view_entry(entry: &LogEntry) -> Element<'_, Message> {
             .size(10)
             .color(level_color)
             .width(Length::Fixed(30.0)),
-        text(&entry.message)
-            .size(10)
-            .width(Length::Fill),
+        text(&entry.message).size(10).width(Length::Fill),
     ]
     .spacing(5)
     .into()

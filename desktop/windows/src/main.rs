@@ -1,11 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use etphonehome_common::{
-    client::Client,
-    protocol::capabilities,
-    tun_interface::TunInterface,
-    Config,
-    ConnectionType,
+    client::Client, protocol::capabilities, tun_interface::TunInterface, Config, ConnectionType,
 };
 use log::{error, info, warn};
 use std::net::SocketAddr;
@@ -134,9 +130,7 @@ enum Commands {
     },
 
     /// Delete a saved profile
-    DeleteProfile {
-        name: String,
-    },
+    DeleteProfile { name: String },
 }
 
 #[tokio::main]
@@ -148,7 +142,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Usb { port, interface, reconnect, max_retries } => {
+        Commands::Usb {
+            port,
+            interface,
+            reconnect,
+            max_retries,
+        } => {
             setup_adb_forwarding(port)?;
             let addr = format!("127.0.0.1:{}", port).parse()?;
 
@@ -179,17 +178,13 @@ async fn main() -> Result<()> {
         Commands::SetupAdb { port } => setup_adb_forwarding(port),
         Commands::DiscoverIp => discover_android_ip(),
         Commands::DiscoverWifi { timeout } => discover_wifi_devices(timeout).await,
-        Commands::Bluetooth { address, interface } => {
-            connect_bluetooth(&address, &interface).await
-        }
+        Commands::Bluetooth { address, interface } => connect_bluetooth(&address, &interface).await,
         Commands::Connect {
             profile_name,
             interface,
             reconnect,
             max_retries,
-        } => {
-            connect_with_profile(&profile_name, interface, reconnect, max_retries).await
-        }
+        } => connect_with_profile(&profile_name, interface, reconnect, max_retries).await,
         Commands::ListProfiles => list_profiles(),
         Commands::SaveProfile {
             name,
@@ -198,9 +193,7 @@ async fn main() -> Result<()> {
             port,
             address,
             description,
-        } => {
-            save_profile(&name, &conn_type, host, port, address, description)
-        }
+        } => save_profile(&name, &conn_type, host, port, address, description),
         Commands::DeleteProfile { name } => delete_profile(&name),
     }
 }
@@ -218,8 +211,8 @@ fn check_admin_privileges() {
 #[cfg(windows)]
 fn is_elevated() -> bool {
     use std::mem;
-    use winapi::um::securitybaseapi::GetTokenInformation;
     use winapi::um::processthreadsapi::{GetCurrentProcess, OpenProcessToken};
+    use winapi::um::securitybaseapi::GetTokenInformation;
     use winapi::um::winnt::{TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
 
     unsafe {
@@ -314,7 +307,11 @@ fn setup_adb_forwarding(port: u16) -> Result<()> {
 
     // Set up reverse port forwarding
     let output = Command::new("adb")
-        .args(["reverse", &format!("tcp:{}", port), &format!("tcp:{}", port)])
+        .args([
+            "reverse",
+            &format!("tcp:{}", port),
+            &format!("tcp:{}", port),
+        ])
         .output()
         .context("Failed to set up ADB reverse forwarding")?;
 
@@ -324,7 +321,10 @@ fn setup_adb_forwarding(port: u16) -> Result<()> {
     }
 
     info!("ADB reverse forwarding set up successfully");
-    info!("Port {} on Android will forward to port {} on this computer", port, port);
+    info!(
+        "Port {} on Android will forward to port {} on this computer",
+        port, port
+    );
 
     Ok(())
 }
@@ -343,16 +343,28 @@ async fn connect_with_retry(
         attempt += 1;
 
         if !infinite_retries && attempt > max_retries {
-            error!("Maximum reconnection attempts ({}) reached. Giving up.", max_retries);
-            anyhow::bail!("Failed to establish stable connection after {} attempts", max_retries);
+            error!(
+                "Maximum reconnection attempts ({}) reached. Giving up.",
+                max_retries
+            );
+            anyhow::bail!(
+                "Failed to establish stable connection after {} attempts",
+                max_retries
+            );
         }
 
         if attempt > 1 {
             // Exponential backoff: 2^(attempt-1) seconds, capped at 60 seconds
             let delay_secs = std::cmp::min(2u64.pow(attempt - 2), 60);
-            info!("Reconnection attempt {} of {}...",
-                  attempt,
-                  if infinite_retries { "∞".to_string() } else { max_retries.to_string() });
+            info!(
+                "Reconnection attempt {} of {}...",
+                attempt,
+                if infinite_retries {
+                    "∞".to_string()
+                } else {
+                    max_retries.to_string()
+                }
+            );
             info!("Waiting {} seconds before retry...", delay_secs);
             tokio::time::sleep(Duration::from_secs(delay_secs)).await;
         }
@@ -383,13 +395,17 @@ async fn connect_with_retry(
     }
 }
 
-async fn connect_and_run(addr: SocketAddr, tun_name: &str, capabilities: u32, token: Option<String>) -> Result<()> {
+async fn connect_and_run(
+    addr: SocketAddr,
+    tun_name: &str,
+    capabilities: u32,
+    token: Option<String>,
+) -> Result<()> {
     info!("Starting ET Phone Home client...");
 
     // Connect to Android device (synchronous)
-    let mut client = Client::connect(addr, capabilities, token)
-        .context(format!(
-            "Failed to connect to Android device at {}\n\
+    let mut client = Client::connect(addr, capabilities, token).context(format!(
+        "Failed to connect to Android device at {}\n\
              \n\
              Troubleshooting:\n\
              - Ensure Android app is running and tethering is started\n\
@@ -397,26 +413,24 @@ async fn connect_and_run(addr: SocketAddr, tun_name: &str, capabilities: u32, to
              - For WiFi mode: Check Windows Firewall settings\n\
              - Verify Android and desktop are on the same WiFi network\n\
              - Check Android logs: adb logcat -s ETPhoneHome:V",
-            addr
-        ))?;
+        addr
+    ))?;
 
     // Perform handshake
-    let _handshake = client.handshake()
-        .context(
-            "Handshake with Android device failed\n\
+    let _handshake = client.handshake().context(
+        "Handshake with Android device failed\n\
              \n\
              Possible causes:\n\
              - Protocol version mismatch (update both Android and desktop apps)\n\
              - Connection interrupted during handshake\n\
              - Android app crashed or stopped\n\
              \n\
-             Try restarting both the Android app and desktop client."
-        )?;
+             Try restarting both the Android app and desktop client.",
+    )?;
 
     // Create TUN interface
-    let tun = TunInterface::create(tun_name, "10.0.0.1", "255.255.255.0")
-        .context(format!(
-            "Failed to create TUN interface '{}'\n\
+    let tun = TunInterface::create(tun_name, "10.0.0.1", "255.255.255.0").context(format!(
+        "Failed to create TUN interface '{}'\n\
              \n\
              Troubleshooting:\n\
              - Ensure you're running as Administrator\n\
@@ -425,8 +439,8 @@ async fn connect_and_run(addr: SocketAddr, tun_name: &str, capabilities: u32, to
              - Check installed adapters: Control Panel → Network Connections\n\
              \n\
              If the interface already exists, try a different name with --interface",
-            tun_name
-        ))?;
+        tun_name
+    ))?;
 
     // Set up routing
     setup_routing(tun_name).context(format!(
@@ -444,9 +458,11 @@ async fn connect_and_run(addr: SocketAddr, tun_name: &str, capabilities: u32, to
 
     // Convert TCP stream to async
     let tcp_stream = client.into_stream();
-    tcp_stream.set_nonblocking(true).context("Failed to set non-blocking")?;
-    let async_stream = tokio::net::TcpStream::from_std(tcp_stream)
-        .context("Failed to convert to async stream")?;
+    tcp_stream
+        .set_nonblocking(true)
+        .context("Failed to set non-blocking")?;
+    let async_stream =
+        tokio::net::TcpStream::from_std(tcp_stream).context("Failed to convert to async stream")?;
 
     // Create channels for packet forwarding
     let (tun_to_android_tx, mut tun_to_android_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
@@ -490,7 +506,7 @@ async fn connect_and_run(addr: SocketAddr, tun_name: &str, capabilities: u32, to
         while let Some(packet) = tun_to_android_rx.recv().await {
             // Wrap packet in protocol message
             let msg = etphonehome_common::protocol::Message::IpPacket(
-                etphonehome_common::protocol::IpPacket::new(packet)
+                etphonehome_common::protocol::IpPacket::new(packet),
             );
 
             // Serialize to bytes
@@ -510,8 +526,8 @@ async fn connect_and_run(addr: SocketAddr, tun_name: &str, capabilities: u32, to
 
     // Task 3: Read from Android and send to channel
     let android_read_handle = tokio::task::spawn(async move {
+        use etphonehome_common::protocol::{Message, MAGIC};
         use tokio::io::AsyncReadExt;
-        use etphonehome_common::protocol::{MAGIC, Message};
 
         loop {
             // Read header (5 bytes)
@@ -551,7 +567,9 @@ async fn connect_and_run(addr: SocketAddr, tun_name: &str, capabilities: u32, to
                 Ok(Message::StatsUpdate(stats)) => {
                     log::debug!(
                         "Stats: sent={} recv={} uptime={}s",
-                        stats.bytes_sent, stats.bytes_received, stats.uptime_seconds
+                        stats.bytes_sent,
+                        stats.bytes_received,
+                        stats.uptime_seconds
                     );
                 }
                 Ok(Message::Disconnect(disc)) => {
@@ -609,7 +627,9 @@ fn setup_routing(tun_name: &str) -> Result<()> {
     {
         // Add default route through TUN interface with lower metric
         let output = Command::new("route")
-            .args(["add", "0.0.0.0", "mask", "0.0.0.0", "10.0.0.2", "metric", "10"])
+            .args([
+                "add", "0.0.0.0", "mask", "0.0.0.0", "10.0.0.2", "metric", "10",
+            ])
             .output()
             .context("Failed to add route")?;
 
@@ -678,7 +698,8 @@ async fn connect_bluetooth(address: &str, _tun_name: &str) -> Result<()> {
          \n\
          Target device: {}\n\
          Parsed address: {:#014x}",
-        address, bt_addr
+        address,
+        bt_addr
     );
 }
 
@@ -693,7 +714,8 @@ async fn connect_with_profile(
     info!("Loading profile '{}'...", profile_name);
 
     let config = Config::load_or_default()?;
-    let profile = config.get_profile(profile_name)
+    let profile = config
+        .get_profile(profile_name)
         .context(format!("Profile '{}' not found", profile_name))?;
 
     info!("Using profile: {}", profile.name);
@@ -702,7 +724,8 @@ async fn connect_with_profile(
     }
 
     // Get settings with overrides
-    let interface = interface_override.as_deref()
+    let interface = interface_override
+        .as_deref()
         .unwrap_or(&config.default.interface);
     let reconnect = reconnect_override.unwrap_or(config.default.auto_reconnect);
     let max_retries = max_retries_override.unwrap_or(config.default.max_retries);
@@ -723,7 +746,9 @@ async fn connect_with_profile(
             }
         }
         ConnectionType::Wifi => {
-            let host = profile.host.as_ref()
+            let host = profile
+                .host
+                .as_ref()
                 .context("WiFi profile missing 'host' field")?;
             let port = profile.port.unwrap_or(8888);
 
@@ -746,7 +771,9 @@ async fn connect_with_profile(
             }
         }
         ConnectionType::Bluetooth => {
-            let address = profile.address.as_ref()
+            let address = profile
+                .address
+                .as_ref()
                 .context("Bluetooth profile missing 'address' field")?;
 
             info!("Connecting via Bluetooth to {}...", address);
@@ -859,8 +886,7 @@ fn save_profile(
 
     // Create parent directory if it doesn't exist
     if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)
-            .context("Failed to create config directory")?;
+        std::fs::create_dir_all(parent).context("Failed to create config directory")?;
     }
 
     config.save(&config_path)?;
@@ -903,15 +929,18 @@ impl ConnectionTypeExt for etphonehome_common::Profile {
 }
 
 async fn discover_wifi_devices(timeout: u64) -> Result<()> {
-    info!("Scanning for ET Phone Home devices on WiFi ({}s timeout)...", timeout);
+    info!(
+        "Scanning for ET Phone Home devices on WiFi ({}s timeout)...",
+        timeout
+    );
 
-    let mdns = mdns_sd::ServiceDaemon::new()
-        .context("Failed to create mDNS service daemon")?;
+    let mdns = mdns_sd::ServiceDaemon::new().context("Failed to create mDNS service daemon")?;
 
     let service_type = "_etphonehome._tcp.local.";
 
     // Browse for services
-    let receiver = mdns.browse(service_type)
+    let receiver = mdns
+        .browse(service_type)
         .context("Failed to browse for services")?;
 
     let mut found_devices = Vec::new();
@@ -925,8 +954,10 @@ async fn discover_wifi_devices(timeout: u64) -> Result<()> {
             tokio::task::spawn_blocking({
                 let receiver = receiver.clone();
                 move || receiver.recv_timeout(std::time::Duration::from_millis(100))
-            })
-        ).await {
+            }),
+        )
+        .await
+        {
             if let Ok(Ok(event)) = event {
                 match event {
                     mdns_sd::ServiceEvent::ServiceResolved(info) => {
@@ -940,8 +971,7 @@ async fn discover_wifi_devices(timeout: u64) -> Result<()> {
     }
 
     // Shutdown the mDNS daemon
-    mdns.shutdown()
-        .context("Failed to shutdown mDNS daemon")?;
+    mdns.shutdown().context("Failed to shutdown mDNS daemon")?;
 
     if found_devices.is_empty() {
         info!("");
@@ -985,7 +1015,10 @@ async fn discover_wifi_devices(timeout: u64) -> Result<()> {
             info!("  etphonehome wifi --host {} --port {}", addr, port);
             info!("");
             info!("Or save as a profile:");
-            info!("  etphonehome save-profile my-phone -t wifi --host {} --port {}", addr, port);
+            info!(
+                "  etphonehome save-profile my-phone -t wifi --host {} --port {}",
+                addr, port
+            );
             info!("  etphonehome connect my-phone");
         }
     }

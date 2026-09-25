@@ -17,26 +17,18 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
         .style(button::secondary)
         .on_press(Message::ClearLogs);
 
-    let log_count = text(format!("{} entries", app.logs().len()))
-        .color(iced::Color::from_rgb(0.5, 0.5, 0.5));
+    let log_count =
+        text(format!("{} entries", app.logs().len())).color(iced::Color::from_rgb(0.5, 0.5, 0.5));
 
-    let header = row![
-        title,
-        text("").width(Length::Fill),
-        log_count,
-        clear_btn,
-    ]
-    .spacing(10)
-    .align_y(iced::Alignment::Center);
+    let header = row![title, text("").width(Length::Fill), log_count, clear_btn,]
+        .spacing(10)
+        .align_y(iced::Alignment::Center);
 
     let log_content: Element<Message> = if app.logs().is_empty() {
-        container(
-            text("No log entries yet")
-                .color(iced::Color::from_rgb(0.5, 0.5, 0.5))
-        )
-        .center_x(Length::Fill)
-        .center_y(Length::Fill)
-        .into()
+        container(text("No log entries yet").color(iced::Color::from_rgb(0.5, 0.5, 0.5)))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .into()
     } else {
         let entries: Vec<Element<Message>> = app
             .logs()
@@ -75,9 +67,7 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
                         .size(12)
                         .color(level_color)
                         .width(Length::Fixed(50.0)),
-                    text(&entry.message)
-                        .size(12)
-                        .width(Length::Fill),
+                    text(&entry.message).size(12).width(Length::Fill),
                 ]
                 .spacing(10)
                 .into()

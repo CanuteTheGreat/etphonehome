@@ -1,13 +1,15 @@
-pub mod protocol;
 pub mod client;
-pub mod tun_interface;
 pub mod config;
-pub mod filter;
-pub mod tls;
 pub mod connection_service;
+pub mod filter;
+pub mod protocol;
+pub mod tls;
+pub mod tun_interface;
 
+pub use config::{Config, ConnectionType, Profile};
+pub use connection_service::{
+    ConnectionCommand, ConnectionService, ConnectionState, ConnectionStats, LogEntry, LogLevel,
+};
+pub use filter::{FilterAction, FilterConfig, FilterEngine, FilterMode, FilterRule};
 pub use protocol::{Message, ProtocolError};
-pub use config::{Config, Profile, ConnectionType};
-pub use filter::{FilterConfig, FilterEngine, FilterRule, FilterAction, FilterMode};
-pub use tls::{TlsConfig, derive_psk, PskIdentity};
-pub use connection_service::{ConnectionService, ConnectionState, ConnectionStats, ConnectionCommand, LogEntry, LogLevel};
+pub use tls::{derive_psk, PskIdentity, TlsConfig};

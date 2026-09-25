@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{info, debug};
+use log::{debug, info};
 use std::io::{Read, Write};
 use tun::Device;
 
@@ -26,11 +26,13 @@ impl TunInterface {
             config.packet_information(false);
         });
 
-        let device = tun::create(&config)
-            .context("Failed to create TUN device")?;
+        let device = tun::create(&config).context("Failed to create TUN device")?;
 
         info!("TUN interface created successfully");
-        info!("  Name: {}", device.name().unwrap_or_else(|_| "unknown".to_string()));
+        info!(
+            "  Name: {}",
+            device.name().unwrap_or_else(|_| "unknown".to_string())
+        );
         info!("  Address: {}", address);
         info!("  Netmask: {}", netmask);
 
@@ -40,7 +42,9 @@ impl TunInterface {
     /// Read a packet from the TUN interface
     pub fn read_packet(&mut self) -> Result<Vec<u8>> {
         let mut buf = vec![0u8; 2048];
-        let len = self.device.read(&mut buf)
+        let len = self
+            .device
+            .read(&mut buf)
             .context("Failed to read from TUN device")?;
 
         buf.truncate(len);
@@ -51,7 +55,8 @@ impl TunInterface {
 
     /// Write a packet to the TUN interface
     pub fn write_packet(&mut self, packet: &[u8]) -> Result<()> {
-        self.device.write_all(packet)
+        self.device
+            .write_all(packet)
             .context("Failed to write to TUN device")?;
 
         debug!("Wrote {} bytes to TUN", packet.len());
@@ -60,8 +65,7 @@ impl TunInterface {
 
     /// Get the device name
     pub fn name(&self) -> Result<String> {
-        self.device.name()
-            .context("Failed to get device name")
+        self.device.name().context("Failed to get device name")
     }
 }
 

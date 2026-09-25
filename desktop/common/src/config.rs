@@ -1,8 +1,8 @@
+use crate::filter::FilterConfig;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::filter::FilterConfig;
 
 /// Connection profile configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,22 +146,24 @@ impl Default for Config {
 impl Config {
     /// Load configuration from file
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let content = fs::read_to_string(path.as_ref())
-            .context(format!("Failed to read config file: {}", path.as_ref().display()))?;
+        let content = fs::read_to_string(path.as_ref()).context(format!(
+            "Failed to read config file: {}",
+            path.as_ref().display()
+        ))?;
 
-        let config: Config = toml::from_str(&content)
-            .context("Failed to parse config file")?;
+        let config: Config = toml::from_str(&content).context("Failed to parse config file")?;
 
         Ok(config)
     }
 
     /// Save configuration to file
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let content = toml::to_string_pretty(self)
-            .context("Failed to serialize config")?;
+        let content = toml::to_string_pretty(self).context("Failed to serialize config")?;
 
-        fs::write(path.as_ref(), content)
-            .context(format!("Failed to write config file: {}", path.as_ref().display()))?;
+        fs::write(path.as_ref(), content).context(format!(
+            "Failed to write config file: {}",
+            path.as_ref().display()
+        ))?;
 
         Ok(())
     }
@@ -185,7 +187,10 @@ impl Config {
                 if path.exists() {
                     Self::load(&path)
                 } else {
-                    log::info!("Config file not found at {}, using defaults", path.display());
+                    log::info!(
+                        "Config file not found at {}, using defaults",
+                        path.display()
+                    );
                     Ok(Self::default())
                 }
             }

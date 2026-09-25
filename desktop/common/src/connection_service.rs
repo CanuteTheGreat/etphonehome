@@ -15,10 +15,7 @@ pub enum ConnectionState {
     /// Not connected to any device
     Disconnected,
     /// Attempting to connect
-    Connecting {
-        profile: Profile,
-        attempt: u32,
-    },
+    Connecting { profile: Profile, attempt: u32 },
     /// Successfully connected
     Connected {
         profile: Profile,
@@ -31,9 +28,7 @@ pub enum ConnectionState {
         delay_secs: u64,
     },
     /// Connection failed with error
-    Error {
-        message: String,
-    },
+    Error { message: String },
 }
 
 impl Default for ConnectionState {

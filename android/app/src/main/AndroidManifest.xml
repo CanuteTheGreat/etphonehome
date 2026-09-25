@@ -9,10 +9,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
-    <!-- VPN permission -->
-    <!-- Note: BIND_VPN_SERVICE is a system-granted permission for the service
-         declaration below (android:permission="..."), not something an app
-       ...[truncated]
+    <!-- VPN permission: BIND_VPN_SERVICE is system-granted to the service below,
+         not requested by the app, so no uses-permission entry is needed here -->
 
     <!-- WiFi permissions -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />

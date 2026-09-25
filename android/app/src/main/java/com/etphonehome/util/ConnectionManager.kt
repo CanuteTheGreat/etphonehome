@@ -3,6 +3,7 @@ package com.etphonehome.util
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
+import androidx.core.content.ContextCompat
 import com.etphonehome.service.VpnService as EtVpnService
 
 /**
@@ -73,7 +74,7 @@ object ConnectionManager {
             putExtra(EtVpnService.EXTRA_PORT, config.port)
         }
 
-        context.startForegroundService(intent)
+        ContextCompat.startForegroundService(context, intent)
         currentState = ConnectionState.CONNECTED
     }
 

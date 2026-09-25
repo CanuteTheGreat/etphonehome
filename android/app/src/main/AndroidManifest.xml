@@ -10,12 +10,15 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     <!-- VPN permission -->
-    <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
+    <!-- Note: BIND_VPN_SERVICE is a system-granted permission for the service
+         declaration below (android:permission="..."), not something an app
+       ...[truncated]
 
     <!-- WiFi permissions -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
 
     <!-- Bluetooth permissions -->

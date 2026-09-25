@@ -13,6 +13,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.etphonehome.service.VpnService as EtVpnService
 import com.etphonehome.util.TokenManager
 
@@ -108,7 +109,7 @@ class MainActivity : AppCompatActivity() {
             putExtra(EtVpnService.EXTRA_PORT, 8888)
         }
 
-        startForegroundService(intent)
+        ContextCompat.startForegroundService(this, intent)
         isVpnRunning = true
         updateUI()
 
@@ -164,6 +165,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showBluetoothInfo() {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_CONNECT)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            bluetoothInfoText.text = "Bluetooth permission not granted."
+            return
+        }
+
         val bluetoothToken = TokenManager.getBluetoothToken(this)
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val bluetoothAdapter = bluetoothManager.adapter

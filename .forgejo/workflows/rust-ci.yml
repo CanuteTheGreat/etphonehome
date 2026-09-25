@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
       - name: Check formatting
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - name: Install dependencies
@@ -62,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: https://github.com/dtolnay/rust-toolchain@stable
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -87,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: https://github.com/dtolnay/rust-toolchain@stable
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -117,7 +117,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: https://github.com/dtolnay/rust-toolchain@stable
       - name: Cache cargo
         uses: actions/cache@v4
         with:

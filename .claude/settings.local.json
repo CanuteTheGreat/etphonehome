@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(rm:*)",
+      "Bash(chmod:*)",
+      "Bash(tree:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo build:*)",
+      "Bash(./gradlew assembleDebug:*)",
+      "Bash(curl:*)",
+      "Bash(unzip:*)",
+      "Bash(gradle-8.2/bin/gradle wrapper:*)",
+      "Bash(update-java-alternatives:*)",
+      "Bash(java:*)",
+      "Bash(JAVA_HOME=/usr/lib/jvm/java-1.21.0-openjdk-amd64 ./gradlew assembleDebug:*)",
+      "Bash(export JAVA_HOME=/usr/lib/jvm/java-1.21.0-openjdk-amd64:*)",
+      "Read(//usr/lib/jvm/**)",
+      "Bash(cargo clean:*)",
+      "Bash(./target/release/etphonehome:*)",
+      "Bash(test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(git rm:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "WebSearch",
+      "Bash(JAVA_HOME=/usr/lib/jvm/java-1.21.0-openjdk-amd64 /home/canutethegreat/files/repos/mine/etphonehome/android/gradlew:*)",
+      "Bash(JAVA_HOME=/opt/openjdk-bin-25_p36 /home/canutethegreat/files/repos/mine/etphonehome/android/gradlew:*)",
+      "Bash(ls:*)",
+      "Bash(ANDROID_HOME=/home/canutethegreat/android-sdk JAVA_HOME=/opt/openjdk-bin-25_p36 /home/canutethegreat/files/repos/mine/etphonehome/android/gradlew:*)",
+      "Bash(/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager:*)",
+      "Bash(yes:*)",
+      "Bash(ANDROID_HOME=/opt/android-sdk JAVA_HOME=/opt/openjdk-bin-25_p36 /home/canutethegreat/files/repos/mine/etphonehome/android/gradlew:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

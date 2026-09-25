@@ -18,7 +18,7 @@ env:
 jobs:
   fmt:
     name: Format Check
-    runs-on: ubuntu-latest
+    runs-on: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -31,7 +31,7 @@ jobs:
 
   clippy:
     name: Clippy
-    runs-on: ubuntu-latest
+    runs-on: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -58,7 +58,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -83,7 +83,7 @@ jobs:
 
   build-linux:
     name: Build Linux
-    runs-on: ubuntu-latest
+    runs-on: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust

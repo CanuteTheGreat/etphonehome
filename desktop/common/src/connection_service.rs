@@ -10,9 +10,10 @@ use tokio::sync::{broadcast, mpsc};
 use crate::config::Profile;
 
 /// Connection state
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum ConnectionState {
     /// Not connected to any device
+    #[default]
     Disconnected,
     /// Attempting to connect
     Connecting { profile: Profile, attempt: u32 },
@@ -29,12 +30,6 @@ pub enum ConnectionState {
     },
     /// Connection failed with error
     Error { message: String },
-}
-
-impl Default for ConnectionState {
-    fn default() -> Self {
-        ConnectionState::Disconnected
-    }
 }
 
 /// Connection statistics
@@ -94,6 +89,11 @@ pub struct ConnectionService {
 
     // Command channel
     command_tx: mpsc::Sender<ConnectionCommand>,
+    // Receiver end is held for a future command-processing loop that isn't
+    // wired up yet (only `command_sender()` / the tx side is used today).
+    // Kept rather than removed so that loop can be added without redoing
+    // the channel plumbing.
+    #[allow(dead_code)]
     command_rx: Arc<Mutex<Option<mpsc::Receiver<ConnectionCommand>>>>,
 }
 

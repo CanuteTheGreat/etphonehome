@@ -485,7 +485,7 @@ mod tests {
 
     #[test]
     fn test_invalid_magic() {
-        let bad_data = vec![0xFF, 0xFF, 0x01, 0x00, 0x00];
+        let bad_data = [0xFF, 0xFF, 0x01, 0x00, 0x00];
         let result = Message::read_from(&mut &bad_data[..]);
         assert!(result.is_err());
     }

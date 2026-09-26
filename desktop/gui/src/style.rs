@@ -3,6 +3,10 @@
 use iced::Color;
 
 /// Application theme colors
+// Custom color palette, superseded by iced's built-in Theme system (see
+// `.theme(EtPhoneHomeApp::theme)` in main.rs) — never wired in, kept for
+// reference in case the built-in theme needs a custom variant later.
+#[allow(dead_code)]
 pub struct Theme {
     pub background: Color,
     pub surface: Color,
@@ -15,6 +19,7 @@ pub struct Theme {
     pub text_secondary: Color,
 }
 
+#[allow(dead_code)]
 impl Theme {
     pub fn light() -> Self {
         Self {

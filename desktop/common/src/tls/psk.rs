@@ -43,8 +43,19 @@ pub fn derive_psk(token: &str) -> PskIdentity {
 /// Verify that a PSK matches the expected value
 pub fn verify_psk(token: &str, expected_key: &[u8]) -> bool {
     let derived = derive_psk(token);
-    // Constant-time comparison to prevent timing attacks
-    ring::constant_time::verify_slices_are_equal(&derived.key, expected_key).is_ok()
+    // Constant-time comparison to prevent timing attacks. `ring`'s own
+    // constant_time module is deprecated/internal-only now, so compare
+    // manually: fold in a length check up front (this doesn't leak secret
+    // data, just PSK vs. key-material shape) then XOR+OR every byte
+    // unconditionally so the loop never branches on secret content.
+    if derived.key.len() != expected_key.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (a, b) in derived.key.iter().zip(expected_key.iter()) {
+        diff |= a ^ b;
+    }
+    diff == 0
 }
 
 #[cfg(test)]

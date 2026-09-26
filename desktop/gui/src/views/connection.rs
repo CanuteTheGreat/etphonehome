@@ -13,7 +13,7 @@ use crate::message::Message;
 use crate::style::{format_bytes, format_duration};
 
 /// Render the connection view
-pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
+pub fn view(app: &EtPhoneHomeApp) -> Element<'_, Message> {
     let title = text("Connection").size(28);
 
     // Profile selector

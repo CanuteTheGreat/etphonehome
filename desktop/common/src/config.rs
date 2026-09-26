@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Connection profile configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub default: DefaultSettings,
@@ -67,7 +67,7 @@ pub enum ConnectionType {
 }
 
 /// Authentication settings
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AuthSettings {
     #[serde(default)]
     pub wifi_token: String,
@@ -113,32 +113,12 @@ impl Default for DefaultSettings {
     }
 }
 
-impl Default for AuthSettings {
-    fn default() -> Self {
-        Self {
-            wifi_token: String::new(),
-            bluetooth_token: String::new(),
-        }
-    }
-}
-
 impl Default for AdvancedSettings {
     fn default() -> Self {
         Self {
             debug: false,
             timeout: default_timeout(),
             buffer_size: default_buffer_size(),
-        }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            default: DefaultSettings::default(),
-            profiles: Vec::new(),
-            auth: AuthSettings::default(),
-            advanced: AdvancedSettings::default(),
         }
     }
 }

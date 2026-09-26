@@ -7,7 +7,7 @@ use crate::app::EtPhoneHomeApp;
 use crate::message::Message;
 
 /// Render the settings view
-pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
+pub fn view(app: &EtPhoneHomeApp) -> Element<'_, Message> {
     let title = text("Settings").size(28);
 
     // Appearance section

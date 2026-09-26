@@ -9,7 +9,7 @@ use crate::app::EtPhoneHomeApp;
 use crate::message::Message;
 
 /// Render the logs view
-pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
+pub fn view(app: &EtPhoneHomeApp) -> Element<'_, Message> {
     let title = text("Logs").size(28);
 
     let clear_btn = button(text("Clear Logs"))

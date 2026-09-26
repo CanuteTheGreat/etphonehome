@@ -149,7 +149,7 @@ impl PortRange {
                 let trimmed = part.trim();
                 if trimmed.contains('-') {
                     let parts: Vec<&str> = trimmed.split('-').collect();
-                    let start = parts.get(0)?.trim().parse().ok()?;
+                    let start = parts.first()?.trim().parse().ok()?;
                     let end = parts.get(1)?.trim().parse().ok()?;
                     Some(PortRange { start, end })
                 } else {

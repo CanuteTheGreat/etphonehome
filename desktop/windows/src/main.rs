@@ -273,7 +273,7 @@ fn discover_android_ip() -> Result<()> {
     // Looking for line like: inet 192.168.1.100/24 brd 192.168.1.255 scope global wlan0
     for line in output_str.lines() {
         if line.trim().starts_with("inet ") && !line.contains("127.0.0.1") {
-            if let Some(ip_part) = line.trim().split_whitespace().nth(1) {
+            if let Some(ip_part) = line.split_whitespace().nth(1) {
                 // Remove CIDR notation (e.g., /24)
                 let ip = ip_part.split('/').next().unwrap_or(ip_part);
                 info!("✓ Android WiFi IP: {}", ip);
@@ -949,7 +949,7 @@ async fn discover_wifi_devices(timeout: u64) -> Result<()> {
     // Collect results for the specified timeout
     while start_time.elapsed().as_secs() < timeout {
         // Check for events with a small timeout to allow periodic checking
-        if let Ok(event) = tokio::time::timeout(
+        if let Ok(Ok(Ok(mdns_sd::ServiceEvent::ServiceResolved(info)))) = tokio::time::timeout(
             std::time::Duration::from_millis(100),
             tokio::task::spawn_blocking({
                 let receiver = receiver.clone();
@@ -958,15 +958,8 @@ async fn discover_wifi_devices(timeout: u64) -> Result<()> {
         )
         .await
         {
-            if let Ok(Ok(event)) = event {
-                match event {
-                    mdns_sd::ServiceEvent::ServiceResolved(info) => {
-                        info!("Found device: {}", info.get_fullname());
-                        found_devices.push(info);
-                    }
-                    _ => {}
-                }
-            }
+            info!("Found device: {}", info.get_fullname());
+            found_devices.push(info);
         }
     }
 

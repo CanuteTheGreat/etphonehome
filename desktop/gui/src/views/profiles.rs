@@ -9,7 +9,7 @@ use crate::app::{EtPhoneHomeApp, ProfileForm};
 use crate::message::Message;
 
 /// Render the profiles view
-pub fn view(app: &EtPhoneHomeApp) -> Element<Message> {
+pub fn view(app: &EtPhoneHomeApp) -> Element<'_, Message> {
     let title = text("Profiles").size(28);
 
     if let Some(form) = app.editing_profile() {

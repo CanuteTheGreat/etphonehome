@@ -29,9 +29,14 @@ pub enum Message {
     ProfileDescriptionChanged(String),
     ProfileAddressChanged(String),
 
-    // State updates from connection service
+    // State updates from connection service. Not yet dispatched by app.rs's
+    // update loop — the connection-service subscription/event-pump wiring
+    // that would construct these is still pending.
+    #[allow(dead_code)]
     StateChanged(ConnectionState),
+    #[allow(dead_code)]
     StatsUpdated(ConnectionStats),
+    #[allow(dead_code)]
     LogReceived(LogEntry),
 
     // Settings
@@ -40,7 +45,9 @@ pub enum Message {
 
     // Async task results
     ProfilesLoaded(Vec<Profile>),
+    #[allow(dead_code)]
     ProfileSaved(Result<(), String>),
+    #[allow(dead_code)]
     ConnectionResult(Result<(), String>),
 
     // Ticks for periodic updates
@@ -58,6 +65,10 @@ pub enum View {
 }
 
 impl View {
+    /// Human-readable label for a view — not yet wired into any view's
+    /// rendering (nav bar/title currently hardcodes labels inline), kept
+    /// as the intended single source of truth for when that's cleaned up.
+    #[allow(dead_code)]
     pub fn title(&self) -> &'static str {
         match self {
             View::Connection => "Connection",

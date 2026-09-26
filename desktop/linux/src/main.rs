@@ -238,7 +238,7 @@ fn discover_android_ip() -> Result<()> {
     // Looking for line like: inet 192.168.1.100/24 brd 192.168.1.255 scope global wlan0
     for line in output_str.lines() {
         if line.trim().starts_with("inet ") && !line.contains("127.0.0.1") {
-            if let Some(ip_part) = line.trim().split_whitespace().nth(1) {
+            if let Some(ip_part) = line.split_whitespace().nth(1) {
                 // Remove CIDR notation (e.g., /24)
                 let ip = ip_part.split('/').next().unwrap_or(ip_part);
                 info!("✓ Android WiFi IP: {}", ip);
@@ -798,7 +798,7 @@ impl ConnectionTypeExt for etphonehome_common::Profile {
     }
 }
 
-async fn connect_bluetooth(address: &str, tun_name: &str) -> Result<()> {
+async fn connect_bluetooth(address: &str, _tun_name: &str) -> Result<()> {
     info!("Connecting via Bluetooth to {}...", address);
 
     // Check if running as root
@@ -833,7 +833,7 @@ async fn connect_bluetooth(address: &str, tun_name: &str) -> Result<()> {
     // Connect to RFCOMM socket on channel 1 (SPP typically uses channel 1)
     // SPP UUID: 00001101-0000-1000-8000-00805F9B34FB
     let socket_addr = bluer::rfcomm::SocketAddr::new(bt_addr, 1);
-    let stream = bluer::rfcomm::Stream::connect(socket_addr)
+    let _stream = bluer::rfcomm::Stream::connect(socket_addr)
         .await
         .context(format!(
             "Failed to connect to Bluetooth device\n\
@@ -884,7 +884,7 @@ async fn discover_wifi_devices(timeout: u64) -> Result<()> {
     // Collect results for the specified timeout
     while start_time.elapsed().as_secs() < timeout {
         // Check for events with a small timeout to allow periodic checking
-        if let Ok(event) = tokio::time::timeout(
+        if let Ok(Ok(Ok(mdns_sd::ServiceEvent::ServiceResolved(info)))) = tokio::time::timeout(
             std::time::Duration::from_millis(100),
             tokio::task::spawn_blocking({
                 let receiver = receiver.clone();
@@ -893,15 +893,8 @@ async fn discover_wifi_devices(timeout: u64) -> Result<()> {
         )
         .await
         {
-            if let Ok(Ok(event)) = event {
-                match event {
-                    mdns_sd::ServiceEvent::ServiceResolved(info) => {
-                        info!("Found device: {}", info.get_fullname());
-                        found_devices.push(info);
-                    }
-                    _ => {}
-                }
-            }
+            info!("Found device: {}", info.get_fullname());
+            found_devices.push(info);
         }
     }
 

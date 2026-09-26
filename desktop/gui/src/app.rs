@@ -291,7 +291,7 @@ impl EtPhoneHomeApp {
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let sidebar = self.view_sidebar();
         let content = match self.current_view {
             View::Connection => views::connection::view(self),
@@ -327,7 +327,7 @@ impl EtPhoneHomeApp {
         }
     }
 
-    fn view_sidebar(&self) -> Element<Message> {
+    fn view_sidebar(&self) -> Element<'_, Message> {
         let current = self.current_view;
 
         let nav_button = |label: &'static str, view: View| -> Element<Message> {

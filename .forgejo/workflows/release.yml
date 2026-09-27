@@ -11,7 +11,7 @@ env:
 jobs:
   build-linux:
     name: Build Linux Release
-    runs-on: ubuntu-latest
+    runs-on: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -58,7 +58,7 @@ jobs:
 
   build-android:
     name: Build Android Release
-    runs-on: ubuntu-latest
+    runs-on: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 17
@@ -84,7 +84,7 @@ jobs:
   create-release:
     name: Create Release
     needs: [build-linux, build-windows, build-android]
-    runs-on: ubuntu-latest
+    runs-on: x86_64
     permissions:
       contents: write
     steps:

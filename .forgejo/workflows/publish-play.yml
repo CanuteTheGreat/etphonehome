@@ -1,0 +1,63 @@
+name: Publish to Play Console
+
+# Ships a real signed AAB to the Play Console beta track. Triggered by pushing a tag
+# matching release-play-*, e.g.:
+#   git tag release-play-1 && git push origin release-play-1
+#
+# Modeled directly on ssherpa's publish.yml (same reusable ci/publish-to-play.js, same
+# Forgejo secrets pattern) -- see rustinion-ci-infra-map / ssherpa reference for the full
+# history of gotchas this already avoids (SDK location, JDK, keystore write/shred, AGP
+# aapt2 arch mismatch).
+on:
+  push:
+    tags:
+      - 'release-play-*'
+
+jobs:
+  publish:
+    runs-on: x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write release keystore
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          RELEASE_KEYSTORE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_STORE_PASSWORD }}
+          RELEASE_KEYSTORE_KEY_ALIAS: ${{ secrets.RELEASE_KEYSTORE_KEY_ALIAS }}
+          RELEASE_KEYSTORE_KEY_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_KEY_PASSWORD }}
+        run: |
+          set -e
+          KS_FILE="$GITHUB_WORKSPACE/etphonehome-upload.jks"
+          printf '%s' "$RELEASE_KEYSTORE_B64" | base64 -d > "$KS_FILE"
+          PROPS_FILE="$GITHUB_WORKSPACE/android/keystore.properties"
+          printf 'storeFile=%s\n' "$KS_FILE" > "$PROPS_FILE"
+          printf 'storePassword=%s\n' "$RELEASE_KEYSTORE_STORE_PASSWORD" >> "$PROPS_FILE"
+          printf 'keyAlias=%s\n' "$RELEASE_KEYSTORE_KEY_ALIAS" >> "$PROPS_FILE"
+          printf 'keyPassword=%s\n' "$RELEASE_KEYSTORE_KEY_PASSWORD" >> "$PROPS_FILE"
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Set up Android SDK
+        run: .forgejo/scripts/setup-android-sdk.sh
+      - name: Build release AAB
+        working-directory: android
+        run: |
+          set -e
+          export ANDROID_HOME="$HOME/android-sdk"
+          export PATH="$PATH:$ANDROID_HOME/platform-tools"
+          chmod +x ./gradlew
+          ./gradlew :app:bundleRelease --console=plain
+      - name: Remove release keystore
+        if: always()
+        run: shred -u "$GITHUB_WORKSPACE/etphonehome-upload.jks" "$GITHUB_WORKSPACE/android/keystore.properties" 2>/dev/null || true
+      - name: Publish to Play Console beta track
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -e
+          KEY_FILE="$(mktemp)"
+          trap 'shred -u "$KEY_FILE"' EXIT
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$KEY_FILE"
+          node ci/publish-to-play.js "$KEY_FILE" com.etphonehome \
+            android/app/build/outputs/bundle/release/app-release.aab beta

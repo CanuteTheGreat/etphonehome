@@ -15,7 +15,7 @@ on:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 17
@@ -40,7 +40,7 @@ jobs:
 
   test:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 17
@@ -65,7 +65,7 @@ jobs:
 
   build:
     name: Build Debug APK
-    runs-on: ubuntu-latest
+    runs-on: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 17

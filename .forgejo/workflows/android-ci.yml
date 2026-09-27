@@ -34,9 +34,14 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
+      - name: Set up Android SDK
+        run: .forgejo/scripts/setup-android-sdk.sh
       - name: Run lint
         working-directory: android
-        run: ./gradlew lint
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          export PATH="$PATH:$ANDROID_HOME/platform-tools"
+          ./gradlew lint
 
   test:
     name: Unit Tests
@@ -59,9 +64,14 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
+      - name: Set up Android SDK
+        run: .forgejo/scripts/setup-android-sdk.sh
       - name: Run unit tests
         working-directory: android
-        run: ./gradlew test
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          export PATH="$PATH:$ANDROID_HOME/platform-tools"
+          ./gradlew test
 
   build:
     name: Build Debug APK
@@ -84,9 +94,14 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
+      - name: Set up Android SDK
+        run: .forgejo/scripts/setup-android-sdk.sh
       - name: Build debug APK
         working-directory: android
-        run: ./gradlew assembleDebug
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          export PATH="$PATH:$ANDROID_HOME/platform-tools"
+          ./gradlew assembleDebug
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

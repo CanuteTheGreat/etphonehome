@@ -30,7 +30,7 @@ jobs:
           cd desktop/target/release
           tar -czvf etphonehome-linux-${{ github.ref_name }}.tar.gz etphonehome-linux
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: etphonehome-linux-${{ github.ref_name }}
           path: desktop/target/release/etphonehome-linux-${{ github.ref_name }}.tar.gz
@@ -51,7 +51,7 @@ jobs:
           cd desktop/target/release
           Compress-Archive -Path etphonehome-windows.exe -DestinationPath etphonehome-windows-${{ github.ref_name }}.zip
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: etphonehome-windows-${{ github.ref_name }}
           path: desktop/target/release/etphonehome-windows-${{ github.ref_name }}.zip
@@ -81,7 +81,7 @@ jobs:
           mv android/app/build/outputs/apk/release/app-release-unsigned.apk \
              android/app/build/outputs/apk/release/etphonehome-${{ github.ref_name }}.apk
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: etphonehome-android-${{ github.ref_name }}
           path: android/app/build/outputs/apk/release/etphonehome-${{ github.ref_name }}.apk
@@ -95,7 +95,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           path: artifacts
       - name: Create Release

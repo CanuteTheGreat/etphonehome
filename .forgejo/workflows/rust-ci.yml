@@ -106,7 +106,7 @@ jobs:
         working-directory: desktop
         run: cargo build --release -p etphonehome-linux
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: etphonehome-linux
           path: desktop/target/release/etphonehome-linux
@@ -132,7 +132,7 @@ jobs:
         working-directory: desktop
         run: cargo build --release -p etphonehome-windows
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: etphonehome-windows
           path: desktop/target/release/etphonehome-windows.exe

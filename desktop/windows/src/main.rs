@@ -211,6 +211,7 @@ fn check_admin_privileges() {
 #[cfg(windows)]
 fn is_elevated() -> bool {
     use std::mem;
+    use winapi::um::handleapi::CloseHandle;
     use winapi::um::processthreadsapi::{GetCurrentProcess, OpenProcessToken};
     use winapi::um::securitybaseapi::GetTokenInformation;
     use winapi::um::winnt::{TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
@@ -224,14 +225,20 @@ fn is_elevated() -> bool {
         let mut elevation: TOKEN_ELEVATION = mem::zeroed();
         let mut size = mem::size_of::<TOKEN_ELEVATION>() as u32;
 
-        if GetTokenInformation(
+        let info_ok = GetTokenInformation(
             token,
             TokenElevation,
             &mut elevation as *mut _ as *mut _,
             size,
             &mut size,
-        ) == 0
-        {
+        ) != 0;
+
+        // OpenProcessToken succeeded above, so `token` is a real kernel handle
+        // that must be closed regardless of which path we take out of here —
+        // it was previously being leaked on every call to this function.
+        CloseHandle(token);
+
+        if !info_ok {
             return false;
         }
 

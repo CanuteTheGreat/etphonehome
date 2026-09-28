@@ -37,24 +37,31 @@ jobs:
 
   build-windows:
     name: Build Windows Release
-    runs-on: windows-latest
+    # No windows-latest runner exists in this infra — cross-compile via
+    # mingw-w64 on the real x86_64 runner (same fix as rust-ci.yml).
+    runs-on: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - name: Install mingw-w64 and zip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 zip
       - name: Build release
         working-directory: desktop
-        run: cargo build --release -p etphonehome-windows
+        run: cargo build --release -p etphonehome-windows --target x86_64-pc-windows-gnu
       - name: Create zip
-        shell: pwsh
         run: |
-          cd desktop/target/release
-          Compress-Archive -Path etphonehome-windows.exe -DestinationPath etphonehome-windows-${{ github.ref_name }}.zip
+          cd desktop/target/x86_64-pc-windows-gnu/release
+          zip etphonehome-windows-${{ github.ref_name }}.zip etphonehome-windows.exe
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: etphonehome-windows-${{ github.ref_name }}
-          path: desktop/target/release/etphonehome-windows-${{ github.ref_name }}.zip
+          path: desktop/target/x86_64-pc-windows-gnu/release/etphonehome-windows-${{ github.ref_name }}.zip
 
   build-android:
     name: Build Android Release

@@ -113,11 +113,21 @@ jobs:
 
   build-windows:
     name: Build Windows
-    runs-on: windows-latest
+    # No windows-latest (or any Windows) runner is registered in this infra —
+    # that label silently never picks up a job (stuck "Waiting to run"
+    # forever). Cross-compile to Windows via mingw-w64 on the real x86_64
+    # runner instead of depending on a nonexistent Windows box.
+    runs-on: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - name: Install mingw-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -125,14 +135,14 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             desktop/target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('desktop/**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-build-windows-${{ hashFiles('desktop/**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-build-
+            ${{ runner.os }}-cargo-build-windows-
       - name: Build release
         working-directory: desktop
-        run: cargo build --release -p etphonehome-windows
+        run: cargo build --release -p etphonehome-windows --target x86_64-pc-windows-gnu
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: etphonehome-windows
-          path: desktop/target/release/etphonehome-windows.exe
+          path: desktop/target/x86_64-pc-windows-gnu/release/etphonehome-windows.exe

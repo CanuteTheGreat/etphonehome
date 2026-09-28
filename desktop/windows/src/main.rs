@@ -486,20 +486,30 @@ async fn connect_and_run(
         let tun = std::sync::Arc::clone(&tun);
         tokio::task::spawn(async move {
             loop {
-                let packet = {
+                let tun = std::sync::Arc::clone(&tun);
+                // TUN reads are blocking syscalls; run them on a dedicated
+                // blocking thread so a slow/idle device can never stall this
+                // async runtime's worker threads (which also drive the TCP
+                // read/write tasks for the Android side).
+                let packet = tokio::task::spawn_blocking(move || {
                     let mut tun_guard = tun.lock().unwrap();
                     tun_guard.read_packet()
-                };
+                })
+                .await;
 
                 match packet {
-                    Ok(pkt) => {
+                    Ok(Ok(pkt)) => {
                         if tun_to_android_tx.send(pkt).await.is_err() {
                             break;
                         }
                     }
-                    Err(_) => {
+                    Ok(Err(_)) => {
                         // No packet, yield to other tasks
                         tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
+                    }
+                    Err(e) => {
+                        error!("TUN read blocking task panicked: {:?}", e);
+                        break;
                     }
                 }
             }
@@ -600,14 +610,25 @@ async fn connect_and_run(
         let tun = std::sync::Arc::clone(&tun);
         tokio::task::spawn(async move {
             while let Some(packet) = android_to_tun_rx.recv().await {
-                let result = {
+                let tun = std::sync::Arc::clone(&tun);
+                // Same rationale as the read side: run the blocking device
+                // write off the async runtime's worker threads.
+                let result = tokio::task::spawn_blocking(move || {
                     let mut tun_guard = tun.lock().unwrap();
                     tun_guard.write_packet(&packet)
-                };
+                })
+                .await;
 
-                if let Err(e) = result {
-                    error!("Failed to write to TUN: {}", e);
-                    break;
+                match result {
+                    Ok(Err(e)) => {
+                        error!("Failed to write to TUN: {}", e);
+                        break;
+                    }
+                    Err(e) => {
+                        error!("TUN write blocking task panicked: {:?}", e);
+                        break;
+                    }
+                    Ok(Ok(())) => {}
                 }
             }
             info!("TUN write task stopped");

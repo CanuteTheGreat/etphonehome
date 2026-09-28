@@ -20,4 +20,4 @@ clap = { workspace = true }
 mdns-sd = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winsock2", "ws2def", "ws2bth", "bthsdpdef", "bluetoothapis"] }
+winapi = { version = "0.3", features = ["winsock2", "ws2def", "ws2bth", "bthsdpdef", "bluetoothapis", "securitybaseapi", "processthreadsapi", "winnt", "handleapi"] }

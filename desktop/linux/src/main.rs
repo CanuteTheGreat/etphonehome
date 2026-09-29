@@ -320,7 +320,7 @@ async fn connect_with_retry(
 
         if attempt > 1 {
             // Exponential backoff: 2^(attempt-1) seconds, capped at 60 seconds
-            let delay_secs = std::cmp::min(2u64.pow(attempt - 2), 60);
+            let delay_secs = std::cmp::min(2u64.pow((attempt - 2).min(6)), 60);
             info!(
                 "Reconnection attempt {} of {}...",
                 attempt,

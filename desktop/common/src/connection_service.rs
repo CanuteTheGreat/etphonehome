@@ -197,7 +197,7 @@ impl ConnectionService {
         let secs = if attempt <= 1 {
             1
         } else {
-            std::cmp::min(1u64 << (attempt - 1), 60)
+            std::cmp::min(1u64 << (attempt - 1).min(6), 60)
         };
         Duration::from_secs(secs)
     }

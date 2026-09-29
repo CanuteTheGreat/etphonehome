@@ -273,10 +273,16 @@ impl FilterEngine {
                     }
                 }
 
-                return match self.config.mode {
-                    FilterMode::Whitelist => allowed,
-                    FilterMode::Blacklist => !allowed || rule.action == FilterAction::Allow,
-                };
+                // A matched rule's own action decides the outcome directly —
+                // the filter mode only controls the *default* when no rule
+                // matches (see below). Previously this branched on
+                // `self.config.mode` again here with
+                // `!allowed || rule.action == FilterAction::Allow`, which is a
+                // tautology (always `true`) whenever `allowed` is defined as
+                // `rule.action == FilterAction::Allow`, as it is a few lines
+                // up. That meant a matched BLOCK rule in Blacklist mode (the
+                // default mode) never actually blocked anything.
+                return allowed;
             }
         }
 
@@ -385,5 +391,97 @@ mod tests {
         // Any packet should be allowed when filtering is disabled
         let packet = vec![0u8; 40];
         assert!(engine.should_allow(&packet));
+    }
+
+    /// Build a minimal IPv4 header (20 bytes, no options) followed by 4 bytes
+    /// of src/dst port, matching what `parse_packet` expects for TCP/UDP.
+    fn build_tcp_packet(src_ip: [u8; 4], dst_ip: [u8; 4], src_port: u16, dst_port: u16) -> Vec<u8> {
+        let mut pkt = vec![0u8; 24];
+        pkt[0] = 0x45; // version 4, header length 5 (20 bytes)
+        pkt[9] = 6; // protocol = TCP
+        pkt[12..16].copy_from_slice(&src_ip);
+        pkt[16..20].copy_from_slice(&dst_ip);
+        pkt[20..22].copy_from_slice(&src_port.to_be_bytes());
+        pkt[22..24].copy_from_slice(&dst_port.to_be_bytes());
+        pkt
+    }
+
+    /// Regression test for a real bug: in Blacklist mode (the default mode),
+    /// a matched rule's outcome used to be computed as
+    /// `!allowed || rule.action == FilterAction::Allow`, which is always
+    /// `true` when `allowed == (rule.action == FilterAction::Allow)` — i.e.
+    /// an explicit BLOCK rule never actually blocked anything as long as the
+    /// engine was in Blacklist mode. This test asserts a BLOCK rule in the
+    /// default Blacklist mode actually blocks the traffic it matches, and
+    /// that unrelated traffic is still allowed through by the mode's default.
+    #[test]
+    fn test_blacklist_mode_block_rule_actually_blocks() {
+        let config = FilterConfig {
+            enabled: true,
+            mode: FilterMode::Blacklist,
+            rules: vec![FilterRule {
+                id: "block-443".to_string(),
+                enabled: true,
+                action: FilterAction::Block,
+                protocol: Some(Protocol::Tcp),
+                dest_ip: None,
+                dest_port: Some("443".to_string()),
+                source_ip: None,
+                source_port: None,
+                description: None,
+            }],
+            log_blocked: true,
+        };
+        let engine = FilterEngine::new(config);
+
+        let blocked_packet = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        assert!(
+            !engine.should_allow(&blocked_packet),
+            "a matched BLOCK rule in Blacklist mode must actually block traffic"
+        );
+
+        let unrelated_packet = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 80);
+        assert!(
+            engine.should_allow(&unrelated_packet),
+            "unmatched traffic must still fall through to Blacklist mode's allow-by-default"
+        );
+
+        let (blocked_count, allowed_count) = engine.get_stats();
+        assert_eq!(blocked_count, 1);
+        assert_eq!(allowed_count, 0);
+    }
+
+    /// Same bug, opposite polarity: a matched ALLOW rule in Whitelist mode
+    /// (which was already correct before the fix, since `allowed` was
+    /// returned directly there) must still allow its matched traffic and
+    /// deny everything else by default.
+    #[test]
+    fn test_whitelist_mode_allow_rule_actually_allows() {
+        let config = FilterConfig {
+            enabled: true,
+            mode: FilterMode::Whitelist,
+            rules: vec![FilterRule {
+                id: "allow-443".to_string(),
+                enabled: true,
+                action: FilterAction::Allow,
+                protocol: Some(Protocol::Tcp),
+                dest_ip: None,
+                dest_port: Some("443".to_string()),
+                source_ip: None,
+                source_port: None,
+                description: None,
+            }],
+            log_blocked: true,
+        };
+        let engine = FilterEngine::new(config);
+
+        let allowed_packet = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        assert!(engine.should_allow(&allowed_packet));
+
+        let unrelated_packet = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 80);
+        assert!(
+            !engine.should_allow(&unrelated_packet),
+            "unmatched traffic must be denied by default in Whitelist mode"
+        );
     }
 }

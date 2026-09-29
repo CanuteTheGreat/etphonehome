@@ -466,9 +466,16 @@ async fn connect_and_run(
                             break;
                         }
                     }
-                    Ok(Err(_)) => {
-                        // No packet, yield to other tasks
-                        tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
+                    Ok(Err(e)) => {
+                        // TUN reads are blocking with no timeout, so an Err here
+                        // means a real device failure (fd closed/removed, EBADF,
+                        // ENXIO), not "nothing to read yet" -- there is no such
+                        // state for a blocking read(2). Treating it as transient
+                        // and looping forever previously spun a blocking-pool
+                        // thread indefinitely (~10k iterations/sec) without ever
+                        // surfacing the failure or tearing down the connection.
+                        error!("TUN device read failed, stopping: {:?}", e);
+                        break;
                     }
                     Err(e) => {
                         error!("TUN read blocking task panicked: {:?}", e);

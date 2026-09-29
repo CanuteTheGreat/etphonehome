@@ -7,6 +7,19 @@ use std::time::Duration;
 /// ET Phone Home client
 pub struct Client {
     stream: TcpStream,
+    // Persistent read buffer across calls. Wrapping `&self.stream` in a
+    // fresh `BufReader` on every `receive_message()` call (the old
+    // behavior) silently drops any bytes it over-read from the socket into
+    // its internal buffer but didn't consume before being dropped at the
+    // end of that call -- the next call's brand new `BufReader` has no way
+    // to recover them, so a single TCP read that happens to land two
+    // protocol messages in one syscall would corrupt the stream: the first
+    // message parses fine, the trailing bytes of the second message are
+    // silently discarded, and the *next* `receive_message()` call
+    // desyncs off wire framing entirely (reads someone else's message
+    // header as if it started at that offset). Keeping one long-lived
+    // `BufReader` for the life of the connection is the standard fix.
+    reader: BufReader<TcpStream>,
     capabilities: u32,
     token: Option<String>,
 }
@@ -21,10 +34,13 @@ impl Client {
         stream.set_read_timeout(Some(Duration::from_secs(30)))?;
         stream.set_write_timeout(Some(Duration::from_secs(30)))?;
 
+        let reader_handle = stream.try_clone()?;
+
         info!("Connected successfully");
 
         Ok(Self {
             stream,
+            reader: BufReader::new(reader_handle),
             capabilities,
             token,
         })
@@ -55,9 +71,10 @@ impl Client {
             writer.flush()?;
         }
 
-        // Receive handshake response
-        let mut reader = BufReader::new(&self.stream);
-        let response = Message::read_from(&mut reader)?;
+        // Receive handshake response using the persistent reader (see the
+        // `reader` field doc comment for why a fresh BufReader per call is
+        // unsafe here).
+        let response = Message::read_from(&mut self.reader)?;
 
         match response {
             Message::HandshakeResp(resp) => {
@@ -92,8 +109,7 @@ impl Client {
 
     /// Receive a message from Android
     pub fn receive_message(&mut self) -> Result<Message, ProtocolError> {
-        let mut reader = BufReader::new(&self.stream);
-        Message::read_from(&mut reader)
+        Message::read_from(&mut self.reader)
     }
 
     /// Send an IP packet to Android

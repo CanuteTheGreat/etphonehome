@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use log::{debug, error, info};
-use std::io::{self, BufReader, BufWriter};
+use std::io::{self, BufReader, BufWriter, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
@@ -46,7 +46,14 @@ impl Client {
         {
             let mut writer = BufWriter::new(&self.stream);
             msg.write_to(&mut writer)?;
-        } // BufWriter is flushed when dropped
+            // Explicit flush + error propagation: BufWriter's Drop impl
+            // silently discards any I/O error from its final flush (this is
+            // documented std behavior), so relying on drop-to-flush here
+            // would let a failed handshake write look like a success to the
+            // caller. Flush explicitly so a broken pipe/connection reset at
+            // this exact boundary surfaces as a real error instead.
+            writer.flush()?;
+        }
 
         // Receive handshake response
         let mut reader = BufReader::new(&self.stream);
@@ -76,6 +83,10 @@ impl Client {
     pub fn send_message(&mut self, msg: Message) -> Result<(), ProtocolError> {
         let mut writer = BufWriter::new(&self.stream);
         msg.write_to(&mut writer)?;
+        // See handshake() for why this explicit flush matters: BufWriter's
+        // Drop impl swallows flush errors, so without this call a failed
+        // network write here would be silently reported as Ok(()).
+        writer.flush()?;
         Ok(())
     }
 

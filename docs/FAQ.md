@@ -603,11 +603,19 @@ Yes! The project is under active development. Check the repository for recent co
 
 ### Can I donate/support the project?
 
-Currently, the best way to support is:
-1. Star the repository
-2. Report bugs
-3. Contribute code
-4. Spread the word
+ET Phone Home is built and maintained by volunteers. Money and hardware
+donations directly fund development time, CI infrastructure, and test
+hardware across the range of Android devices and desktop platforms this
+project supports.
+
+Currently, the best ways to support the project are:
+1. Financial or hardware donations via [GitHub Sponsors](https://github.com/sponsors/CanuteTheGreat) or by opening an issue to discuss hardware donations
+2. Star the repository
+3. Report bugs
+4. Contribute code
+5. Spread the word
+
+See the [project homepage](index.html#donors) for the full donor list and details.
 
 ### Will there be a macOS version?
 

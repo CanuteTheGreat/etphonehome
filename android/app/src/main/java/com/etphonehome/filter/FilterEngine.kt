@@ -59,10 +59,19 @@ class FilterEngine(private var config: FilterConfig) {
                     }
                 }
 
-                return when (config.mode) {
-                    FilterMode.WHITELIST -> allowed
-                    FilterMode.BLACKLIST -> !allowed || rule.action == FilterAction.ALLOW
-                }
+                // A matched rule's own action decides the outcome directly --
+                // the filter mode only controls the *default* when no rule
+                // matches (see below). This used to branch on `config.mode`
+                // again here with `!allowed || rule.action == FilterAction.ALLOW`,
+                // which is a tautology (always `true`) whenever `allowed` is
+                // defined as `rule.action == FilterAction.ALLOW`, as it is a
+                // few lines up. That meant a matched BLOCK rule in the default
+                // BLACKLIST mode never actually blocked anything -- the exact
+                // same bug already found and fixed in the Rust sibling
+                // implementation (desktop/common/src/filter.rs, commit
+                // 65c5235) but never ported over here, where it's live-wired
+                // into VpnService's real packet path.
+                return allowed
             }
         }
 

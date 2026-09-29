@@ -48,7 +48,14 @@ class FilterEngineTest {
         val config = FilterConfig(
             enabled = true,
             mode = FilterMode.BLACKLIST,
-            rules = listOf(rule)
+            rules = listOf(rule),
+            // Plain JVM unit tests have no Android runtime, so
+            // android.util.Log calls throw ("not mocked") unless stubbed
+            // via Robolectric/Mockito, neither of which this module wires
+            // up. Disable the BLOCK-path's Log.d() call (logBlockedPacket)
+            // for this test rather than pull in a whole test framework just
+            // to exercise the actual bug under test.
+            logBlocked = false
         )
         val engine = FilterEngine(config)
 

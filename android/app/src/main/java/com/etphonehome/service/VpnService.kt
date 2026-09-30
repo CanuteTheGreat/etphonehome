@@ -282,7 +282,23 @@ class VpnService : AndroidVpnService() {
         val request = readMessage(input) as? HandshakeRequest
             ?: throw ProtocolException("Expected HandshakeRequest")
 
-        Log.d(tag, "Received handshake request: version=${request.version}, capabilities=${request.capabilities}")
+        Log.d(tag, "Received handshake request: version=${request.version}, capabilities=${request.capabilities}, has_token=${request.token != null}")
+
+        // Verify token for Bluetooth connections -- this path previously completed the
+        // handshake unconditionally regardless of the request token, unlike the WiFi path
+        // in performHandshake() which always checks TokenManager.verifyWifiToken(). That
+        // meant any Bluetooth-paired/discoverable device could connect, complete the
+        // handshake, and get full VPN routing with zero authentication.
+        // TokenManager.verifyBluetoothToken() already existed but was never called.
+        if (!TokenManager.verifyBluetoothToken(this@VpnService, request.token)) {
+            Log.e(tag, "Bluetooth token verification failed")
+            val errorMsg = ErrorMessage(
+                errorCode = Protocol.ERR_AUTH_FAILED,
+                message = "Authentication failed: invalid token"
+            )
+            writeMessage(output, errorMsg)
+            throw SecurityException("Bluetooth authentication failed")
+        }
 
         val capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI or Protocol.CAP_BLUETOOTH
         val response = HandshakeResponse(

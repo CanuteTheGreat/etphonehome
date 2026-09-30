@@ -246,12 +246,26 @@ class RootTetheringService : Service() {
         Log.d(TAG, "RootTetheringService destroyed")
         isRunning = false
 
-        serviceScope.launch {
-            // Clean up iptables rules
-            iptablesManager?.cleanupRules()
+        // Must complete synchronously and *before* serviceScope.cancel() below --
+        // this used to be `serviceScope.launch { iptablesManager?.cleanupRules() ... }`
+        // immediately followed by serviceScope.cancel(), which raced: cancelling the
+        // scope cancels its just-launched children too, so the iptables NAT/routing
+        // cleanup could be skipped or interrupted mid-run, leaving the device's
+        // iptables rules stuck in root-tethering mode after the service stopped.
+        // runBlocking(NonCancellable) guarantees cleanup actually finishes first.
+        runBlocking(NonCancellable) {
+            try {
+                iptablesManager?.cleanupRules()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error cleaning up iptables rules on destroy", e)
+            }
 
-            clientSocket?.close()
-            serverSocket?.close()
+            try {
+                clientSocket?.close()
+                serverSocket?.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error closing sockets on destroy", e)
+            }
         }
 
         serviceScope.cancel()

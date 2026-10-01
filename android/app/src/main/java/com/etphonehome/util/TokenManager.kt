@@ -92,9 +92,15 @@ object TokenManager {
      */
     fun verifyWifiToken(context: Context, providedToken: String?): Boolean {
         if (providedToken == null) {
-            // No token provided - allow for backward compatibility (USB mode)
-            Log.d(TAG, "No token provided, allowing connection")
-            return true
+            // WiFi connections are always required to authenticate -- USB is the only
+            // transport that skips TokenManager entirely (VpnService never calls
+            // verifyWifiToken/verifyBluetoothToken for CONNECTION_USB). Treating a
+            // missing token as "allow" here meant any client could bypass auth on the
+            // WiFi/Bluetooth handshake simply by omitting the token field from the
+            // HandshakeRequest -- same bypass class as the just-fixed Bluetooth
+            // handshake-never-verified bug, just one layer deeper.
+            Log.w(TAG, "No token provided for WiFi handshake, rejecting connection")
+            return false
         }
 
         val storedToken = getWifiToken(context)
@@ -114,9 +120,11 @@ object TokenManager {
      */
     fun verifyBluetoothToken(context: Context, providedToken: String?): Boolean {
         if (providedToken == null) {
-            // No token provided - allow for backward compatibility
-            Log.d(TAG, "No token provided, allowing connection")
-            return true
+            // Bluetooth connections are always required to authenticate -- see the
+            // matching comment in verifyWifiToken for why "no token = allow" is a
+            // bypass, not backward compatibility.
+            Log.w(TAG, "No token provided for Bluetooth handshake, rejecting connection")
+            return false
         }
 
         val storedToken = getBluetoothToken(context)

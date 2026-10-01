@@ -4,7 +4,7 @@
   android:dataExtractionRules). Mirrors backup_rules.xml: keeps the
   WiFi/Bluetooth tethering auth tokens (etphonehome_tokens.xml, written by
   TokenManager) out of both cloud backup and the Android 12+ "copy my data"
-  device-to-device transfer flow, for the same reason -- those tokens are
+  device-to-device transfer flow, for the same reason: those tokens are
   the sole auth gate on this app's tethering handshake.
 -->
 <data-extraction-rules>

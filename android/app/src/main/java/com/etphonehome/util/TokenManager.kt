@@ -98,7 +98,7 @@ object TokenManager {
         }
 
         val storedToken = getWifiToken(context)
-        val matches = providedToken == storedToken
+        val matches = constantTimeEquals(providedToken, storedToken)
 
         if (matches) {
             Log.i(TAG, "WiFi token verified successfully")
@@ -120,7 +120,7 @@ object TokenManager {
         }
 
         val storedToken = getBluetoothToken(context)
-        val matches = providedToken == storedToken
+        val matches = constantTimeEquals(providedToken, storedToken)
 
         if (matches) {
             Log.i(TAG, "Bluetooth token verified successfully")
@@ -137,5 +137,24 @@ object TokenManager {
     fun clearTokens(context: Context) {
         getPrefs(context).edit().clear().apply()
         Log.i(TAG, "Cleared all tokens")
+    }
+
+    /**
+     * Constant-time string comparison to prevent timing attacks on token
+     * verification (mirrors PskKeyDerivation.constantTimeEquals -- a naive
+     * `==` here leaks how many leading characters matched via response-time
+     * variance, same bug class as the just-fixed Bluetooth PSK handshake
+     * verification gap).
+     */
+    private fun constantTimeEquals(a: String, b: String): Boolean {
+        val aBytes = a.toByteArray()
+        val bBytes = b.toByteArray()
+        if (aBytes.size != bBytes.size) return false
+
+        var result = 0
+        for (i in aBytes.indices) {
+            result = result or (aBytes[i].toInt() xor bBytes[i].toInt())
+        }
+        return result == 0
     }
 }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Legacy Auto Backup rules (applies on API 23-30 via android:fullBackupContent).
+
+  Excludes the SharedPreferences file that TokenManager uses to store the
+  WiFi/Bluetooth tethering auth tokens (etphonehome_tokens.xml). Those tokens
+  are the only thing gating access to this app's VPN/tethering handshake
+  (see TokenManager.verifyWifiToken/verifyBluetoothToken and the recent
+  auth-bypass fixes in service/VpnService.kt). Letting them ride along in
+  Android's default cloud/adb backup would hand the same secret to anyone
+  who can read a backup archive, bypassing every bit of that hardening
+  without ever touching the device.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="etphonehome_tokens.xml" />
+</full-backup-content>

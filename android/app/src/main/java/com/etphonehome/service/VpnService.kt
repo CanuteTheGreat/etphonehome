@@ -18,6 +18,7 @@ import com.etphonehome.filter.FilterConfig
 import com.etphonehome.filter.FilterEngine
 import kotlinx.coroutines.*
 import java.io.*
+import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.ByteBuffer
@@ -146,9 +147,17 @@ class VpnService : AndroidVpnService() {
     private suspend fun startUsbTethering(port: Int) = withContext(Dispatchers.IO) {
         Log.d(tag, "Starting USB tethering server on port $port")
 
-        // Create server socket
-        serverSocket = ServerSocket(port)
-        Log.d(tag, "Server socket listening on port $port")
+        // Bind explicitly to loopback only. USB tethering is reached exclusively via
+        // `adb forward`/`adb reverse` over the USB cable, and -- unlike the WiFi and
+        // Bluetooth connection types -- performHandshake() never verifies a token for
+        // CONNECTION_USB, since the USB cable itself is treated as the authentication
+        // factor. `ServerSocket(port)` alone binds to ALL interfaces (0.0.0.0), so on a
+        // device that also has WiFi enabled, any host on that WiFi network could connect
+        // to this unauthenticated "USB-only" port directly and get full VPN routing.
+        // Binding to the loopback address keeps the port reachable only through the
+        // adb-forwarded tunnel, matching the no-token trust assumption this path relies on.
+        serverSocket = ServerSocket(port, 50, InetAddress.getLoopbackAddress())
+        Log.d(tag, "Server socket listening on loopback port $port")
 
         // Wait for desktop connection
         Log.d(tag, "Waiting for desktop connection...")

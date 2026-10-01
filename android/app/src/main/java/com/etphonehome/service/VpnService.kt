@@ -40,6 +40,7 @@ class VpnService : AndroidVpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var serverSocket: ServerSocket? = null
     private var bluetoothServerSocket: BluetoothServerSocket? = null
+    private var bluetoothSocket: android.bluetooth.BluetoothSocket? = null
     private var clientSocket: Socket? = null
     private var nsdAdvertiser: NsdAdvertiser? = null
     private var currentConnectionType: String = CONNECTION_USB
@@ -129,6 +130,7 @@ class VpnService : AndroidVpnService() {
 
             clientSocket?.close()
             serverSocket?.close()
+            bluetoothSocket?.close()
             bluetoothServerSocket?.close()
             vpnInterface?.close()
         } catch (e: Exception) {
@@ -225,31 +227,23 @@ class VpnService : AndroidVpnService() {
 
         // Wait for desktop connection
         Log.d(tag, "Waiting for desktop connection via Bluetooth...")
-        val bluetoothSocket = bluetoothServerSocket?.accept()
+        val acceptedSocket = bluetoothServerSocket?.accept()
             ?: throw Exception("Failed to accept Bluetooth connection")
-        Log.d(tag, "Desktop connected from ${bluetoothSocket.remoteDevice.name} (${bluetoothSocket.remoteDevice.address})")
+        Log.d(tag, "Desktop connected from ${acceptedSocket.remoteDevice.name} (${acceptedSocket.remoteDevice.address})")
 
-        // Note: BluetoothSocket doesn't expose a regular Socket, but we can use its streams
-        // We'll need to adapt our code slightly to work with BluetoothSocket
-        // For now, we'll store it as a regular Socket won't work, so we need a different approach
+        // Store the accepted (connected) socket as a field so onDestroy() can actually close
+        // it. Previously this was a local val only -- onDestroy() closed bluetoothServerSocket
+        // (the *listening* socket) but never the live connected RFCOMM socket, leaking its
+        // native file descriptor every time the service was torn down (app killed, user
+        // stopped tethering, error path) while a Bluetooth session was active.
+        bluetoothSocket = acceptedSocket
 
-        // Actually, let's wrap the Bluetooth streams in a way compatible with our existing code
-        // We can't directly use clientSocket for Bluetooth, so we'll need to refactor slightly
-        // For the prototype, we'll just use the input/output streams directly
-
-        // Configure socket (BluetoothSocket doesn't have all TCP socket options)
-        // Just verify it's connected
-        if (!bluetoothSocket.isConnected) {
+        if (!acceptedSocket.isConnected) {
             throw Exception("Bluetooth socket not connected")
         }
 
-        // We need to handle this differently - Bluetooth uses a different socket type
-        // Let's create a wrapper or adapt the forwarding logic
-        // For now, store it in a compatible way
-        clientSocket = null // We'll use Bluetooth socket directly in forwarding
-
         // Start VPN and packet forwarding with Bluetooth socket
-        startVpnAndForwardingBluetooth(bluetoothSocket)
+        startVpnAndForwardingBluetooth(acceptedSocket)
     }
 
     /**

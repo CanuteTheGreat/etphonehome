@@ -140,13 +140,27 @@ class IptablesManager {
 
     /**
      * Get the UID of an app by package name
+     *
+     * Deliberately does *not* push packageName into a shell `grep` pattern
+     * (the old approach was `pm list packages -U | grep $packageName`):
+     * grep does a substring match, so excluding "com.app" would also match
+     * "com.app.extra" and "com.notcom.app" -- excludeApps silently applied
+     * to the wrong package(s), meaning either an app the user wanted exempt
+     * from routing still got DNAT'd, or an unrelated app got exempted
+     * instead. Fetching the full, unfiltered list and matching the exact
+     * "package:<name> uid:<uid>" line ourselves removes the substring-match
+     * hazard (and the shell-quoting hazard of interpolating an arbitrary
+     * string into a root shell command) entirely.
      */
     private suspend fun getAppUid(packageName: String): Int? {
-        val result = RootManager.executeCommand("pm list packages -U | grep $packageName")
-        if (result.success && result.stdout.isNotEmpty()) {
-            // Parse UID from output like "package:com.example uid:10123"
-            val uidMatch = Regex("uid:(\\d+)").find(result.stdout.first())
-            return uidMatch?.groupValues?.get(1)?.toIntOrNull()
+        val result = RootManager.executeCommand("pm list packages -U")
+        if (!result.success) return null
+
+        val prefix = "package:$packageName uid:"
+        for (line in result.stdout) {
+            if (line.startsWith(prefix)) {
+                return line.substring(prefix.length).trim().toIntOrNull()
+            }
         }
         return null
     }

@@ -72,16 +72,6 @@
                 android:value="tethering" />
         </service>
 
-        <!-- USB Connection Service -->
-        <service
-            android:name=".service.UsbConnectionService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="tethering" />
-        </service>
-
         <!-- Root Tethering Service (for rooted devices) -->
         <service
             android:name=".root.RootTetheringService"

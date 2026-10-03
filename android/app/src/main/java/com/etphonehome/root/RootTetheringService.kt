@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import com.etphonehome.MainActivity
 import com.etphonehome.R
 import com.etphonehome.protocol.*
+import com.etphonehome.util.TokenManager
 import kotlinx.coroutines.*
 import java.io.EOFException
 import java.io.IOException
@@ -153,7 +154,28 @@ class RootTetheringService : Service() {
         val request = readMessage(input) as? HandshakeRequest
             ?: throw ProtocolException("Expected HandshakeRequest")
 
-        Log.d(TAG, "Received handshake: version=${request.version}, capabilities=${request.capabilities}")
+        Log.d(TAG, "Received handshake: version=${request.version}, capabilities=${request.capabilities}, has_token=${request.token != null}")
+
+        // Verify token before granting root-level routing. The server socket in
+        // startRootTethering() is a plain `ServerSocket(port)`, which binds to ALL
+        // interfaces (0.0.0.0) -- same as VpnService's CONNECTION_WIFI path, not the
+        // loopback-only CONNECTION_USB path. This handshake previously accepted any
+        // HandshakeRequest unconditionally and handed back CAP_ROOT, meaning any host
+        // on the same WiFi network could connect to this port and get the device's
+        // entire traffic routed through it via iptables DNAT, with zero authentication
+        // -- the same bypass class already fixed for VpnService's WiFi/Bluetooth paths
+        // and for TokenManager.verifyWifiToken/verifyBluetoothToken. Root tethering has
+        // no connection-type concept of its own (it's always reached over the network,
+        // never over USB loopback), so it reuses the WiFi token here.
+        if (!TokenManager.verifyWifiToken(applicationContext, request.token)) {
+            Log.e(TAG, "Root tethering token verification failed")
+            val errorMsg = ErrorMessage(
+                errorCode = Protocol.ERR_AUTH_FAILED,
+                message = "Authentication failed: invalid token"
+            )
+            writeMessage(output, errorMsg)
+            throw SecurityException("Root tethering authentication failed")
+        }
 
         // Send response with ROOT capability flag
         // ip_address = 0 indicates root mode (no VPN interface)

@@ -12,6 +12,7 @@ jobs:
   build-linux:
     name: Build Linux Release
     runs-on: x86_64
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -40,6 +41,7 @@ jobs:
     # No windows-latest runner exists in this infra — cross-compile via
     # mingw-w64 on the real x86_64 runner (same fix as rust-ci.yml).
     runs-on: x86_64
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust

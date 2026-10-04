@@ -28,7 +28,7 @@ class PacketParserTest {
         // overlap with where a headerLength-of-0 parse would (wrongly)
         // read the TCP ports from if this bug were present.
         pkt[20] = 0x1F
-        pkt[21] = 0x90 // would decode as port 8080 if misparsed at offset 20
+        pkt[21] = 0x90.toByte() // would decode as port 8080 if misparsed at offset 20
         pkt[22] = 0x00
         pkt[23] = 0x50 // would decode as port 80 if misparsed at offset 20
 
@@ -47,7 +47,7 @@ class PacketParserTest {
         pkt[9] = 6 // protocol = TCP
         pkt[12] = 10; pkt[13] = 0; pkt[14] = 0; pkt[15] = 1 // src 10.0.0.1
         pkt[16] = 10; pkt[17] = 0; pkt[18] = 0; pkt[19] = 2 // dst 10.0.0.2
-        pkt[20] = 0x1F; pkt[21] = 0x90 // src port 8080
+        pkt[20] = 0x1F; pkt[21] = 0x90.toByte() // src port 8080
         pkt[22] = 0x00; pkt[23] = 0x50 // dst port 80
 
         val parsed = PacketParser.parse(pkt)

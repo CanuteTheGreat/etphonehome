@@ -36,6 +36,25 @@ class IptablesManager {
         desktopPort: Int,
         excludeApps: List<String> = emptyList()
     ): Boolean = withContext(Dispatchers.IO) {
+        // desktopIp ends up interpolated verbatim into root-shell `iptables`
+        // invocations below (executeIptables -> RootManager.executeCommand ->
+        // libsu's Shell.cmd, which runs the string through an actual `su -c sh`
+        // shell, not execve with an argv array). Today the only caller is
+        // RootTetheringService, which either sources this from
+        // clientSocket.inetAddress.hostAddress (OS-resolved, always a clean
+        // dotted-quad/colon-hex address) or from an EXTRA_DESKTOP_IP intent
+        // extra that no code currently sets -- so this isn't exploitable yet.
+        // But an unvalidated string landing in a root shell command is a command
+        // injection waiting to happen the moment any future caller (e.g. an
+        // IP learned over Bluetooth/mDNS from the desktop side) feeds in
+        // attacker-influenced text containing `;`, backticks, `$()`, etc.
+        // Reject anything that isn't a syntactically valid IPv4/IPv6 address
+        // before it ever reaches a shell string.
+        if (!isValidIpAddress(desktopIp)) {
+            Log.e(TAG, "Refusing to set up root routing: desktopIp is not a valid IP address")
+            return@withContext false
+        }
+
         this@IptablesManager.desktopIp = desktopIp
         this@IptablesManager.desktopPort = desktopPort
 
@@ -136,6 +155,33 @@ class IptablesManager {
             throw RuntimeException("iptables command failed: $rule")
         }
         return result.success
+    }
+
+    /**
+     * Strictly validate that [ip] is a syntactically well-formed IPv4 or IPv6
+     * address literal -- not a hostname, not an empty string, and critically,
+     * not something containing shell metacharacters. InetAddress.getByName()
+     * would happily resolve a hostname via DNS (which we don't want here and
+     * which would itself be attacker-steerable), so this checks the string
+     * shape directly instead of deferring to a resolver.
+     */
+    private fun isValidIpAddress(ip: String): Boolean {
+        if (ip.isEmpty() || ip.length > 45) return false
+        val ipv4Regex = Regex(
+            "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}" +
+                "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
+        )
+        if (ipv4Regex.matches(ip)) return true
+        // IPv6: only hex digits, colons, and (for a trailing embedded IPv4
+        // form) dots are allowed -- no other characters, which is sufficient
+        // to rule out shell metacharacters even without full RFC validation.
+        val ipv6CharsetRegex = Regex("^[0-9a-fA-F:.]+$")
+        if (!ip.contains(':') || !ipv6CharsetRegex.matches(ip)) return false
+        return try {
+            java.net.InetAddress.getByName(ip) is java.net.Inet6Address
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /**

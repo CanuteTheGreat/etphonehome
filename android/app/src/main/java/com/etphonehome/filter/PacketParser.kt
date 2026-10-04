@@ -94,7 +94,23 @@ object PacketParser {
         if (packet.size < 20) return null
 
         val headerLength = (packet[0].toInt() and 0x0F) * 4
-        if (packet.size < headerLength) return null
+        // IHL (Internet Header Length) is a 4-bit field counting 32-bit
+        // words; the minimum valid value is 5 (20 bytes). A malformed or
+        // adversarial packet with IHL < 5 would otherwise make headerLength
+        // land inside (or before) the fixed-position fields this parser
+        // already read (version/protocol/addresses), causing the TCP/UDP
+        // port-parsing below to read garbage bytes from the IP header
+        // itself instead of the real transport header -- producing a
+        // ParsedPacket with plausible-looking but completely wrong ports.
+        // Since FilterEngine.shouldAllow() matches rules against exactly
+        // those ports, a crafted IHL could silently dodge a port-based
+        // BLOCK rule while the real OS/network stack still delivers the
+        // packet to its actual (unparsed) destination port. Rejecting
+        // out-of-range IHL here instead routes malformed packets through
+        // the same existing "can't parse = allow" fail-open path as any
+        // other unparseable packet, rather than yielding bogus-but-valid-
+        // looking parse results.
+        if (headerLength < 20 || packet.size < headerLength) return null
 
         val totalLength = ((packet[2].toInt() and 0xFF) shl 8) or (packet[3].toInt() and 0xFF)
         val protocolByte = packet[9].toInt() and 0xFF

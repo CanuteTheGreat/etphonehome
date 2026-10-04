@@ -137,6 +137,12 @@ impl Config {
     }
 
     /// Save configuration to file
+    ///
+    /// The config file holds `auth.wifi_token`/`auth.bluetooth_token` in plaintext, so on
+    /// Unix it is written with 0600 permissions (owner read/write only) instead of relying
+    /// on the process umask, which commonly leaves new files group/world-readable (0644) --
+    /// that would let any other local user read the device's WiFi/Bluetooth auth tokens
+    /// straight off disk.
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let content = toml::to_string_pretty(self).context("Failed to serialize config")?;
 
@@ -144,6 +150,17 @@ impl Config {
             "Failed to write config file: {}",
             path.as_ref().display()
         ))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path.as_ref(), fs::Permissions::from_mode(0o600)).context(
+                format!(
+                    "Failed to restrict permissions on config file: {}",
+                    path.as_ref().display()
+                ),
+            )?;
+        }
 
         Ok(())
     }
@@ -218,6 +235,33 @@ mod tests {
         assert!(config.default.auto_reconnect);
         assert_eq!(config.default.max_retries, 0);
         assert_eq!(config.default.interface, "etph0");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_save_restricts_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut config = Config::default();
+        config.auth.wifi_token = "secret-token".to_string();
+
+        let dir = std::env::temp_dir().join(format!(
+            "etph-config-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+
+        config.save(&path).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "config file containing auth tokens must be owner-only");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

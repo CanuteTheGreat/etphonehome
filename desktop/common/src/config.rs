@@ -259,7 +259,10 @@ mod tests {
         config.save(&path).unwrap();
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "config file containing auth tokens must be owner-only");
+        assert_eq!(
+            mode, 0o600,
+            "config file containing auth tokens must be owner-only"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

@@ -45,6 +45,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Ensure Node.js is present (self-heal)
+        run: command -v node || sudo apt-get install -y nodejs
       - name: Compute cache key
         id: cachekey
         run: echo "hash=$(find desktop -name Cargo.lock | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -75,6 +77,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Ensure Node.js is present (self-heal)
+        run: command -v node || sudo apt-get install -y nodejs
       - name: Compute cache key
         id: cachekey
         run: echo "hash=$(find desktop -name Cargo.lock | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -105,6 +109,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Ensure Node.js is present (self-heal)
+        run: command -v node || sudo apt-get install -y nodejs
       - name: Compute cache key
         id: cachekey
         run: echo "hash=$(find desktop -name Cargo.lock | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -146,6 +152,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y mingw-w64
+      - name: Ensure Node.js is present (self-heal)
+        run: command -v node || sudo apt-get install -y nodejs
       - name: Compute cache key
         id: cachekey
         run: echo "hash=$(find desktop -name Cargo.lock | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"

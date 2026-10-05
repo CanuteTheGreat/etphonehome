@@ -125,10 +125,16 @@ impl IpRange {
     pub fn contains(&self, ip: Ipv4Addr) -> bool {
         let ip_bits = u32::from(ip);
         let range_bits = u32::from(self.address);
-        let mask = if self.prefix_len >= 32 {
-            !0u32
-        } else {
-            !0u32 << (32 - self.prefix_len)
+        // prefix_len == 0 (e.g. "0.0.0.0/0", a legitimate "match everything"
+        // rule) must be handled explicitly: shifting a u32 by 32 bits is an
+        // out-of-range shift that panics in debug builds (and only happens
+        // to compute the right answer in release builds because LLVM masks
+        // the shift amount). prefix_len > 32 is also defensively treated as
+        // a full match instead of risking the same overflow.
+        let mask = match self.prefix_len {
+            0 => 0u32,
+            32.. => !0u32,
+            n => !0u32 << (32 - n),
         };
         (ip_bits & mask) == (range_bits & mask)
     }
@@ -371,6 +377,18 @@ mod tests {
         assert!(range.contains(Ipv4Addr::new(192, 168, 1, 1)));
         assert!(range.contains(Ipv4Addr::new(192, 168, 1, 255)));
         assert!(!range.contains(Ipv4Addr::new(192, 168, 2, 1)));
+    }
+
+    #[test]
+    fn test_ip_range_slash_zero_matches_everything() {
+        // "0.0.0.0/0" is a legitimate "match all traffic" rule. prefix_len
+        // == 0 previously drove a `!0u32 << 32` shift in contains(), an
+        // out-of-range shift that panics in debug builds. It must match
+        // every address without panicking.
+        let range = IpRange::parse("0.0.0.0/0").unwrap();
+        assert!(range.contains(Ipv4Addr::new(1, 2, 3, 4)));
+        assert!(range.contains(Ipv4Addr::new(255, 255, 255, 255)));
+        assert!(range.contains(Ipv4Addr::new(0, 0, 0, 0)));
     }
 
     #[test]

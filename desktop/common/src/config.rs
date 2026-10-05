@@ -146,20 +146,51 @@ impl Config {
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let content = toml::to_string_pretty(self).context("Failed to serialize config")?;
 
-        fs::write(path.as_ref(), content).context(format!(
-            "Failed to write config file: {}",
-            path.as_ref().display()
-        ))?;
-
+        // On Unix, open the file with mode 0600 from the moment it's created instead of
+        // writing it with the default umask (commonly 0644) and chmod'ing afterwards --
+        // the write-then-chmod sequence has a real TOCTOU race where any other local user
+        // can read the plaintext wifi/bluetooth auth tokens during the window between
+        // creation and the permission fix landing. Opening with the restrictive mode up
+        // front via OpenOptions closes that window entirely (the mode only applies when
+        // the file is newly created; an existing file's permissions are left as-is until
+        // explicitly reset below, matching the previous behavior for pre-existing files).
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(path.as_ref())
+                .context(format!(
+                    "Failed to open config file: {}",
+                    path.as_ref().display()
+                ))?;
+            file.write_all(content.as_bytes()).context(format!(
+                "Failed to write config file: {}",
+                path.as_ref().display()
+            ))?;
+
+            // Belt-and-suspenders: if the file already existed with looser permissions
+            // (e.g. created by an older binary before this fix), explicitly tighten them
+            // too, since `mode()` on OpenOptions only governs newly-created files.
             fs::set_permissions(path.as_ref(), fs::Permissions::from_mode(0o600)).context(
                 format!(
                     "Failed to restrict permissions on config file: {}",
                     path.as_ref().display()
                 ),
             )?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            fs::write(path.as_ref(), content).context(format!(
+                "Failed to write config file: {}",
+                path.as_ref().display()
+            ))?;
         }
 
         Ok(())

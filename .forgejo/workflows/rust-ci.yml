@@ -45,6 +45,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Compute cache key
+        id: cachekey
+        run: echo "hash=$(find desktop -name Cargo.lock | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -52,7 +55,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             desktop/target
-          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('desktop/**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-clippy-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-cargo-clippy-
       - name: Run clippy
@@ -72,6 +75,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Compute cache key
+        id: cachekey
+        run: echo "hash=$(find desktop -name Cargo.lock | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -79,7 +85,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             desktop/target
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('desktop/**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-test-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-cargo-test-
       - name: Run tests
@@ -99,6 +105,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Compute cache key
+        id: cachekey
+        run: echo "hash=$(find desktop -name Cargo.lock | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -106,7 +115,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             desktop/target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('desktop/**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-build-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-cargo-build-
       - name: Build release
@@ -137,6 +146,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y mingw-w64
+      - name: Compute cache key
+        id: cachekey
+        run: echo "hash=$(find desktop -name Cargo.lock | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -144,7 +156,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             desktop/target
-          key: ${{ runner.os }}-cargo-build-windows-${{ hashFiles('desktop/**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-build-windows-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-cargo-build-windows-
       - name: Build release

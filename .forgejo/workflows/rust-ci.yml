@@ -32,6 +32,7 @@ jobs:
 
   clippy:
     name: Clippy
+    needs: fmt
     runs-on: x86_64
     timeout-minutes: 20
     steps:
@@ -60,6 +61,7 @@ jobs:
 
   test:
     name: Test
+    needs: clippy
     runs-on: x86_64
     timeout-minutes: 20
     steps:
@@ -86,6 +88,7 @@ jobs:
 
   build-linux:
     name: Build Linux
+    needs: test
     runs-on: x86_64
     timeout-minutes: 20
     steps:
@@ -117,6 +120,7 @@ jobs:
 
   build-windows:
     name: Build Windows
+    needs: build-linux
     # No windows-latest (or any Windows) runner is registered in this infra —
     # that label silently never picks up a job (stuck "Waiting to run"
     # forever). Cross-compile to Windows via mingw-w64 on the real x86_64

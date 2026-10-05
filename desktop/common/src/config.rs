@@ -158,6 +158,7 @@ impl Config {
         {
             use std::io::Write;
             use std::os::unix::fs::OpenOptionsExt;
+            use std::os::unix::fs::PermissionsExt;
 
             let mut file = fs::OpenOptions::new()
                 .write(true)

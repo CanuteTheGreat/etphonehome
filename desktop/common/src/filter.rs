@@ -215,17 +215,16 @@ fn parse_packet(data: &[u8]) -> Option<ParsedPacket> {
     // dst_ip/protocol (parsed from fixed, always-valid offsets) still look
     // legitimate. IP/protocol-based rules keep working correctly either way;
     // we only refuse to trust ports extracted via a malformed header_len.
-    let (src_port, dst_port) =
-        if matches!(protocol, Protocol::Tcp | Protocol::Udp)
-            && header_len >= 20
-            && data.len() >= header_len + 4
-        {
-            let src = u16::from_be_bytes([data[header_len], data[header_len + 1]]);
-            let dst = u16::from_be_bytes([data[header_len + 2], data[header_len + 3]]);
-            (Some(src), Some(dst))
-        } else {
-            (None, None)
-        };
+    let (src_port, dst_port) = if matches!(protocol, Protocol::Tcp | Protocol::Udp)
+        && header_len >= 20
+        && data.len() >= header_len + 4
+    {
+        let src = u16::from_be_bytes([data[header_len], data[header_len + 1]]);
+        let dst = u16::from_be_bytes([data[header_len + 2], data[header_len + 3]]);
+        (Some(src), Some(dst))
+    } else {
+        (None, None)
+    };
 
     Some(ParsedPacket {
         protocol,

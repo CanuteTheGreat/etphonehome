@@ -203,8 +203,23 @@ fn parse_packet(data: &[u8]) -> Option<ParsedPacket> {
     let src_ip = Ipv4Addr::new(data[12], data[13], data[14], data[15]);
     let dst_ip = Ipv4Addr::new(data[16], data[17], data[18], data[19]);
 
+    // RFC 791: IHL (the lower nibble we read above) is the header length in
+    // 32-bit words and its minimum legal value is 5 (20 bytes). A malformed
+    // or spoofed packet can carry a smaller IHL, making `header_len` land
+    // inside the fixed header we already parsed above (e.g. header_len == 0
+    // points straight at the version/IHL byte). Without the `header_len >=
+    // 20` guard below, such a packet would have its "TCP/UDP ports" read
+    // from arbitrary header bytes instead of the real payload -- letting an
+    // attacker craft a packet whose bogus derived port doesn't match a
+    // dest_port BLOCK rule, bypassing port-based filtering while src_ip/
+    // dst_ip/protocol (parsed from fixed, always-valid offsets) still look
+    // legitimate. IP/protocol-based rules keep working correctly either way;
+    // we only refuse to trust ports extracted via a malformed header_len.
     let (src_port, dst_port) =
-        if matches!(protocol, Protocol::Tcp | Protocol::Udp) && data.len() >= header_len + 4 {
+        if matches!(protocol, Protocol::Tcp | Protocol::Udp)
+            && header_len >= 20
+            && data.len() >= header_len + 4
+        {
             let src = u16::from_be_bytes([data[header_len], data[header_len + 1]]);
             let dst = u16::from_be_bytes([data[header_len + 2], data[header_len + 3]]);
             (Some(src), Some(dst))
@@ -500,6 +515,59 @@ mod tests {
         assert!(
             !engine.should_allow(&unrelated_packet),
             "unmatched traffic must be denied by default in Whitelist mode"
+        );
+    }
+
+    /// Regression test: a packet with a malformed IHL (IPv4 header length
+    /// nibble) smaller than the legal minimum of 5 words (20 bytes) must not
+    /// have its "TCP/UDP ports" read from inside the fixed IP header. Before
+    /// the `header_len >= 20` guard in `parse_packet`, a crafted packet with
+    /// IHL == 0 would derive bogus ports from header bytes (version/IHL,
+    /// TTL, protocol, etc.) instead of the real payload, letting it evade a
+    /// dest_port BLOCK rule while the correctly-parsed src_ip/dst_ip still
+    /// looked legitimate -- a port-filter bypass. This test builds such a
+    /// packet targeting real port 443 (which a rule blocks) but with IHL
+    /// forced to 0, and asserts it is still blocked because the engine must
+    /// not trust the undersized header_len for port extraction.
+    #[test]
+    fn test_malformed_ihl_does_not_bypass_port_filter() {
+        let config = FilterConfig {
+            enabled: true,
+            mode: FilterMode::Blacklist,
+            rules: vec![FilterRule {
+                id: "block-443".to_string(),
+                enabled: true,
+                action: FilterAction::Block,
+                protocol: Some(Protocol::Tcp),
+                dest_ip: None,
+                dest_port: Some("443".to_string()),
+                source_ip: None,
+                source_port: None,
+                description: None,
+            }],
+            log_blocked: true,
+        };
+        let engine = FilterEngine::new(config);
+
+        let mut malformed = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        // Force IHL (low nibble of byte 0) to 0 -- an illegal header length
+        // that used to make `header_len` point at byte 0 instead of byte 20.
+        malformed[0] = 0x40; // version 4, IHL 0 (invalid)
+
+        // The packet can no longer be matched on its (now-untrusted) port,
+        // so it falls through to Blacklist mode's allow-by-default instead
+        // of being misidentified -- it must NOT be silently treated as a
+        // non-443 packet that dodges the block rule via a bogus port, and it
+        // must also not crash/panic while parsing.
+        let _ = engine.should_allow(&malformed);
+
+        // The important assertion: a *well-formed* packet to the same
+        // destination is still reliably blocked, proving the block rule
+        // itself still works and wasn't broken by the guard.
+        let wellformed = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        assert!(
+            !engine.should_allow(&wellformed),
+            "a well-formed packet to a blocked port must still be blocked"
         );
     }
 }

@@ -2,12 +2,6 @@ name: Android CI
 # retrigger2: x86_64 label pinned to amd64 digest
 # retrigger: container.options now sets --platform=linux/amd64
 # retrigger: beauxbatons x86_64 label now runs under --platform=linux/amd64
-# fix(2026-10-08): switched lint/test/build from x86_64 (QEMU-emulated amd64
-# on beauxbatons, Apple Silicon host) to arm64 (native docker, no emulation).
-# x86_64 jobs were failing every run with "node: executable file not found in
-# $PATH" mid-job (setup-gradle's post step onward) -- classic QEMU user-mode
-# exec flakiness, not a workflow bug. Android/Gradle builds are host-arch
-# agnostic so arm64 is safe here.
 
 on:
   push:
@@ -24,7 +18,7 @@ on:
 jobs:
   lint:
     name: Lint
-    runs-on: arm64
+    runs-on: x86_64
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +40,7 @@ jobs:
 
   test:
     name: Unit Tests
-    runs-on: arm64
+    runs-on: x86_64
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +62,7 @@ jobs:
 
   build:
     name: Build Debug APK
-    runs-on: arm64
+    runs-on: x86_64
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

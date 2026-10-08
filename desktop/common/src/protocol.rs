@@ -437,6 +437,16 @@ impl ErrorMessage {
         };
 
         let msg_len = u16::from_be_bytes([data[1], data[2]]) as usize;
+        // msg_len is attacker-controlled (it comes straight off the wire).
+        // Without this bound check, a malformed/truncated ErrorMsg whose
+        // declared length exceeds the actual payload causes `data[3..3 +
+        // msg_len]` to panic with a slice-index-out-of-bounds, crashing
+        // whichever side (client or server) parses it -- a trivial remote
+        // DoS. HandshakeRequest::from_bytes already guards the equivalent
+        // length-prefixed token field this same way.
+        if data.len() < 3 + msg_len {
+            return Err(ProtocolError::MessageTooShort);
+        }
         let message = String::from_utf8(data[3..3 + msg_len].to_vec())?;
 
         Ok(Self {
@@ -488,5 +498,30 @@ mod tests {
         let bad_data = [0xFF, 0xFF, 0x01, 0x00, 0x00];
         let result = Message::read_from(&mut &bad_data[..]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_error_message_roundtrip() {
+        let msg = ErrorMessage {
+            error_code: ErrorCode::AuthFailed,
+            message: "nope".to_string(),
+        };
+        let bytes = msg.to_bytes();
+        let parsed = ErrorMessage::from_bytes(&bytes).unwrap();
+        assert_eq!(parsed.message, "nope");
+    }
+
+    #[test]
+    fn test_error_message_truncated_length_is_rejected_not_panicking() {
+        // Declares a 100-byte message but only supplies 4 bytes of payload.
+        // Before the bounds check this panicked with a slice-index
+        // out-of-bounds instead of returning an error -- a remote DoS via
+        // any malformed/truncated ErrorMsg.
+        let mut bad_data = vec![ErrorCode::InternalError as u8];
+        bad_data.extend_from_slice(&100u16.to_be_bytes());
+        bad_data.extend_from_slice(b"hi");
+
+        let result = ErrorMessage::from_bytes(&bad_data);
+        assert!(matches!(result, Err(ProtocolError::MessageTooShort)));
     }
 }

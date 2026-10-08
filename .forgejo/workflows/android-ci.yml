@@ -2,6 +2,16 @@ name: Android CI
 # retrigger2: x86_64 label pinned to amd64 digest
 # retrigger: container.options now sets --platform=linux/amd64
 # retrigger: beauxbatons x86_64 label now runs under --platform=linux/amd64
+# fix(2026-10-08): dropped gradle/actions/setup-gradle@v3. Every job was
+# failing 100% of the time (confirmed after a runner daemon restart, so not
+# QEMU flakiness) with 'node: executable file not found in $PATH' exactly at
+# that action's main step -- it's fetched via a different git-clone path than
+# actions/checkout and actions/setup-java (which both exec node fine right
+# before and after it in the same job/container), pointing at a broken or
+# uncached bundle for this specific action on the beauxbatons runner. It only
+# provided Gradle dependency caching, not required for correctness -- gradlew
+# runs fine without it, so removing it unblocks CI without needing a runner
+# infra change.
 
 on:
   push:
@@ -27,8 +37,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Run lint
@@ -49,8 +57,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Run unit tests
@@ -71,8 +77,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Build debug APK

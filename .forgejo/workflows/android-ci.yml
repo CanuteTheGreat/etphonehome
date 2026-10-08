@@ -85,6 +85,12 @@ jobs:
           export ANDROID_HOME="$HOME/android-sdk"
           export PATH="$PATH:$ANDROID_HOME/platform-tools"
           ./gradlew assembleDebug
+          # Stop the Gradle daemon immediately: it was left holding enough
+          # container memory after a full assembleDebug that the very next
+          # step's node-based action (actions/upload-artifact) would fail
+          # its docker exec with "node: executable file not found in $PATH"
+          # -- a resource-starvation symptom, not a missing binary.
+          ./gradlew --stop
       - name: Upload APK
         uses: actions/upload-artifact@v3
         with:

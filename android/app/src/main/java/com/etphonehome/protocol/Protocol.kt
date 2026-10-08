@@ -337,8 +337,20 @@ data class ErrorMessage(
     companion object {
         fun fromPayload(payload: ByteArray): ErrorMessage {
             val buffer = ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN)
+            if (buffer.remaining() < 3) {
+                throw ProtocolException("Error message too short")
+            }
             val errorCode = buffer.get()
             val messageLength = buffer.getShort().toInt() and 0xFFFF
+            // messageLength is attacker-controlled (it comes straight off the wire, same as
+            // the Rust ErrorMessage::from_bytes counterpart in desktop/common/src/protocol.rs).
+            // Without this check, a truncated/malicious ErrorMessage payload claiming a
+            // messageLength larger than the bytes actually present makes buffer.get(messageBytes)
+            // throw an uncaught BufferUnderflowException instead of a handled ProtocolException,
+            // crashing whichever side (Android service or desktop client) is parsing it.
+            if (buffer.remaining() < messageLength) {
+                throw ProtocolException("Error message truncated: claimed $messageLength bytes but only ${buffer.remaining()} remain")
+            }
             val messageBytes = ByteArray(messageLength)
             buffer.get(messageBytes)
             val message = String(messageBytes, Charsets.UTF_8)

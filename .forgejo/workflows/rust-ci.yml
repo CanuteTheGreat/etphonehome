@@ -64,9 +64,34 @@ jobs:
         working-directory: desktop
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  audit:
+    name: Security Audit
+    needs: fmt
+    runs-on: x86_64
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Generate Cargo.lock
+        # Cargo.lock is gitignored and never committed in this workspace, so
+        # a fresh checkout has nothing for cargo-audit to scan (it errors
+        # with "Couldn't load Cargo.lock" rather than silently passing).
+        working-directory: desktop
+        run: cargo generate-lockfile
+      - name: Run cargo audit
+        working-directory: desktop
+        run: cargo audit
+
   test:
     name: Test
-    needs: clippy
+    needs: [clippy, audit]
     runs-on: x86_64
     timeout-minutes: 20
     steps:

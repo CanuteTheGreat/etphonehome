@@ -117,15 +117,31 @@ data class PortRange(
     companion object {
         /**
          * Parse port range (e.g., "80", "80-443", "80,443,8080")
+         *
+         * Malformed entries are skipped rather than thrown, mirroring the Rust
+         * sibling implementation (PortRange::parse_all in
+         * desktop/common/src/filter.rs), which uses `filter_map` + `.ok()?` to
+         * drop any comma-separated entry that doesn't parse as a port/range.
+         * This spec string ultimately comes from attacker-controllable config
+         * (a ConfigUpdate dest_port/source_port string off the wire -- see
+         * Protocol.kt), so a single bad entry like "80-443-9000" (destructuring
+         * a 3-element split as a pair) or a non-numeric entry like "abc" used
+         * to throw an uncaught IllegalArgumentException/NumberFormatException
+         * out of parse(), crashing whichever side applied the new filter
+         * config instead of just ignoring that one malformed rule.
          */
         fun parse(portSpec: String): List<PortRange> {
-            return portSpec.split(",").map { part ->
+            return portSpec.split(",").mapNotNull { part ->
                 val trimmed = part.trim()
                 if (trimmed.contains("-")) {
-                    val (start, end) = trimmed.split("-")
-                    PortRange(start.trim().toInt(), end.trim().toInt())
+                    val pieces = trimmed.split("-")
+                    if (pieces.size != 2) return@mapNotNull null
+                    val start = pieces[0].trim().toIntOrNull() ?: return@mapNotNull null
+                    val end = pieces[1].trim().toIntOrNull() ?: return@mapNotNull null
+                    PortRange(start, end)
                 } else {
-                    PortRange(trimmed.toInt())
+                    val port = trimmed.toIntOrNull() ?: return@mapNotNull null
+                    PortRange(port)
                 }
             }
         }

@@ -1,5 +1,6 @@
 package com.etphonehome.filter
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -43,5 +44,39 @@ class FilterRuleTest {
         val range = IpRange.parse("0.0.0.0/0")
         assertTrue(range.contains(byteArrayOf(1, 2, 3, 4)))
         assertTrue(range.contains(byteArrayOf(255.toByte(), 255.toByte(), 255.toByte(), 255.toByte())))
+    }
+
+    // PortRange.parse() takes a spec string that ultimately comes from
+    // attacker-controllable config (a ConfigUpdate dest_port/source_port
+    // string off the wire -- see Protocol.kt). It used to throw an uncaught
+    // IllegalArgumentException/NumberFormatException on a single malformed
+    // comma-separated entry, crashing whichever side applied the new filter
+    // config. It should instead skip just the bad entry, mirroring the Rust
+    // sibling implementation (PortRange::parse_all in
+    // desktop/common/src/filter.rs), which uses `filter_map` + `.ok()?` to
+    // the same effect.
+
+    @Test
+    fun `PortRange parse skips non-numeric entries instead of throwing`() {
+        val ranges = PortRange.parse("80,abc,443")
+        assertEquals(listOf(PortRange(80), PortRange(443)), ranges)
+    }
+
+    @Test
+    fun `PortRange parse skips a malformed multi-dash range instead of throwing`() {
+        val ranges = PortRange.parse("80-443-9000,22")
+        assertEquals(listOf(PortRange(22)), ranges)
+    }
+
+    @Test
+    fun `PortRange parse skips non-numeric range bounds instead of throwing`() {
+        val ranges = PortRange.parse("80-abc,1000-2000")
+        assertEquals(listOf(PortRange(1000, 2000)), ranges)
+    }
+
+    @Test
+    fun `PortRange parse still handles well-formed specs`() {
+        val ranges = PortRange.parse("80, 443, 8000-8080")
+        assertEquals(listOf(PortRange(80), PortRange(443), PortRange(8000, 8080)), ranges)
     }
 }

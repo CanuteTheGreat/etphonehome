@@ -96,9 +96,23 @@ class FilterEngine(private var config: FilterConfig) {
             if (!rule.destIp.contains(packet.destIp)) return false
         }
 
-        // Destination port match
-        if (rule.destPort != null && packet.destPort != null) {
-            if (!rule.destPort.contains(packet.destPort)) return false
+        // Destination port match. A rule that specifies destPort must NOT
+        // match a packet whose destination port couldn't be parsed (e.g.
+        // ICMP, or a TCP/UDP packet too short to carry a transport header):
+        // previously this only compared ports when *both* rule.destPort and
+        // packet.destPort were non-null, so a port-scoped rule (dest_port =
+        // 80, protocol left null/any) silently matched every packet with an
+        // unparsed port instead of excluding them -- letting a port-specific
+        // BLOCK rule (e.g. "block dest_port 80") also swallow unrelated
+        // ICMP/malformed traffic it was never meant to touch, and letting an
+        // ALLOW rule scoped to one port wrongly pass traffic with no port at
+        // all. This mirrors the already-correct Rust sibling
+        // (FilterEngine::matches_rule in desktop/common/src/filter.rs),
+        // which does `if let Some(port) = packet.dst_port { ... } else {
+        // return false }` -- i.e. no parsed port means the rule doesn't
+        // match, full stop.
+        if (rule.destPort != null) {
+            if (packet.destPort == null || !rule.destPort.contains(packet.destPort)) return false
         }
 
         // Source IP match (if specified)
@@ -106,9 +120,10 @@ class FilterEngine(private var config: FilterConfig) {
             if (!rule.sourceIp.contains(packet.sourceIp)) return false
         }
 
-        // Source port match (if specified)
-        if (rule.sourcePort != null && packet.sourcePort != null) {
-            if (!rule.sourcePort.contains(packet.sourcePort)) return false
+        // Source port match (if specified). Same fix as destPort above --
+        // see the comment there.
+        if (rule.sourcePort != null) {
+            if (packet.sourcePort == null || !rule.sourcePort.contains(packet.sourcePort)) return false
         }
 
         return true

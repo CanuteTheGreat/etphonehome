@@ -82,6 +82,58 @@ class FilterEngineTest {
         )
     }
 
+    /**
+     * Build a minimal IPv4 header (20 bytes) for a protocol with no
+     * TCP/UDP transport header, e.g. ICMP (protocol 1), so [PacketParser]
+     * parses it with sourcePort/destPort == null.
+     */
+    private fun buildIcmpPacket(srcIp: ByteArray, dstIp: ByteArray): ByteArray {
+        val pkt = ByteArray(20)
+        pkt[0] = 0x45 // version 4, header length 5 (20 bytes)
+        pkt[9] = 1 // protocol = ICMP
+        srcIp.copyInto(pkt, 12)
+        dstIp.copyInto(pkt, 16)
+        return pkt
+    }
+
+    /**
+     * Regression test for a real bug: matchesRule() only enforced a rule's
+     * destPort/sourcePort constraint when the *packet itself* also had a
+     * parsed port (`rule.destPort != null && packet.destPort != null`).
+     * For a packet with no parsed port at all (e.g. ICMP, which carries no
+     * transport-layer ports), that condition is false, so the port check
+     * was silently skipped entirely instead of excluding the packet --
+     * letting a destPort-scoped rule match traffic it was never meant to
+     * touch. The Rust sibling (FilterEngine::matches_rule in
+     * desktop/common/src/filter.rs) gets this right by returning false
+     * when the packet has no port to compare against.
+     */
+    @Test
+    fun `destPort rule does not match a packet with no parsed port`() {
+        val rule = FilterRule(
+            id = "block-port-80",
+            action = FilterAction.BLOCK,
+            destPort = PortRange(80)
+        )
+        val config = FilterConfig(
+            enabled = true,
+            mode = FilterMode.BLACKLIST,
+            rules = listOf(rule),
+            logBlocked = false
+        )
+        val engine = FilterEngine(config)
+
+        val icmpPacket = buildIcmpPacket(
+            srcIp = byteArrayOf(10, 0, 0, 1),
+            dstIp = byteArrayOf(10, 0, 0, 5)
+        )
+        assertTrue(
+            "a destPort-scoped rule must not match a packet with no parsed port " +
+                "(e.g. ICMP), and must fall through to BLACKLIST mode's allow-by-default",
+            engine.shouldAllow(icmpPacket)
+        )
+    }
+
     @Test
     fun `matched ALLOW rule in WHITELIST mode actually allows traffic`() {
         val destIp = IpRange.parse("10.0.0.5/32")

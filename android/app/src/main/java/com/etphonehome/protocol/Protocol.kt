@@ -177,7 +177,22 @@ data class HandshakeResponse(
     }
 
     companion object {
+        // Fixed payload size: 2 (version) + 4 (capabilities) + 4 (ipAddress) + 4 (dns).
+        private const val PAYLOAD_SIZE = 14
+
         fun fromPayload(payload: ByteArray): HandshakeResponse {
+            // Same bug class as ErrorMessage.fromPayload (see ProtocolTest):
+            // a truncated/malformed HandshakeResponse payload used to make
+            // buffer.getShort()/getInt() throw an uncaught
+            // BufferUnderflowException instead of a handled
+            // ProtocolException. Mirrors the `data.len() < 14` guard on the
+            // Rust side (HandshakeResponse::from_bytes in
+            // desktop/common/src/protocol.rs).
+            if (payload.size < PAYLOAD_SIZE) {
+                throw ProtocolException(
+                    "HandshakeResponse payload truncated: need $PAYLOAD_SIZE bytes but only ${payload.size} present"
+                )
+            }
             val buffer = ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN)
             return HandshakeResponse(
                 version = buffer.getShort(),
@@ -241,7 +256,20 @@ data class StatsUpdate(
     }
 
     companion object {
+        // Fixed payload size: 8 (bytesSent) + 8 (bytesReceived) + 4 (uptimeSeconds).
+        private const val PAYLOAD_SIZE = 20
+
         fun fromPayload(payload: ByteArray): StatsUpdate {
+            // Same bug class as ErrorMessage.fromPayload (see ProtocolTest):
+            // a truncated/malformed StatsUpdate payload used to make
+            // buffer.getLong()/getInt() throw an uncaught
+            // BufferUnderflowException instead of a handled
+            // ProtocolException.
+            if (payload.size < PAYLOAD_SIZE) {
+                throw ProtocolException(
+                    "StatsUpdate payload truncated: need $PAYLOAD_SIZE bytes but only ${payload.size} present"
+                )
+            }
             val buffer = ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN)
             return StatsUpdate(
                 bytesSent = buffer.getLong(),

@@ -53,4 +53,66 @@ class ProtocolTest {
             Message.fromBytes(header + payload)
         }
     }
+
+    @Test
+    fun handshakeResponseRoundTrip() {
+        val original = HandshakeResponse(
+            capabilities = Protocol.CAP_WIFI or Protocol.CAP_TLS,
+            ipAddress = 0x0A000001,
+            dns = 0x08080808
+        )
+        val bytes = original.toBytes()
+        val parsed = Message.fromBytes(bytes) as HandshakeResponse
+        assertEquals(original.capabilities, parsed.capabilities)
+        assertEquals(original.ipAddress, parsed.ipAddress)
+        assertEquals(original.dns, parsed.dns)
+    }
+
+    @Test
+    fun handshakeResponseTruncatedPayloadIsRejectedNotCrashing() {
+        // Same bug class as ErrorMessage above: a HandshakeResponse payload
+        // shorter than the fixed 14-byte layout (2 + 4 + 4 + 4) used to make
+        // buffer.getShort()/getInt() throw an uncaught
+        // BufferUnderflowException instead of a handled ProtocolException.
+        val truncatedPayload = ByteArray(6) // only version + half of capabilities
+        val header = ByteBuffer.allocate(5)
+            .order(ByteOrder.BIG_ENDIAN)
+            .putShort(Protocol.MAGIC)
+            .put(Protocol.MSG_HANDSHAKE_RESP)
+            .putShort(truncatedPayload.size.toShort())
+            .array()
+
+        assertThrows(ProtocolException::class.java) {
+            Message.fromBytes(header + truncatedPayload)
+        }
+    }
+
+    @Test
+    fun statsUpdateRoundTrip() {
+        val original = StatsUpdate(bytesSent = 12345L, bytesReceived = 67890L, uptimeSeconds = 42)
+        val bytes = original.toBytes()
+        val parsed = Message.fromBytes(bytes) as StatsUpdate
+        assertEquals(original.bytesSent, parsed.bytesSent)
+        assertEquals(original.bytesReceived, parsed.bytesReceived)
+        assertEquals(original.uptimeSeconds, parsed.uptimeSeconds)
+    }
+
+    @Test
+    fun statsUpdateTruncatedPayloadIsRejectedNotCrashing() {
+        // Same bug class again: a StatsUpdate payload shorter than the fixed
+        // 20-byte layout (8 + 8 + 4) used to make buffer.getLong()/getInt()
+        // throw an uncaught BufferUnderflowException instead of a handled
+        // ProtocolException.
+        val truncatedPayload = ByteArray(10)
+        val header = ByteBuffer.allocate(5)
+            .order(ByteOrder.BIG_ENDIAN)
+            .putShort(Protocol.MAGIC)
+            .put(Protocol.MSG_STATS_UPDATE)
+            .putShort(truncatedPayload.size.toShort())
+            .array()
+
+        assertThrows(ProtocolException::class.java) {
+            Message.fromBytes(header + truncatedPayload)
+        }
+    }
 }

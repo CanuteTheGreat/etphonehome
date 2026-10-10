@@ -125,7 +125,23 @@ data class HandshakeRequest(
     }
 
     companion object {
+        // Fixed minimum payload size: 2 (version) + 4 (capabilities). The
+        // optional trailing token length/bytes are read defensively below.
+        private const val PAYLOAD_SIZE = 6
+
         fun fromPayload(payload: ByteArray): HandshakeRequest {
+            // Same bug class as HandshakeResponse/StatsUpdate/ErrorMessage
+            // fromPayload (see ProtocolTest): a truncated/malformed
+            // HandshakeRequest payload used to make buffer.getShort()/getInt()
+            // throw an uncaught BufferUnderflowException instead of a handled
+            // ProtocolException. Mirrors the `data.len() < 6` guard on the
+            // Rust side (HandshakeRequest::from_bytes in
+            // desktop/common/src/protocol.rs).
+            if (payload.size < PAYLOAD_SIZE) {
+                throw ProtocolException(
+                    "HandshakeRequest payload truncated: need $PAYLOAD_SIZE bytes but only ${payload.size} present"
+                )
+            }
             val buffer = ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN)
             val version = buffer.getShort()
             val capabilities = buffer.getInt()

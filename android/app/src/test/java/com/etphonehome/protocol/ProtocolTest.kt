@@ -115,4 +115,36 @@ class ProtocolTest {
             Message.fromBytes(header + truncatedPayload)
         }
     }
+
+    @Test
+    fun handshakeRequestRoundTrip() {
+        val original = HandshakeRequest(
+            capabilities = Protocol.CAP_WIFI or Protocol.CAP_BLUETOOTH,
+            token = "sometoken"
+        )
+        val bytes = original.toBytes()
+        val parsed = Message.fromBytes(bytes) as HandshakeRequest
+        assertEquals(original.capabilities, parsed.capabilities)
+        assertEquals(original.token, parsed.token)
+    }
+
+    @Test
+    fun handshakeRequestTruncatedPayloadIsRejectedNotCrashing() {
+        // Same bug class as HandshakeResponse/StatsUpdate/ErrorMessage above:
+        // a HandshakeRequest payload shorter than the fixed 6-byte minimum
+        // layout (2 version + 4 capabilities) used to make
+        // buffer.getShort()/getInt() throw an uncaught
+        // BufferUnderflowException instead of a handled ProtocolException.
+        val truncatedPayload = ByteArray(3) // only version + 1 byte of capabilities
+        val header = ByteBuffer.allocate(5)
+            .order(ByteOrder.BIG_ENDIAN)
+            .putShort(Protocol.MAGIC)
+            .put(Protocol.MSG_HANDSHAKE_REQ)
+            .putShort(truncatedPayload.size.toShort())
+            .array()
+
+        assertThrows(ProtocolException::class.java) {
+            Message.fromBytes(header + truncatedPayload)
+        }
+    }
 }

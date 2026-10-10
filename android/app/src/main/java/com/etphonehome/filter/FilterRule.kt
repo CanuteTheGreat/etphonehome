@@ -70,14 +70,31 @@ data class IpRange(
         val rangeBytes = address.address
         if (ip.size != rangeBytes.size) return false
 
+        // prefixLength comes straight from IpRange.parse()'s CIDR string (e.g. a
+        // typo'd rule like "192.168.1.0/33" or an IPv6 "/200"), with no upper- or
+        // lower-bound validation there. Without clamping here, a prefixLength
+        // bigger than the address's bit length (32 for IPv4, 128 for IPv6) makes
+        // fullBytes = prefixLength / 8 exceed ip.size/rangeBytes.size, and the
+        // "Check full bytes" loop below then throws an uncaught
+        // ArrayIndexOutOfBoundsException on ip[i]/rangeBytes[i] -- crashing
+        // FilterEngine.shouldAllow() for every packet it's asked to evaluate
+        // against that one bad rule. A negative prefixLength (parse() does a
+        // bare toInt() with no range check) hits the same failure mode via a
+        // negative fullBytes. This mirrors the equivalent defensive clamp on
+        // the Rust side (IpRange::contains in desktop/common/src/filter.rs),
+        // which treats prefix_len >= 32 (or 0) as an explicit match-everything/
+        // match-exact case specifically to avoid an out-of-range shift panic.
+        val maxPrefixBits = rangeBytes.size * 8
+        val effectivePrefix = prefixLength.coerceIn(0, maxPrefixBits)
+
         // Check full bytes
-        val fullBytes = prefixLength / 8
+        val fullBytes = effectivePrefix / 8
         for (i in 0 until fullBytes) {
             if (ip[i] != rangeBytes[i]) return false
         }
 
         // Check remaining bits
-        val remainingBits = prefixLength % 8
+        val remainingBits = effectivePrefix % 8
         if (remainingBits > 0 && fullBytes < ip.size) {
             val mask = (0xFF shl (8 - remainingBits)).toByte()
             if ((ip[fullBytes].toInt() and mask.toInt()) !=

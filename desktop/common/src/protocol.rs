@@ -84,6 +84,31 @@ pub enum ProtocolError {
 
     #[error("Unexpected message type")]
     UnexpectedMessage,
+
+    #[error("Protocol version mismatch: local major version {local_major}, peer major version {peer_major} (peer sent {peer_version:#06x})")]
+    VersionMismatch {
+        local_major: u8,
+        peer_major: u8,
+        peer_version: u16,
+    },
+}
+
+/// Check whether a peer-advertised protocol version is compatible with
+/// [`PROTOCOL_VERSION`].
+///
+/// The version is encoded as `(major << 8) | minor` (e.g. `0x0100` = 1.0).
+/// Only the major byte is required to match; a minor version bump is
+/// expected to stay backward compatible. Before this existed, both this
+/// client and the Android service (see `VpnService.performHandshake` /
+/// the Bluetooth handshake block) logged the peer's version and then
+/// proceeded unconditionally -- a build speaking an incompatible wire
+/// format would pass the handshake and only fail later, mid-stream, when
+/// it sent or received a message the other side didn't expect, instead of
+/// failing fast with the `ErrorCode::ProtocolVersion` / `ERR_PROTOCOL_VERSION`
+/// error code that has existed since the protocol was first defined but was
+/// never actually triggered by either side.
+pub fn is_version_compatible(peer_version: u16) -> bool {
+    (peer_version >> 8) as u8 == (PROTOCOL_VERSION >> 8) as u8
 }
 
 /// Protocol message
@@ -498,6 +523,24 @@ mod tests {
         let bad_data = [0xFF, 0xFF, 0x01, 0x00, 0x00];
         let result = Message::read_from(&mut &bad_data[..]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_version_compatible_exact_match() {
+        assert!(is_version_compatible(PROTOCOL_VERSION));
+    }
+
+    #[test]
+    fn test_version_compatible_same_major_different_minor() {
+        // Same major (0x01), different minor byte should still be compatible.
+        assert!(is_version_compatible(0x0105));
+        assert!(is_version_compatible(0x0100));
+    }
+
+    #[test]
+    fn test_version_incompatible_different_major() {
+        assert!(!is_version_compatible(0x0200));
+        assert!(!is_version_compatible(0x0000));
     }
 
     #[test]

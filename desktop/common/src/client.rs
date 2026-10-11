@@ -78,6 +78,19 @@ impl Client {
 
         match response {
             Message::HandshakeResp(resp) => {
+                if !is_version_compatible(resp.version) {
+                    let local_major = (PROTOCOL_VERSION >> 8) as u8;
+                    let peer_major = (resp.version >> 8) as u8;
+                    error!(
+                        "Protocol version mismatch: local major {}, Android major {} (Android sent {:#06x})",
+                        local_major, peer_major, resp.version
+                    );
+                    return Err(ProtocolError::VersionMismatch {
+                        local_major,
+                        peer_major,
+                        peer_version: resp.version,
+                    });
+                }
                 info!("Handshake successful");
                 info!("  Protocol version: {:#06x}", resp.version);
                 info!("  Android capabilities: {:#010x}", resp.capabilities);

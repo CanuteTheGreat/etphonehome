@@ -39,6 +39,29 @@ object Protocol {
     const val CAP_IPV6: Int = 1 shl 4
     const val CAP_TLS: Int = 1 shl 5
     const val CAP_TLS_PSK: Int = 1 shl 6
+
+    /**
+     * Check whether a peer-advertised protocol version is compatible with
+     * [PROTOCOL_VERSION].
+     *
+     * The version is encoded as (major shl 8) or minor (e.g. 0x0100 = 1.0).
+     * Before this check existed, both the desktop client (see
+     * etphonehome_common::client::Client::handshake) and this service logged
+     * the peer's version and then proceeded unconditionally -- a desktop
+     * build speaking an incompatible wire format (future MSG_* additions,
+     * changed payload layout, etc.) would pass the handshake and then
+     * corrupt/desync the connection the first time it sent or received a
+     * message the other side didn't expect, instead of failing fast with
+     * the ERR_PROTOCOL_VERSION error code that has existed since the
+     * protocol was first defined but was never actually triggered by
+     * either side. Only the major byte is required to match; a minor
+     * version bump is expected to stay backward compatible.
+     */
+    fun isVersionCompatible(peerVersion: Short): Boolean {
+        val localMajor = (PROTOCOL_VERSION.toInt() ushr 8) and 0xFF
+        val peerMajor = (peerVersion.toInt() ushr 8) and 0xFF
+        return localMajor == peerMajor
+    }
 }
 
 /**

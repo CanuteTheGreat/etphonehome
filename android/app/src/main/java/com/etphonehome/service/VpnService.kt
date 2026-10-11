@@ -314,6 +314,20 @@ class VpnService : AndroidVpnService() {
 
         Log.d(tag, "Received handshake request: version=${request.version}, capabilities=${request.capabilities}, has_token=${request.token != null}")
 
+        // Reject incompatible protocol versions instead of proceeding and desyncing
+        // later (see Protocol.isVersionCompatible doc for the full rationale).
+        if (!Protocol.isVersionCompatible(request.version)) {
+            Log.e(tag, "Protocol version mismatch: peer=${request.version}, local=${Protocol.PROTOCOL_VERSION}")
+            val errorMsg = ErrorMessage(
+                errorCode = Protocol.ERR_PROTOCOL_VERSION,
+                message = "Protocol version mismatch: expected major version " +
+                    "${(Protocol.PROTOCOL_VERSION.toInt() ushr 8) and 0xFF}, got " +
+                    "${(request.version.toInt() ushr 8) and 0xFF}"
+            )
+            writeMessage(output, errorMsg)
+            throw ProtocolException("Protocol version mismatch")
+        }
+
         // Verify token for Bluetooth connections -- this path previously completed the
         // handshake unconditionally regardless of the request token, unlike the WiFi path
         // in performHandshake() which always checks TokenManager.verifyWifiToken(). That
@@ -525,6 +539,20 @@ class VpnService : AndroidVpnService() {
             ?: throw ProtocolException("Expected HandshakeRequest")
 
         Log.d(tag, "Received handshake request: version=${request.version}, capabilities=${request.capabilities}, has_token=${request.token != null}")
+
+        // Reject incompatible protocol versions instead of proceeding and desyncing
+        // later (see Protocol.isVersionCompatible doc for the full rationale).
+        if (!Protocol.isVersionCompatible(request.version)) {
+            Log.e(tag, "Protocol version mismatch: peer=${request.version}, local=${Protocol.PROTOCOL_VERSION}")
+            val errorMsg = ErrorMessage(
+                errorCode = Protocol.ERR_PROTOCOL_VERSION,
+                message = "Protocol version mismatch: expected major version " +
+                    "${(Protocol.PROTOCOL_VERSION.toInt() ushr 8) and 0xFF}, got " +
+                    "${(request.version.toInt() ushr 8) and 0xFF}"
+            )
+            writeMessage(output, errorMsg)
+            throw ProtocolException("Protocol version mismatch")
+        }
 
         // Verify token for WiFi connections
         if (currentConnectionType == CONNECTION_WIFI) {

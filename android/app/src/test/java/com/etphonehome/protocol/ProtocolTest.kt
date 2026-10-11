@@ -147,4 +147,22 @@ class ProtocolTest {
             Message.fromBytes(header + truncatedPayload)
         }
     }
+
+    @Test
+    fun versionCompatibleOnExactMatch() {
+        assertEquals(true, Protocol.isVersionCompatible(Protocol.PROTOCOL_VERSION))
+    }
+
+    @Test
+    fun versionCompatibleOnSameMajorDifferentMinor() {
+        // Same major (0x01), different minor byte should still be compatible.
+        assertEquals(true, Protocol.isVersionCompatible(0x0105.toShort()))
+        assertEquals(true, Protocol.isVersionCompatible(0x0100.toShort()))
+    }
+
+    @Test
+    fun versionIncompatibleOnDifferentMajor() {
+        assertEquals(false, Protocol.isVersionCompatible(0x0200.toShort()))
+        assertEquals(false, Protocol.isVersionCompatible(0x0000.toShort()))
+    }
 }

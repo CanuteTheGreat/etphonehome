@@ -16,6 +16,7 @@ import com.etphonehome.util.NsdAdvertiser
 import com.etphonehome.util.TokenManager
 import com.etphonehome.filter.FilterConfig
 import com.etphonehome.filter.FilterEngine
+import com.etphonehome.filter.applyUpdate
 import kotlinx.coroutines.*
 import java.io.*
 import java.net.InetAddress
@@ -139,6 +140,32 @@ class VpnService : AndroidVpnService() {
         }
 
         serviceScope.cancel()
+    }
+
+    /**
+     * Apply a ConfigUpdate message from the desktop to the live FilterEngine.
+     *
+     * Before this fix, every ConfigUpdate message was logged and silently
+     * dropped -- filterEngine was permanently stuck on
+     * FilterConfig.disabled() as set in startVpnAndForwarding()/
+     * startBluetoothVpnAndForwarding(), so shouldAllow() always returned
+     * true and the entire (heavily bug-fixed) filter engine was
+     * unreachable dead code on every real connection. The actual merge
+     * logic lives in FilterConfig.applyUpdate() (filter/FilterConfig.kt)
+     * so it can be unit-tested without Robolectric.
+     */
+    private fun applyConfigUpdate(message: ConfigUpdate) {
+        Log.d(tag, "Received config update: ${message.config}")
+
+        val engine = filterEngine ?: return
+        val current = engine.getConfig()
+        val updated = current.applyUpdate(message.config)
+
+        if (updated != current) {
+            engine.updateConfig(updated)
+            Log.i(tag, "Filter config updated from desktop: enabled=${updated.enabled} " +
+                "mode=${updated.mode} logBlocked=${updated.logBlocked}")
+        }
     }
 
     /**
@@ -388,7 +415,7 @@ class VpnService : AndroidVpnService() {
                         // Just a keepalive, ignore
                     }
                     is ConfigUpdate -> {
-                        Log.d(tag, "Received config update: ${message.config}")
+                        applyConfigUpdate(message)
                     }
                     else -> {
                         Log.w(tag, "Unexpected message type: $message")
@@ -590,7 +617,7 @@ class VpnService : AndroidVpnService() {
                         // Just a keepalive, ignore
                     }
                     is ConfigUpdate -> {
-                        Log.d(tag, "Received config update: ${message.config}")
+                        applyConfigUpdate(message)
                     }
                     else -> {
                         Log.w(tag, "Unexpected message type: $message")

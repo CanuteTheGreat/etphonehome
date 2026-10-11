@@ -44,7 +44,19 @@ jobs:
         run: |
           export ANDROID_HOME="$HOME/android-sdk"
           export PATH="$PATH:$ANDROID_HOME/platform-tools"
-          ./gradlew lint
+          # Retry on transient Maven Central/dl.google.com dependency-resolution
+          # flakes (confirmed on beauxbatons, see LIVE-STATUS.md 2026-10-10/10-11 --
+          # "Could not GET '.../repo.maven.apache.org/...'" with no code change
+          # involved and the identical dep set succeeding moments earlier/later).
+          for attempt in 1 2 3; do
+            ./gradlew lint && break
+            if [ "$attempt" -eq 3 ]; then
+              echo "gradlew lint failed after 3 attempts"
+              exit 1
+            fi
+            echo "gradlew lint failed (attempt $attempt/3), retrying in 20s..."
+            sleep 20
+          done
 
   test:
     name: Unit Tests
@@ -64,7 +76,17 @@ jobs:
         run: |
           export ANDROID_HOME="$HOME/android-sdk"
           export PATH="$PATH:$ANDROID_HOME/platform-tools"
-          ./gradlew test
+          # Retry on transient Maven Central/dl.google.com dependency-resolution
+          # flakes (see lint job above and LIVE-STATUS.md 2026-10-10/10-11).
+          for attempt in 1 2 3; do
+            ./gradlew test && break
+            if [ "$attempt" -eq 3 ]; then
+              echo "gradlew test failed after 3 attempts"
+              exit 1
+            fi
+            echo "gradlew test failed (attempt $attempt/3), retrying in 20s..."
+            sleep 20
+          done
 
   build:
     name: Build Debug APK
@@ -84,7 +106,21 @@ jobs:
         run: |
           export ANDROID_HOME="$HOME/android-sdk"
           export PATH="$PATH:$ANDROID_HOME/platform-tools"
-          ./gradlew assembleDebug
+          # Retry on transient Maven Central/dl.google.com dependency-resolution
+          # flakes -- confirmed twice now (LIVE-STATUS.md 2026-10-10/10-11, run 75
+          # on commit 927739b both times, same commit/same unchanged dep set):
+          # "Could not resolve org.jetbrains.kotlin:kotlin-stdlib:2.0.21" / etc.,
+          # all failing with "Could not GET '.../repo.maven.apache.org/...'" --
+          # a runner-side network/DNS blip, not a real dependency problem.
+          for attempt in 1 2 3; do
+            ./gradlew assembleDebug && break
+            if [ "$attempt" -eq 3 ]; then
+              echo "gradlew assembleDebug failed after 3 attempts"
+              exit 1
+            fi
+            echo "gradlew assembleDebug failed (attempt $attempt/3), retrying in 20s..."
+            sleep 20
+          done
           # Stop the Gradle daemon immediately: it was left holding enough
           # container memory after a full assembleDebug that the very next
           # step's node-based action (actions/upload-artifact) would fail

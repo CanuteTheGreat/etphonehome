@@ -156,6 +156,26 @@ class RootTetheringService : Service() {
 
         Log.d(TAG, "Received handshake: version=${request.version}, capabilities=${request.capabilities}, has_token=${request.token != null}")
 
+        // Reject incompatible protocol versions instead of proceeding and desyncing later.
+        // Both of VpnService's handshake paths (USB/WiFi and Bluetooth) already reject a
+        // major-version mismatch here before doing anything else -- this root-tethering
+        // handshake was missing the same check entirely, so a desktop build running an
+        // incompatible protocol major version would sail through the handshake, get a
+        // HandshakeResponse back, and only fail later (or desync the wire framing
+        // entirely) once it tried to interpret messages it can't actually parse. See
+        // Protocol.isVersionCompatible doc for the full rationale.
+        if (!Protocol.isVersionCompatible(request.version)) {
+            Log.e(TAG, "Protocol version mismatch: peer=${request.version}, local=${Protocol.PROTOCOL_VERSION}")
+            val errorMsg = ErrorMessage(
+                errorCode = Protocol.ERR_PROTOCOL_VERSION,
+                message = "Protocol version mismatch: expected major version " +
+                    "${(Protocol.PROTOCOL_VERSION.toInt() ushr 8) and 0xFF}, got " +
+                    "${(request.version.toInt() ushr 8) and 0xFF}"
+            )
+            writeMessage(output, errorMsg)
+            throw ProtocolException("Protocol version mismatch")
+        }
+
         // Verify token before granting root-level routing. The server socket in
         // startRootTethering() is a plain `ServerSocket(port)`, which binds to ALL
         // interfaces (0.0.0.0) -- same as VpnService's CONNECTION_WIFI path, not the

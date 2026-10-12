@@ -45,8 +45,8 @@ pub enum Message {
 
     // Async task results
     ProfilesLoaded(Vec<Profile>),
-    #[allow(dead_code)]
     ProfileSaved(Result<(), String>),
+    ProfileDeleted(Result<(), String>),
     #[allow(dead_code)]
     ConnectionResult(Result<(), String>),
 

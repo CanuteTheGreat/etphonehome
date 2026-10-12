@@ -175,7 +175,12 @@ impl EtPhoneHomeApp {
                 if self.selected_profile.as_ref() == Some(&name) {
                     self.selected_profile = self.profiles.first().map(|p| p.name.clone());
                 }
-                Task::none()
+                // Persist the removal to disk immediately. Without this, deleting a
+                // profile only mutated the in-memory `self.profiles` list -- the next
+                // app restart reloads straight from config.toml via
+                // `load_profiles_from_config()`, which still has the "deleted" profile
+                // on it, silently undoing the deletion.
+                Task::perform(delete_profile_from_config(name), Message::ProfileDeleted)
             }
 
             Message::SaveProfile(profile) => {
@@ -187,9 +192,13 @@ impl EtPhoneHomeApp {
                 }
                 self.editing_profile = None;
                 if self.selected_profile.is_none() {
-                    self.selected_profile = Some(profile.name);
+                    self.selected_profile = Some(profile.name.clone());
                 }
-                Task::none()
+                // Persist to disk. Same bug as DeleteProfile above: creating/editing a
+                // profile here previously only updated in-memory state, never writing
+                // it to config.toml, so any profile created or edited in the GUI was
+                // silently lost the moment the app restarted.
+                Task::perform(save_profile_to_config(profile), Message::ProfileSaved)
             }
 
             Message::CancelProfileEdit => {
@@ -278,7 +287,21 @@ impl EtPhoneHomeApp {
                 Task::none()
             }
 
-            Message::ProfileSaved(_) | Message::ConnectionResult(_) => Task::none(),
+            Message::ProfileSaved(result) => {
+                if let Err(e) = result {
+                    log::error!("Failed to save profile to config file: {}", e);
+                }
+                Task::none()
+            }
+
+            Message::ProfileDeleted(result) => {
+                if let Err(e) = result {
+                    log::error!("Failed to delete profile from config file: {}", e);
+                }
+                Task::none()
+            }
+
+            Message::ConnectionResult(_) => Task::none(),
 
             // Periodic tick
             Message::Tick => {
@@ -420,6 +443,40 @@ impl EtPhoneHomeApp {
     pub fn editing_profile(&self) -> Option<&ProfileForm> {
         self.editing_profile.as_ref()
     }
+}
+
+/// Persist a created/edited profile to the on-disk config file.
+///
+/// Loads the current config (or defaults if none exists yet), upserts the
+/// given profile into it, and writes it back out. Runs on a blocking thread
+/// since `Config::load`/`Config::save` do synchronous file I/O.
+async fn save_profile_to_config(profile: Profile) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let mut config = Config::load_or_default().map_err(|e| e.to_string())?;
+        config.upsert_profile(profile);
+        let path = Config::default_path().map_err(|e| e.to_string())?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        config.save(&path).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Persist a profile deletion to the on-disk config file.
+async fn delete_profile_from_config(name: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let mut config = Config::load_or_default().map_err(|e| e.to_string())?;
+        config.remove_profile(&name);
+        let path = Config::default_path().map_err(|e| e.to_string())?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        config.save(&path).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Load profiles from config file

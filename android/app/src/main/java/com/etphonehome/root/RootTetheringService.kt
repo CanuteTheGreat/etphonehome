@@ -105,8 +105,27 @@ class RootTetheringService : Service() {
         // Wait for desktop connection
         Log.d(TAG, "Waiting for desktop connection...")
         clientSocket = serverSocket?.accept()
-        val connectedIp = desktopIp ?: clientSocket?.inetAddress?.hostAddress
+
+        // Always trust the socket's own observed remote address for where to route
+        // traffic, never the caller-supplied EXTRA_DESKTOP_IP intent extra. The whole
+        // point of setupRootRouting()'s "don't redirect traffic back to the desktop"
+        // RETURN rule (see IptablesManager) is to exempt the one address packets
+        // should actually keep flowing to -- if that address doesn't match who the
+        // kernel actually accepted a TCP connection from, every packet (including the
+        // control channel/stats/keepalive after this point) gets DNAT'd into a black
+        // hole on the wrong host instead of exempted, instantly losing device
+        // connectivity (and routing to an attacker-chosen host, if the extra were
+        // ever wired up to something less trustworthy than the OS-resolved peer
+        // address). The EXTRA_DESKTOP_IP value isn't used for routing at all, only
+        // logged if it disagrees with the real peer, since no current caller sets it
+        // but a future one might expect it to at least be visible for debugging.
+        val socketIp = clientSocket?.inetAddress?.hostAddress
             ?: throw Exception("No desktop IP available")
+        if (desktopIp != null && desktopIp != socketIp) {
+            Log.w(TAG, "EXTRA_DESKTOP_IP ($desktopIp) does not match actual peer " +
+                "address ($socketIp); using the real socket peer for routing")
+        }
+        val connectedIp = socketIp
 
         Log.d(TAG, "Desktop connected from $connectedIp")
 

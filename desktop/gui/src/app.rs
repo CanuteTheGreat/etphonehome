@@ -56,6 +56,13 @@ pub struct ProfileForm {
     pub description: String,
     pub address: String,
     pub is_new: bool,
+    /// The profile's name at the time the form was opened, if editing an existing
+    /// profile (None for a brand-new one). Needed because `name` itself is freely
+    /// editable in the form -- without tracking the pre-edit name separately, saving
+    /// a renamed profile would upsert a new entry under the new name while leaving
+    /// the old-named entry behind as an orphaned duplicate, both in memory and in
+    /// config.toml.
+    pub original_name: Option<String>,
 }
 
 impl ProfileForm {
@@ -68,6 +75,7 @@ impl ProfileForm {
             description: String::new(),
             address: String::new(),
             is_new: true,
+            original_name: None,
         }
     }
 
@@ -86,6 +94,7 @@ impl ProfileForm {
             description: profile.description.clone().unwrap_or_default(),
             address: profile.address.clone().unwrap_or_default(),
             is_new: false,
+            original_name: Some(profile.name.clone()),
         }
     }
 }
@@ -183,7 +192,20 @@ impl EtPhoneHomeApp {
                 Task::perform(delete_profile_from_config(name), Message::ProfileDeleted)
             }
 
-            Message::SaveProfile(profile) => {
+            Message::SaveProfile(original_name, profile) => {
+                // If this is a rename (editing an existing profile whose name field was
+                // changed), drop the stale entry under the old name first -- otherwise
+                // upserting under the new name leaves the old-named profile behind as an
+                // orphaned duplicate instead of actually renaming it.
+                if let Some(old_name) = &original_name {
+                    if old_name != &profile.name {
+                        self.profiles.retain(|p| &p.name != old_name);
+                        if self.selected_profile.as_ref() == Some(old_name) {
+                            self.selected_profile = Some(profile.name.clone());
+                        }
+                    }
+                }
+
                 // Update or add profile
                 if let Some(pos) = self.profiles.iter().position(|p| p.name == profile.name) {
                     self.profiles[pos] = profile.clone();
@@ -198,7 +220,10 @@ impl EtPhoneHomeApp {
                 // profile here previously only updated in-memory state, never writing
                 // it to config.toml, so any profile created or edited in the GUI was
                 // silently lost the moment the app restarted.
-                Task::perform(save_profile_to_config(profile), Message::ProfileSaved)
+                Task::perform(
+                    save_profile_to_config(original_name, profile),
+                    Message::ProfileSaved,
+                )
             }
 
             Message::CancelProfileEdit => {
@@ -450,9 +475,22 @@ impl EtPhoneHomeApp {
 /// Loads the current config (or defaults if none exists yet), upserts the
 /// given profile into it, and writes it back out. Runs on a blocking thread
 /// since `Config::load`/`Config::save` do synchronous file I/O.
-async fn save_profile_to_config(profile: Profile) -> Result<(), String> {
+///
+/// `original_name` is the profile's name before this edit (None for a brand-new
+/// profile). When it differs from `profile.name` this is a rename: the old-named
+/// entry is removed first so the rename doesn't leave a duplicate profile behind
+/// under the stale name in config.toml.
+async fn save_profile_to_config(
+    original_name: Option<String>,
+    profile: Profile,
+) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let mut config = Config::load_or_default().map_err(|e| e.to_string())?;
+        if let Some(old_name) = &original_name {
+            if old_name != &profile.name {
+                config.remove_profile(old_name);
+            }
+        }
         config.upsert_profile(profile);
         let path = Config::default_path().map_err(|e| e.to_string())?;
         if let Some(parent) = path.parent() {

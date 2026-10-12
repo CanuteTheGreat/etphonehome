@@ -18,7 +18,11 @@ pub enum Message {
     CreateProfile,
     EditProfile(String),
     DeleteProfile(String),
-    SaveProfile(Profile),
+    /// (original_name, new_profile) -- original_name is Some(..) when editing an
+    /// existing profile (None for a brand-new one) and lets the handler detect a
+    /// rename so it can remove the old on-disk/in-memory entry instead of leaving
+    /// a stale duplicate behind under the old name.
+    SaveProfile(Option<String>, Profile),
     CancelProfileEdit,
 
     // Profile form updates

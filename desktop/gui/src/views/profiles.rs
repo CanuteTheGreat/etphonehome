@@ -206,7 +206,10 @@ fn view_profile_form(form: &ProfileForm) -> Element<'static, Message> {
     let save_btn = button(text("Save"))
         .padding(10)
         .style(button::primary)
-        .on_press(Message::SaveProfile(form_to_profile(form)));
+        .on_press(Message::SaveProfile(
+            form.original_name.clone(),
+            form_to_profile(form),
+        ));
 
     let cancel_btn = button(text("Cancel"))
         .padding(10)

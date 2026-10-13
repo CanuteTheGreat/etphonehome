@@ -63,6 +63,12 @@ pub struct ProfileForm {
     /// the old-named entry behind as an orphaned duplicate, both in memory and in
     /// config.toml.
     pub original_name: Option<String>,
+    /// The profile's traffic filter config, carried through the edit form untouched.
+    /// Without this, editing *any* field of an existing profile (even just its
+    /// description) would silently reset `filter` back to `FilterConfig::default()`
+    /// on save, discarding the user's configured filter rules -- the form had no way
+    /// to remember them since they're not editable here.
+    pub filter: FilterConfig,
 }
 
 impl ProfileForm {
@@ -76,6 +82,7 @@ impl ProfileForm {
             address: String::new(),
             is_new: true,
             original_name: None,
+            filter: FilterConfig::default(),
         }
     }
 
@@ -95,6 +102,7 @@ impl ProfileForm {
             address: profile.address.clone().unwrap_or_default(),
             is_new: false,
             original_name: Some(profile.name.clone()),
+            filter: profile.filter.clone(),
         }
     }
 }

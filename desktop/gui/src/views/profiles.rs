@@ -3,7 +3,7 @@
 use iced::widget::{button, column, container, row, scrollable, text, text_input, vertical_space};
 use iced::{Element, Length};
 
-use etphonehome_common::{ConnectionType, FilterConfig, Profile};
+use etphonehome_common::{ConnectionType, Profile};
 
 use crate::app::{EtPhoneHomeApp, ProfileForm};
 use crate::message::Message;
@@ -276,6 +276,9 @@ fn form_to_profile(form: &ProfileForm) -> Profile {
         } else {
             Some(form.address.clone())
         },
-        filter: FilterConfig::default(),
+        // Preserve whatever filter config the profile already had -- this form has no
+        // UI for editing filter rules, so clobbering it with FilterConfig::default()
+        // here would silently wipe out the user's configured rules on every save.
+        filter: form.filter.clone(),
     }
 }

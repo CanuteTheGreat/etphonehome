@@ -156,8 +156,15 @@ async fn main() -> Result<()> {
             let filter = etphonehome_common::FilterConfig::default();
 
             if reconnect {
-                connect_with_retry(addr, &interface, capabilities::USB, max_retries, None, filter)
-                    .await
+                connect_with_retry(
+                    addr,
+                    &interface,
+                    capabilities::USB,
+                    max_retries,
+                    None,
+                    filter,
+                )
+                .await
             } else {
                 connect_and_run(addr, &interface, capabilities::USB, None, filter).await
             }
@@ -817,8 +824,14 @@ async fn connect_with_profile(
                 )
                 .await
             } else {
-                connect_and_run(addr, interface, capabilities::USB, None, profile.filter.clone())
-                    .await
+                connect_and_run(
+                    addr,
+                    interface,
+                    capabilities::USB,
+                    None,
+                    profile.filter.clone(),
+                )
+                .await
             }
         }
         ConnectionType::Wifi => {
@@ -851,8 +864,14 @@ async fn connect_with_profile(
                 )
                 .await
             } else {
-                connect_and_run(addr, interface, capabilities::WIFI, token, profile.filter.clone())
-                    .await
+                connect_and_run(
+                    addr,
+                    interface,
+                    capabilities::WIFI,
+                    token,
+                    profile.filter.clone(),
+                )
+                .await
             }
         }
         ConnectionType::Bluetooth => {

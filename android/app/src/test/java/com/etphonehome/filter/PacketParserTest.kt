@@ -41,6 +41,63 @@ class PacketParserTest {
     }
 
     @Test
+    fun `IPv6 packet with a Destination Options extension header still resolves real TCP protocol and ports`() {
+        // Build: 40-byte fixed IPv6 header (Next Header = 60, Destination
+        // Options) + 8-byte Destination Options header (Next Header = 6,
+        // TCP) + 4 bytes of src/dst port.
+        val pkt = ByteArray(40 + 8 + 4)
+        pkt[0] = 0x60 // version 6
+        pkt[6] = 60   // Next Header: Destination Options
+        // source/dest addresses (bytes 8-40) left as zero -- irrelevant here
+        pkt[40] = 6   // Destination Options' Next Header: TCP
+        pkt[41] = 0   // Hdr Ext Len = 0 -> (0+1)*8 = 8 byte header
+        // bytes 42-47 are the Destination Options header's option data (unused)
+        pkt[48] = 0x1F; pkt[49] = 0x90.toByte() // src port 8080
+        pkt[50] = 0x00; pkt[51] = 0x50            // dst port 80
+
+        val parsed = PacketParser.parse(pkt)
+        assertEquals(
+            "a TCP packet carried behind a Destination Options extension " +
+                "header must still resolve to Protocol.TCP, not Protocol.ANY " +
+                "(which would silently bypass protocol/port-scoped filter rules)",
+            Protocol.TCP,
+            parsed?.protocol
+        )
+        assertEquals(8080, parsed?.sourcePort)
+        assertEquals(80, parsed?.destPort)
+    }
+
+    @Test
+    fun `IPv6 packet with a Fragment extension header is parsed past the fixed-size fragment header`() {
+        // 40-byte fixed header (Next Header = 44, Fragment) + 8-byte
+        // Fragment header (fixed size, Next Header = 17, UDP) + 4 bytes of ports.
+        val pkt = ByteArray(40 + 8 + 4)
+        pkt[0] = 0x60
+        pkt[6] = 44 // Next Header: Fragment
+        pkt[40] = 17 // Fragment header's Next Header: UDP
+        // bytes 41-47 are fragment offset/flags/identification (unused here)
+        pkt[48] = 0x00; pkt[49] = 0x35 // src port 53
+        pkt[50] = 0x1F; pkt[51] = 0x90.toByte() // dst port 8080
+
+        val parsed = PacketParser.parse(pkt)
+        assertEquals(Protocol.UDP, parsed?.protocol)
+        assertEquals(53, parsed?.sourcePort)
+        assertEquals(8080, parsed?.destPort)
+    }
+
+    @Test
+    fun `IPv6 packet with a truncated extension header chain fails to parse instead of reading out of bounds`() {
+        // Claims a Destination Options header follows, but the packet ends
+        // right after the fixed 40-byte header -- there's no room for even
+        // the 2-byte Next Header/Hdr Ext Len fields of that header.
+        val pkt = ByteArray(40)
+        pkt[0] = 0x60
+        pkt[6] = 60 // Next Header: Destination Options, but no bytes follow
+
+        assertNull(PacketParser.parse(pkt))
+    }
+
+    @Test
     fun `IPv4 packet with valid minimum IHL (5) parses correctly`() {
         val pkt = ByteArray(24)
         pkt[0] = 0x45 // version 4, IHL 5 (20 bytes) -- the valid minimum

@@ -143,14 +143,78 @@ object PacketParser {
     }
 
     /**
+     * IPv6 extension header "next header" values that chain to another
+     * header instead of being a transport protocol themselves. RFC 8200
+     * lists these as the standard extension headers that can appear between
+     * the fixed IPv6 header and the real transport payload.
+     */
+    private val IPV6_EXTENSION_HEADERS = setOf(
+        0,   // Hop-by-Hop Options
+        43,  // Routing
+        44,  // Fragment
+        60,  // Destination Options
+        135, // Mobility
+        139, // Host Identity Protocol
+        140  // Shim6
+    )
+
+    /**
      * Parse IPv6 packet
+     *
+     * IPv6 packets can carry a chain of extension headers (Hop-by-Hop
+     * Options, Routing, Fragment, Destination Options, etc.) between the
+     * fixed 40-byte IPv6 header and the real transport-layer header. The
+     * old implementation always treated the fixed header's Next Header
+     * field (byte 6) as the transport protocol and always looked for
+     * TCP/UDP ports at a fixed offset of 40 -- but when any extension
+     * header is present, byte 6 names that extension header (e.g. 0 for
+     * Hop-by-Hop), not the real transport protocol, so `protocol` was
+     * misidentified as Protocol.ANY and ports were silently left null even
+     * for an underlying TCP/UDP packet. Since FilterEngine.shouldAllow()
+     * matches rules against exactly `protocol`/`destPort`/`sourcePort`, this
+     * let a packet with so much as a single extension header (which any
+     * sender controls -- these are optional and attacker-insertable, not a
+     * network-imposed property) bypass a protocol- or port-scoped rule
+     * entirely, e.g. a "block dest_port 443" rule would never match a
+     * TCP/443 packet wrapped in a trivial zero-length Destination Options
+     * header. This walks the chain of recognized extension headers to find
+     * the real transport protocol and the real offset to parse ports from.
      */
     private fun parseIPv6(packet: ByteArray): ParsedPacket? {
         // Minimum IPv6 header is 40 bytes
         if (packet.size < 40) return null
 
         val payloadLength = ((packet[4].toInt() and 0xFF) shl 8) or (packet[5].toInt() and 0xFF)
-        val nextHeader = packet[6].toInt() and 0xFF
+
+        var nextHeader = packet[6].toInt() and 0xFF
+        var offset = 40
+        var hops = 0
+
+        // Walk the extension header chain. Cap the number of hops so a
+        // maliciously/accidentally looping chain can't spin forever; eight
+        // is already far more than any legitimate stack produces.
+        while (nextHeader in IPV6_EXTENSION_HEADERS && hops < 8) {
+            // Every recognized extension header here uses the common
+            // "Next Header (1 byte) | Hdr Ext Len (1 byte) | ..." layout
+            // where the total header length in bytes is (Hdr Ext Len + 1) * 8,
+            // EXCEPT the Fragment header, which has no Hdr Ext Len field and
+            // is always exactly 8 bytes.
+            if (offset + 2 > packet.size) return null // truncated chain
+
+            val thisNextHeader = packet[offset].toInt() and 0xFF
+            val extLen = if (nextHeader == 44) {
+                8 // Fragment header: fixed 8 bytes, no length field
+            } else {
+                ((packet[offset + 1].toInt() and 0xFF) + 1) * 8
+            }
+
+            if (extLen <= 0 || offset + extLen > packet.size) return null // truncated/invalid
+
+            nextHeader = thisNextHeader
+            offset += extLen
+            hops++
+        }
+
         val protocol = Protocol.fromNumber(nextHeader)
 
         val sourceIp = packet.copyOfRange(8, 24)
@@ -159,10 +223,11 @@ object PacketParser {
         var sourcePort: Int? = null
         var destPort: Int? = null
 
-        // Parse TCP/UDP ports if applicable
+        // Parse TCP/UDP ports if applicable, now at the real transport
+        // offset (past any extension headers) instead of always at 40.
         if ((protocol == Protocol.TCP || protocol == Protocol.UDP) &&
-            packet.size >= 44) {
-            val buffer = ByteBuffer.wrap(packet, 40, 4)
+            packet.size >= offset + 4) {
+            val buffer = ByteBuffer.wrap(packet, offset, 4)
             sourcePort = buffer.getShort().toInt() and 0xFFFF
             destPort = buffer.getShort().toInt() and 0xFFFF
         }
@@ -174,7 +239,7 @@ object PacketParser {
             destIp = destIp,
             sourcePort = sourcePort,
             destPort = destPort,
-            headerLength = 40,
+            headerLength = offset,
             totalLength = 40 + payloadLength
         )
     }

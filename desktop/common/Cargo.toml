@@ -17,6 +17,7 @@ dirs = { workspace = true }
 rustls = { workspace = true }
 tokio-rustls = { workspace = true }
 ring = { workspace = true }
+rcgen = { workspace = true }
 
 [lib]
 name = "etphonehome_common"

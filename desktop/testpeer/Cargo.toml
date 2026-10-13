@@ -1,0 +1,28 @@
+[package]
+name = "etphonehome-testpeer"
+version = "0.1.0"
+edition = "2021"
+
+# Deliberately NOT part of the main `desktop` workspace -- this is a
+# test-only harness (see module doc in src/main.rs), not a shipped artifact,
+# so it stays out of the real release/CI build graph.
+[workspace]
+
+
+[dependencies]
+etphonehome-common = { path = "../common" }
+tokio = { version = "1.35", features = ["full"] }
+rustls = { version = "0.23", features = ["ring"] }
+tokio-rustls = "0.26"
+anyhow = "1.0"
+clap = { version = "4.4", features = ["derive"] }
+log = "0.4"
+env_logger = "0.11"
+
+[[bin]]
+name = "testpeer"
+path = "src/main.rs"
+
+[[bin]]
+name = "testclient"
+path = "src/bin_client.rs"

@@ -1,10 +1,25 @@
 use crate::protocol::*;
+use crate::tls::certpin;
 use log::{debug, error, info};
 use std::io::{self, BufReader, BufWriter, Write};
 use std::net::{SocketAddr, TcpStream};
+use std::sync::Arc;
 use std::time::Duration;
 
-/// ET Phone Home client
+/// ET Phone Home client (plaintext/legacy path).
+///
+/// For cert-pinned TLS connections, see [`connect_tls_async`] instead --
+/// that path is fully async from the TCP connect onward because
+/// `tokio_rustls` has no public API for grafting an already-completed
+/// synchronous `rustls` handshake onto an async socket afterward, so trying
+/// to reuse this synchronous `Client` for the handshake and then "hand off"
+/// to async packet forwarding (the way the plaintext path does via
+/// `into_stream()`) does not work for TLS. The TLS path therefore drives the
+/// TCP connect, the TLS handshake, and the application handshake messages
+/// all on the async runtime, then hands the still-open
+/// `tokio_rustls::client::TlsStream` straight to the same packet-forwarding
+/// loop the plaintext path uses (which is already transport-agnostic: it
+/// only calls generic `AsyncRead`/`AsyncWrite` methods).
 pub struct Client {
     stream: TcpStream,
     // Persistent read buffer across calls. Wrapping `&self.stream` in a
@@ -25,7 +40,7 @@ pub struct Client {
 }
 
 impl Client {
-    /// Connect to Android device
+    /// Connect to Android device (plaintext)
     pub fn connect(addr: SocketAddr, capabilities: u32, token: Option<String>) -> io::Result<Self> {
         info!("Connecting to Android device at {}...", addr);
 
@@ -36,7 +51,7 @@ impl Client {
 
         let reader_handle = stream.try_clone()?;
 
-        info!("Connected successfully");
+        info!("Connected successfully (plaintext)");
 
         Ok(Self {
             stream,
@@ -160,9 +175,119 @@ impl Client {
         }
     }
 
-    /// Get the underlying TCP stream for async operations
+    /// Get the underlying TCP stream for async operations (plaintext path only)
     pub fn into_stream(self) -> TcpStream {
         self.stream
+    }
+}
+
+/// Result of a successful cert-pinned TLS connect: the still-open,
+/// already-handshaked (both TLS and application-level) async stream, ready
+/// to be split and handed to the packet-forwarding loop exactly like the
+/// plaintext path's `tokio::net::TcpStream` is.
+pub struct TlsConnectOutcome {
+    pub stream: tokio_rustls::client::TlsStream<tokio::net::TcpStream>,
+    pub handshake: HandshakeResponse,
+}
+
+/// Connect to the Android device over cert-pinned TLS (see
+/// `crate::tls::certpin` for the pinning design) and complete the
+/// application-level handshake, all over the async runtime.
+///
+/// `token` is required: it is both the application auth token sent in the
+/// `HandshakeRequest` *and* the pinning trust anchor for the TLS layer, so
+/// there is no ambiguity about which secret the connection is rooted in.
+/// If the peer doesn't present a certificate matching the key derived from
+/// `token`, the TLS handshake fails here with an error -- this function
+/// never falls back to a plaintext or unpinned connection.
+pub async fn connect_tls_async(
+    addr: SocketAddr,
+    capabilities: u32,
+    token: String,
+) -> Result<TlsConnectOutcome, ProtocolError> {
+    use std::io::Error as IoError;
+    use std::io::ErrorKind;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    info!("Connecting to Android device at {} (cert-pinned TLS)...", addr);
+    let tcp = tokio::net::TcpStream::connect(addr).await?;
+    tcp.set_nodelay(true)?;
+
+    let config = certpin::client_tls_config(&token)
+        .map_err(|e| IoError::new(ErrorKind::Other, format!("TLS config error: {}", e)))?;
+    let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
+    let server_name = rustls::pki_types::ServerName::IpAddress(addr.ip().into());
+
+    info!("Starting cert-pinned TLS handshake...");
+    let mut tls = connector.connect(server_name, tcp).await.map_err(|e| {
+        error!("TLS handshake failed: {} (wrong pairing token, or peer doesn't support TLS?)", e);
+        IoError::new(ErrorKind::Other, format!("TLS handshake failed: {}", e))
+    })?;
+    {
+        let (_, conn) = tls.get_ref();
+        info!(
+            "TLS handshake complete: protocol={:?} cipher={:?}",
+            conn.protocol_version(),
+            conn.negotiated_cipher_suite()
+        );
+    }
+
+    // Application-level handshake, sent/received over the now-encrypted
+    // stream -- same wire format as the plaintext path, just carried inside
+    // TLS records instead of raw TCP segments.
+    let request = HandshakeRequest::with_token(capabilities, token);
+    let msg = Message::HandshakeReq(request);
+    let mut buf = Vec::new();
+    msg.write_to(&mut buf)?;
+    tls.write_all(&buf).await?;
+    tls.flush().await?;
+
+    let mut header = [0u8; 5];
+    tls.read_exact(&mut header).await?;
+    let magic = ((header[0] as u16) << 8) | (header[1] as u16);
+    if magic != MAGIC {
+        return Err(ProtocolError::InvalidMagic);
+    }
+    let length = ((header[3] as u16) << 8) | (header[4] as u16);
+    let mut payload = vec![0u8; length as usize];
+    tls.read_exact(&mut payload).await?;
+    let mut full_msg = header.to_vec();
+    full_msg.extend_from_slice(&payload);
+    let response = Message::read_from(&mut std::io::Cursor::new(full_msg))?;
+
+    match response {
+        Message::HandshakeResp(resp) => {
+            if !is_version_compatible(resp.version) {
+                let local_major = (PROTOCOL_VERSION >> 8) as u8;
+                let peer_major = (resp.version >> 8) as u8;
+                error!(
+                    "Protocol version mismatch: local major {}, Android major {} (Android sent {:#06x})",
+                    local_major, peer_major, resp.version
+                );
+                return Err(ProtocolError::VersionMismatch {
+                    local_major,
+                    peer_major,
+                    peer_version: resp.version,
+                });
+            }
+            info!("Handshake successful (TLS-encrypted)");
+            info!("  Protocol version: {:#06x}", resp.version);
+            info!("  Android capabilities: {:#010x}", resp.capabilities);
+            info!("  Assigned IP: {}", int_to_ip(resp.ip_address));
+            info!("  DNS: {}", int_to_ip(resp.dns));
+            Ok(TlsConnectOutcome {
+                stream: tls,
+                handshake: resp,
+            })
+        }
+        Message::Error(err) => {
+            error!("Handshake failed: {:?} - {}", err.error_code, err.message);
+            Err(ProtocolError::UnexpectedMessage)
+        }
+        _ => {
+            error!("Unexpected response during handshake");
+            Err(ProtocolError::UnexpectedMessage)
+        }
     }
 }
 

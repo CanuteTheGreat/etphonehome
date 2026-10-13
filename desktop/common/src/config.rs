@@ -73,6 +73,16 @@ pub struct AuthSettings {
     pub wifi_token: String,
     #[serde(default)]
     pub bluetooth_token: String,
+    /// Require cert-pinned TLS (see `crate::tls::certpin`) on WiFi/Bluetooth
+    /// connections, using the connection's token as the pinning trust
+    /// anchor. Defaults to `false` for backward compatibility with existing
+    /// saved configs and because it requires the peer (Android) to also be
+    /// updated to speak TLS -- flipping this on against an unpatched
+    /// Android build will simply fail to connect (by design: no silent
+    /// plaintext fallback), not silently stay plaintext while claiming to
+    /// be encrypted.
+    #[serde(default)]
+    pub tls_enabled: bool,
 }
 
 /// Advanced settings

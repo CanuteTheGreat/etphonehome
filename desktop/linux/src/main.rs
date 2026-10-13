@@ -55,6 +55,14 @@ enum Commands {
         #[arg(short = 't', long)]
         token: Option<String>,
 
+        /// Require cert-pinned TLS (see STATUS.md) -- the connection is
+        /// authenticated and encrypted using a certificate pinned to this
+        /// device's pairing token. Requires --token, and requires the peer
+        /// Android app to also support TLS; fails closed (no plaintext
+        /// fallback) rather than silently connecting unencrypted.
+        #[arg(long, default_value = "false")]
+        tls: bool,
+
         /// Enable auto-reconnect on disconnect
         #[arg(short, long, default_value = "true")]
         reconnect: bool,
@@ -177,10 +185,11 @@ async fn main() -> Result<()> {
                     max_retries,
                     None,
                     filter,
+                    false,
                 )
                 .await
             } else {
-                connect_and_run(addr, &interface, capabilities::USB, None, filter).await
+                connect_and_run(addr, &interface, capabilities::USB, None, filter, false).await
             }
         }
         Commands::Wifi {
@@ -188,6 +197,7 @@ async fn main() -> Result<()> {
             port,
             interface,
             token,
+            tls,
             reconnect,
             max_retries,
         } => {
@@ -204,10 +214,11 @@ async fn main() -> Result<()> {
                     max_retries,
                     token,
                     filter,
+                    tls,
                 )
                 .await
             } else {
-                connect_and_run(addr, &interface, capabilities::WIFI, token, filter).await
+                connect_and_run(addr, &interface, capabilities::WIFI, token, filter, tls).await
             }
         }
         Commands::SetupAdb { port } => setup_adb_forwarding(port),
@@ -325,6 +336,7 @@ async fn connect_with_retry(
     max_retries: u32,
     token: Option<String>,
     filter: etphonehome_common::FilterConfig,
+    tls_enabled: bool,
 ) -> Result<()> {
     let mut attempt = 0;
     let infinite_retries = max_retries == 0;
@@ -359,7 +371,9 @@ async fn connect_with_retry(
             tokio::time::sleep(Duration::from_secs(delay_secs)).await;
         }
 
-        match connect_and_run(addr, tun_name, capabilities, token.clone(), filter.clone()).await {
+        match connect_and_run(addr, tun_name, capabilities, token.clone(), filter.clone(), tls_enabled)
+            .await
+        {
             Ok(_) => {
                 // Connection ended normally
                 info!("Connection closed normally.");
@@ -391,6 +405,7 @@ async fn connect_and_run(
     capabilities: u32,
     token: Option<String>,
     filter: etphonehome_common::FilterConfig,
+    tls_enabled: bool,
 ) -> Result<()> {
     info!("Starting ET Phone Home client...");
 
@@ -400,29 +415,73 @@ async fn connect_and_run(
         warn!("Please run with sudo: sudo etphonehome ...");
     }
 
-    // Connect to Android device (synchronous)
-    let mut client = Client::connect(addr, capabilities, token).context(format!(
-        "Failed to connect to Android device at {}\n\
-             \n\
-             Troubleshooting:\n\
-             - Ensure Android app is running and tethering is started\n\
-             - For USB mode: Verify ADB forwarding with 'adb reverse --list'\n\
-             - For WiFi mode: Check firewall settings and WiFi connection\n\
-             - Check Android logs: adb logcat -s ETPhoneHome:V",
-        addr
-    ))?;
+    if tls_enabled && token.is_none() {
+        anyhow::bail!(
+            "TLS was requested but no pairing token was provided -- cert pinning has no trust \
+             anchor without one. Set a token (e.g. config.auth.wifi_token) or disable TLS."
+        );
+    }
 
-    // Perform handshake
-    let _handshake = client.handshake().context(
-        "Handshake with Android device failed\n\
-             \n\
-             Possible causes:\n\
-             - Protocol version mismatch (update both Android and desktop apps)\n\
-             - Connection interrupted during handshake\n\
-             - Android app crashed or stopped\n\
-             \n\
-             Try restarting both the Android app and desktop client.",
-    )?;
+    // `tcp_read`/`tcp_write` are boxed trait objects so the rest of this
+    // function (the packet-forwarding tasks below) is identical regardless
+    // of whether the connection is plaintext or cert-pinned TLS -- those
+    // tasks only ever call generic AsyncRead/AsyncWrite methods on them.
+    let (mut tcp_read, mut tcp_write): (
+        Box<dyn tokio::io::AsyncRead + Unpin + Send>,
+        Box<dyn tokio::io::AsyncWrite + Unpin + Send>,
+    ) = if tls_enabled {
+        let outcome = etphonehome_common::client::connect_tls_async(
+            addr,
+            capabilities,
+            token.clone().expect("checked above"),
+        )
+        .await
+        .context(format!(
+            "TLS connection to Android device at {} failed\n\
+                 \n\
+                 Possible causes:\n\
+                 - Wrong pairing token (cert pin mismatch -- refused by design, not a bug)\n\
+                 - Android app doesn't support TLS yet\n\
+                 - Protocol version mismatch\n\
+                 - Connection interrupted during handshake",
+            addr
+        ))?;
+        let (read_half, write_half) = tokio::io::split(outcome.stream);
+        (Box::new(read_half), Box::new(write_half))
+    } else {
+        // Connect to Android device (synchronous)
+        let mut client = Client::connect(addr, capabilities, token).context(format!(
+            "Failed to connect to Android device at {}\n\
+                 \n\
+                 Troubleshooting:\n\
+                 - Ensure Android app is running and tethering is started\n\
+                 - For USB mode: Verify ADB forwarding with 'adb reverse --list'\n\
+                 - For WiFi mode: Check firewall settings and WiFi connection\n\
+                 - Check Android logs: adb logcat -s ETPhoneHome:V",
+            addr
+        ))?;
+
+        // Perform handshake
+        let _handshake = client.handshake().context(
+            "Handshake with Android device failed\n\
+                 \n\
+                 Possible causes:\n\
+                 - Protocol version mismatch (update both Android and desktop apps)\n\
+                 - Connection interrupted during handshake\n\
+                 - Android app crashed or stopped\n\
+                 \n\
+                 Try restarting both the Android app and desktop client.",
+        )?;
+
+        let tcp_stream = client.into_stream();
+        tcp_stream
+            .set_nonblocking(true)
+            .context("Failed to set non-blocking")?;
+        let async_stream = tokio::net::TcpStream::from_std(tcp_stream)
+            .context("Failed to convert to async stream")?;
+        let (read_half, write_half) = tokio::io::split(async_stream);
+        (Box::new(read_half), Box::new(write_half))
+    };
 
     // Create TUN interface
     let tun = TunInterface::create(tun_name, "10.0.0.1", "255.255.255.0").context(format!(
@@ -451,21 +510,18 @@ async fn connect_and_run(
     info!("Tethering connection established!");
     info!("You can now use your Android device's internet connection.");
     info!("Starting packet forwarding (multi-threaded with async I/O)...");
-
-    // Convert TCP stream to async
-    let tcp_stream = client.into_stream();
-    tcp_stream
-        .set_nonblocking(true)
-        .context("Failed to set non-blocking")?;
-    let async_stream =
-        tokio::net::TcpStream::from_std(tcp_stream).context("Failed to convert to async stream")?;
+    info!(
+        "Transport security: {}",
+        if tls_enabled {
+            "ENCRYPTED (cert-pinned TLS 1.3)"
+        } else {
+            "PLAINTEXT (no TLS requested)"
+        }
+    );
 
     // Create channels for packet forwarding
     let (tun_to_android_tx, mut tun_to_android_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
     let (android_to_tun_tx, mut android_to_tun_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
-
-    // Split the TCP stream for concurrent read/write (consumes async_stream)
-    let (mut tcp_read, mut tcp_write) = tokio::io::split(async_stream);
 
     // Share TUN interface between read and write tasks
     let tun = std::sync::Arc::new(std::sync::Mutex::new(tun));
@@ -719,6 +775,7 @@ async fn connect_with_profile(
                     max_retries,
                     None,
                     profile.filter.clone(),
+                    false,
                 )
                 .await
             } else {
@@ -728,6 +785,7 @@ async fn connect_with_profile(
                     capabilities::USB,
                     None,
                     profile.filter.clone(),
+                    false,
                 )
                 .await
             }
@@ -743,6 +801,7 @@ async fn connect_with_profile(
             } else {
                 None
             };
+            let tls_enabled = config.auth.tls_enabled;
 
             if reconnect {
                 connect_with_retry(
@@ -752,6 +811,7 @@ async fn connect_with_profile(
                     max_retries,
                     token,
                     profile.filter.clone(),
+                    tls_enabled,
                 )
                 .await
             } else {
@@ -761,6 +821,7 @@ async fn connect_with_profile(
                     capabilities::WIFI,
                     token,
                     profile.filter.clone(),
+                    tls_enabled,
                 )
                 .await
             }

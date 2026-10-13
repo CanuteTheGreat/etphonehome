@@ -209,7 +209,10 @@ pub async fn connect_tls_async(
     use std::io::ErrorKind;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    info!("Connecting to Android device at {} (cert-pinned TLS)...", addr);
+    info!(
+        "Connecting to Android device at {} (cert-pinned TLS)...",
+        addr
+    );
     let tcp = tokio::net::TcpStream::connect(addr).await?;
     tcp.set_nodelay(true)?;
 
@@ -220,7 +223,10 @@ pub async fn connect_tls_async(
 
     info!("Starting cert-pinned TLS handshake...");
     let mut tls = connector.connect(server_name, tcp).await.map_err(|e| {
-        error!("TLS handshake failed: {} (wrong pairing token, or peer doesn't support TLS?)", e);
+        error!(
+            "TLS handshake failed: {} (wrong pairing token, or peer doesn't support TLS?)",
+            e
+        );
         IoError::new(ErrorKind::Other, format!("TLS handshake failed: {}", e))
     })?;
     {

@@ -371,8 +371,15 @@ async fn connect_with_retry(
             tokio::time::sleep(Duration::from_secs(delay_secs)).await;
         }
 
-        match connect_and_run(addr, tun_name, capabilities, token.clone(), filter.clone(), tls_enabled)
-            .await
+        match connect_and_run(
+            addr,
+            tun_name,
+            capabilities,
+            token.clone(),
+            filter.clone(),
+            tls_enabled,
+        )
+        .await
         {
             Ok(_) => {
                 // Connection ended normally

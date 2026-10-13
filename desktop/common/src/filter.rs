@@ -615,7 +615,7 @@ mod tests {
         // The important assertion: a *well-formed* packet to the same
         // destination is still reliably blocked, proving the block rule
         // itself still works and wasn't broken by the guard.
-         let wellformed = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        let wellformed = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
         assert!(
             !engine.should_allow(&wellformed),
             "a well-formed packet to a blocked port must still be blocked"

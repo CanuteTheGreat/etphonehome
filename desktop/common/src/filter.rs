@@ -339,11 +339,26 @@ impl FilterEngine {
         }
 
         // Destination IP check
+        //
+        // A malformed/unparseable dest_ip CIDR spec (e.g. a typo'd octet or a
+        // garbage string off the wire via ConfigUpdate) used to fall through
+        // this `if let Some(...)` silently: when `IpRange::parse` returned
+        // `None` the whole condition was skipped, so the rule behaved as if
+        // dest_ip had no restriction at all instead of failing to match.
+        // That's an attacker-exploitable bypass for a BLOCK rule (a garbled
+        // CIDR makes the block simply not apply) and is inconsistent with
+        // dest_port/source_port below, which already fail closed (no valid
+        // range parsed => `.any()` is false => rule doesn't match). Mirror
+        // that fail-closed behavior here: treat an unparseable spec as "rule
+        // doesn't match" rather than "restriction doesn't apply".
         if let Some(ref ip_spec) = rule.dest_ip {
-            if let Some(ip_range) = IpRange::parse(ip_spec) {
-                if !ip_range.contains(packet.dst_ip) {
-                    return false;
+            match IpRange::parse(ip_spec) {
+                Some(ip_range) => {
+                    if !ip_range.contains(packet.dst_ip) {
+                        return false;
+                    }
                 }
+                None => return false,
             }
         }
 
@@ -359,12 +374,15 @@ impl FilterEngine {
             }
         }
 
-        // Source IP check
+        // Source IP check (same fail-closed rationale as dest_ip above)
         if let Some(ref ip_spec) = rule.source_ip {
-            if let Some(ip_range) = IpRange::parse(ip_spec) {
-                if !ip_range.contains(packet.src_ip) {
-                    return false;
+            match IpRange::parse(ip_spec) {
+                Some(ip_range) => {
+                    if !ip_range.contains(packet.src_ip) {
+                        return false;
+                    }
                 }
+                None => return false,
             }
         }
 
@@ -597,10 +615,81 @@ mod tests {
         // The important assertion: a *well-formed* packet to the same
         // destination is still reliably blocked, proving the block rule
         // itself still works and wasn't broken by the guard.
-        let wellformed = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+         let wellformed = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
         assert!(
             !engine.should_allow(&wellformed),
             "a well-formed packet to a blocked port must still be blocked"
+        );
+    }
+
+    /// Regression test: a malformed/unparseable dest_ip CIDR spec used to be
+    /// silently skipped in `matches_rule` (the `if let Some(ip_range) =
+    /// IpRange::parse(ip_spec)` just fell through on `None`), which meant a
+    /// BLOCK rule with a garbled dest_ip effectively had NO ip restriction at
+    /// all and matched (and blocked) every destination -- a config typo or
+    /// adversarial ConfigUpdate turning a narrowly-scoped block rule into a
+    /// block-everything rule. The fix fails closed: an unparseable dest_ip
+    /// spec means the rule simply doesn't match, exactly like malformed
+    /// dest_port specs already behaved. This test uses a garbage dest_ip
+    /// string and asserts the block rule does NOT fire (traffic is allowed
+    /// through by Blacklist mode's default) instead of blocking everything.
+    #[test]
+    fn test_malformed_dest_ip_does_not_match_everything() {
+        let config = FilterConfig {
+            enabled: true,
+            mode: FilterMode::Blacklist,
+            rules: vec![FilterRule {
+                id: "block-bad-cidr".to_string(),
+                enabled: true,
+                action: FilterAction::Block,
+                protocol: None,
+                dest_ip: Some("not-a-valid-cidr".to_string()),
+                dest_port: None,
+                source_ip: None,
+                source_port: None,
+                description: None,
+            }],
+            log_blocked: true,
+        };
+        let engine = FilterEngine::new(config);
+
+        let packet = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        assert!(
+            engine.should_allow(&packet),
+            "a rule with an unparseable dest_ip must not match (and therefore \
+             must not block) traffic -- it must fail closed, not match everything"
+        );
+
+        let (blocked_count, _) = engine.get_stats();
+        assert_eq!(blocked_count, 0);
+    }
+
+    /// Same bug, source_ip side.
+    #[test]
+    fn test_malformed_source_ip_does_not_match_everything() {
+        let config = FilterConfig {
+            enabled: true,
+            mode: FilterMode::Blacklist,
+            rules: vec![FilterRule {
+                id: "block-bad-source-cidr".to_string(),
+                enabled: true,
+                action: FilterAction::Block,
+                protocol: None,
+                dest_ip: None,
+                dest_port: None,
+                source_ip: Some("999.999.999.999/99".to_string()),
+                source_port: None,
+                description: None,
+            }],
+            log_blocked: true,
+        };
+        let engine = FilterEngine::new(config);
+
+        let packet = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        assert!(
+            engine.should_allow(&packet),
+            "a rule with an unparseable source_ip must not match (and therefore \
+             must not block) traffic -- it must fail closed, not match everything"
         );
     }
 }

@@ -200,3 +200,48 @@ jobs:
         with:
           name: etphonehome-windows
           path: desktop/target/x86_64-pc-windows-gnu/release/etphonehome-windows.exe
+
+  build-gui:
+    name: Build Desktop GUI
+    # The GUI crate (desktop/gui, etphonehome-gui) was only ever compiled
+    # incidentally as part of `cargo test --all` in the `test` job above --
+    # ET Phone Home has shipped a real, actively-developed GUI (iced-based,
+    # with its own view/profile/filter-rule editing code and bugfix commits)
+    # since the v0.5.0 release, but no CI job ever built it as a standalone
+    # binary the way the CLI (etphonehome-linux/etphonehome-windows) gets
+    # built here. Add the missing build so a broken GUI-only compile is
+    # caught the same way a broken CLI compile would be.
+    needs: test
+    runs-on: x86_64
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Ensure Node.js is present (self-heal)
+        run: command -v node || sudo apt-get install -y nodejs
+      - name: Compute cache key
+        id: cachekey
+        run: echo "hash=$(find desktop -name Cargo.toml | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/target
+          key: ${{ runner.os }}-cargo-build-gui-${{ steps.cachekey.outputs.hash }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-gui-
+      - name: Build release
+        working-directory: desktop
+        run: cargo build --release -p etphonehome-gui
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: etphonehome-gui
+          path: desktop/target/release/etphonehome-gui

@@ -439,19 +439,24 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for details.
 
 ### What features are planned?
 
-**Completed (v0.4.0):**
-- ✅ Bluetooth tethering (full stack)
+**Completed (v0.5.0):**
+- ✅ Bluetooth tethering (Android + Linux desktop; Windows desktop Bluetooth
+  is not implemented — the client fails with a clear error and points you
+  at WiFi mode instead)
 - ✅ Auto-reconnect with exponential backoff
 - ✅ Token authentication for WiFi/Bluetooth
 - ✅ mDNS service discovery
 - ✅ Connection profiles
+- ✅ Desktop GUI application (Linux release build; Windows GUI release
+  pending verification)
+- ✅ Root mode (Android iptables routing)
+- ✅ Traffic filtering, enforced on both Android and desktop clients
 
-**Near term (v0.5.0):**
-- TLS encryption for WiFi/Bluetooth
-- Desktop GUI application
-- Traffic statistics and graphs
-- Root mode support
-- Advanced routing and traffic filtering
+**Not yet done:**
+- TLS encryption for WiFi/Bluetooth — the PSK/crypto code exists on both
+  sides but isn't wired into the live connection yet, so traffic is still
+  plaintext on the wire. This is the top engineering priority right now.
+- Traffic statistics and graphs beyond basic bytes sent/received
 
 **Long term (v1.0.0+):**
 - Multi-device support
@@ -504,7 +509,6 @@ Check the LICENSE file for details. Generally:
 
 **Advantages of PDANet:**
 - More mature (longer development history)
-- Desktop GUI (ET Phone Home CLI only for now)
 - Commercial support
 - Larger user base
 

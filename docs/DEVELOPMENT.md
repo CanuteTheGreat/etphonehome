@@ -450,16 +450,25 @@ Follow Rust style guide:
 
 ## Roadmap and TODOs
 
-Current priorities:
+Current priorities (re-verified against actual code/git history — see
+STATUS.md for full detail and evidence):
 
-- [ ] Complete USB connection implementation
-- [ ] Add WiFi hotspot mode
-- [ ] Implement Bluetooth tethering
-- [ ] Add root mode support
-- [ ] Create GUI for desktop apps
-- [ ] Add connection encryption
+- [x] USB connection implementation
+- [x] WiFi tethering mode
+- [x] Bluetooth tethering (Android + Linux desktop; Windows desktop
+      Bluetooth is intentionally unimplemented, see `connect_bluetooth` in
+      `desktop/windows/src/main.rs`)
+- [x] Root mode support (Android iptables routing)
+- [x] Desktop GUI (`desktop/gui`, iced-based; now built/packaged in CI and
+      Linux releases)
+- [ ] Connection encryption — PSK/TLS crypto code exists on both sides
+      (`desktop/common/src/tls/`, `android/.../tls/`) but is not yet wired
+      into the live handshake; traffic is still plaintext on the wire. Top
+      priority.
+- [x] Traffic filtering (enforced on Android and, as of this audit, desktop)
 - [ ] Improve error handling
-- [ ] Add comprehensive tests
+- [x] Comprehensive protocol/filter/config unit tests (26 passing in
+      `etphonehome-common` alone)
 - [ ] Performance optimizations
 - [ ] Multi-device support
 

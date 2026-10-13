@@ -150,11 +150,16 @@ async fn main() -> Result<()> {
         } => {
             setup_adb_forwarding(port)?;
             let addr = format!("127.0.0.1:{}", port).parse()?;
+            // Ad-hoc (non-profile) connections have no persisted FilterConfig
+            // to draw from; use profiles (`connect <name>`) to apply filter
+            // rules.
+            let filter = etphonehome_common::FilterConfig::default();
 
             if reconnect {
-                connect_with_retry(addr, &interface, capabilities::USB, max_retries, None).await
+                connect_with_retry(addr, &interface, capabilities::USB, max_retries, None, filter)
+                    .await
             } else {
-                connect_and_run(addr, &interface, capabilities::USB, None).await
+                connect_and_run(addr, &interface, capabilities::USB, None, filter).await
             }
         }
         Commands::Wifi {
@@ -168,11 +173,20 @@ async fn main() -> Result<()> {
             let addr: SocketAddr = format!("{}:{}", host, port)
                 .parse()
                 .context("Invalid address")?;
+            let filter = etphonehome_common::FilterConfig::default();
 
             if reconnect {
-                connect_with_retry(addr, &interface, capabilities::WIFI, max_retries, token).await
+                connect_with_retry(
+                    addr,
+                    &interface,
+                    capabilities::WIFI,
+                    max_retries,
+                    token,
+                    filter,
+                )
+                .await
             } else {
-                connect_and_run(addr, &interface, capabilities::WIFI, token).await
+                connect_and_run(addr, &interface, capabilities::WIFI, token, filter).await
             }
         }
         Commands::SetupAdb { port } => setup_adb_forwarding(port),
@@ -342,6 +356,7 @@ async fn connect_with_retry(
     capabilities: u32,
     max_retries: u32,
     token: Option<String>,
+    filter: etphonehome_common::FilterConfig,
 ) -> Result<()> {
     let mut attempt = 0;
     let infinite_retries = max_retries == 0;
@@ -376,7 +391,7 @@ async fn connect_with_retry(
             tokio::time::sleep(Duration::from_secs(delay_secs)).await;
         }
 
-        match connect_and_run(addr, tun_name, capabilities, token.clone()).await {
+        match connect_and_run(addr, tun_name, capabilities, token.clone(), filter.clone()).await {
             Ok(_) => {
                 // Connection ended normally
                 info!("Connection closed normally.");
@@ -407,6 +422,7 @@ async fn connect_and_run(
     tun_name: &str,
     capabilities: u32,
     token: Option<String>,
+    filter: etphonehome_common::FilterConfig,
 ) -> Result<()> {
     info!("Starting ET Phone Home client...");
 
@@ -481,9 +497,19 @@ async fn connect_and_run(
     // Share TUN interface between read and write tasks
     let tun = std::sync::Arc::new(std::sync::Mutex::new(tun));
 
+    // Build the traffic filter from the profile/CLI config. Previously this
+    // FilterEngine was only ever constructed in unit tests -- GUI-edited and
+    // config.toml-persisted filter rules had zero effect on real traffic
+    // because nothing in this forwarding loop ever called should_allow().
+    // Mirror Android's VpnService, which applies the filter on the
+    // local-interface-to-peer direction (VPN -> Desktop there, TUN -> Android
+    // here).
+    let filter_engine = std::sync::Arc::new(etphonehome_common::FilterEngine::new(filter));
+
     // Task 1: Read from TUN and send to channel
     let tun_read_handle = {
         let tun = std::sync::Arc::clone(&tun);
+        let filter_engine = std::sync::Arc::clone(&filter_engine);
         tokio::task::spawn(async move {
             loop {
                 let tun = std::sync::Arc::clone(&tun);
@@ -499,6 +525,12 @@ async fn connect_and_run(
 
                 match packet {
                     Ok(Ok(pkt)) => {
+                        if !filter_engine.should_allow(&pkt) {
+                            // Blocked packet: drop silently (FilterEngine
+                            // already logs it when log_blocked is set) and
+                            // keep reading instead of forwarding it on.
+                            continue;
+                        }
                         if tun_to_android_tx.send(pkt).await.is_err() {
                             break;
                         }
@@ -775,9 +807,18 @@ async fn connect_with_profile(
 
             // USB doesn't use tokens
             if reconnect {
-                connect_with_retry(addr, interface, capabilities::USB, max_retries, None).await
+                connect_with_retry(
+                    addr,
+                    interface,
+                    capabilities::USB,
+                    max_retries,
+                    None,
+                    profile.filter.clone(),
+                )
+                .await
             } else {
-                connect_and_run(addr, interface, capabilities::USB, None).await
+                connect_and_run(addr, interface, capabilities::USB, None, profile.filter.clone())
+                    .await
             }
         }
         ConnectionType::Wifi => {
@@ -800,9 +841,18 @@ async fn connect_with_profile(
             };
 
             if reconnect {
-                connect_with_retry(addr, interface, capabilities::WIFI, max_retries, token).await
+                connect_with_retry(
+                    addr,
+                    interface,
+                    capabilities::WIFI,
+                    max_retries,
+                    token,
+                    profile.filter.clone(),
+                )
+                .await
             } else {
-                connect_and_run(addr, interface, capabilities::WIFI, token).await
+                connect_and_run(addr, interface, capabilities::WIFI, token, profile.filter.clone())
+                    .await
             }
         }
         ConnectionType::Bluetooth => {

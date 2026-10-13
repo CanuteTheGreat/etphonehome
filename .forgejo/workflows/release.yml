@@ -65,6 +65,38 @@ jobs:
           name: etphonehome-windows-${{ github.ref_name }}
           path: desktop/target/x86_64-pc-windows-gnu/release/etphonehome-windows-${{ github.ref_name }}.zip
 
+  build-gui-linux:
+    name: Build Desktop GUI (Linux)
+    # Previously the GUI crate (etphonehome-gui) was never packaged into a
+    # release at all -- only the CLI binaries (etphonehome-linux,
+    # etphonehome-windows) shipped, even though the GUI is a real, actively
+    # maintained feature (part of the v0.5.0 "GUI, TLS, filtering, root mode"
+    # release and still getting bugfixes). Ship it like the CLI.
+    runs-on: x86_64
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Build release
+        working-directory: desktop
+        run: cargo build --release -p etphonehome-gui
+      - name: Strip binary
+        run: strip desktop/target/release/etphonehome-gui
+      - name: Create tarball
+        run: |
+          cd desktop/target/release
+          tar -czvf etphonehome-gui-${{ github.ref_name }}.tar.gz etphonehome-gui
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: etphonehome-gui-${{ github.ref_name }}
+          path: desktop/target/release/etphonehome-gui-${{ github.ref_name }}.tar.gz
+
   build-android:
     name: Build Android Release
     runs-on: x86_64
@@ -98,7 +130,7 @@ jobs:
 
   create-release:
     name: Create Release
-    needs: [build-linux, build-windows, build-android]
+    needs: [build-linux, build-windows, build-gui-linux, build-android]
     runs-on: x86_64
     timeout-minutes: 10
     permissions:
@@ -119,4 +151,5 @@ jobs:
           files: |
             artifacts/etphonehome-linux-${{ github.ref_name }}/*.tar.gz
             artifacts/etphonehome-windows-${{ github.ref_name }}/*.zip
+            artifacts/etphonehome-gui-${{ github.ref_name }}/*.tar.gz
             artifacts/etphonehome-android-${{ github.ref_name }}/*.apk

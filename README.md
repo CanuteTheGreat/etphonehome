@@ -40,9 +40,9 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 ### Planned Features
 
-- 🔲 Root mode for improved performance
-- 🔲 Desktop GUI application
-- 🔲 Connection encryption (TLS/DTLS)
+- ✅ Root mode for improved performance (Android root tethering — implemented)
+- ✅ Desktop GUI application (implemented; Linux release build, Windows GUI release pending)
+- 🔲 Connection encryption (TLS/DTLS) — PSK/crypto code exists on both sides but is not yet wired into the live connection (traffic is still plaintext on the wire)
 - 🔲 Multi-device support
 - 🔲 Mobile data usage tracking
 - 🔲 Custom DNS servers
@@ -394,7 +394,7 @@ See [FAQ.md](docs/FAQ.md) for more security information.
 |mDNS Discovery|✅|❌|❌|N/A|
 |Bypass Carrier|✅|✅|✅|❌|
 |Multi-threaded I/O|✅|Unknown|Unknown|N/A|
-|Desktop GUI|🔲|✅|✅|N/A|
+|Desktop GUI|✅|✅|✅|N/A|
 
 ## 📄 License
 

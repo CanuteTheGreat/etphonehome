@@ -548,11 +548,15 @@ adb reverse --remove tcp:8888
 - [x] Connection profiles with TOML configuration
 
 ### Planned for v0.5.0
-- [ ] TLS encryption for WiFi/Bluetooth modes
-- [ ] Desktop GUI application
+- [ ] TLS encryption for WiFi/Bluetooth modes — crypto/PSK code exists on
+      both sides but is not yet wired into the live connection (still
+      plaintext on the wire; top engineering priority)
+- [x] Desktop GUI application (implemented, Linux release build; Windows
+      GUI release build pending)
 - [ ] Traffic statistics and graphs
-- [ ] Root mode with iptables routing for better performance
-- [ ] Advanced routing and traffic filtering rules
+- [x] Root mode with iptables routing for better performance (Android)
+- [x] Advanced routing and traffic filtering rules (enforced on Android and
+      desktop)
 
 ### Future Versions (v1.0.0+)
 - [ ] Multiple device support

@@ -149,14 +149,31 @@ pub struct PortRange {
 
 impl PortRange {
     /// Parse port specification (e.g., "80", "80-443")
+    ///
+    /// A malformed range like "80-443-9000" (three dash-separated pieces
+    /// instead of two) used to be silently accepted here: `parts.first()`
+    /// and `parts.get(1)` only ever look at the first two elements of the
+    /// split, so the trailing "-9000" was quietly dropped and the entry
+    /// was treated as the valid-looking "80-443" instead of being rejected
+    /// as malformed. Since this spec string comes straight from
+    /// attacker-controllable config (a ConfigUpdate dest_port/source_port
+    /// string off the wire), that meant a typo'd or adversarial range spec
+    /// could resolve to a different, unintended port range rather than
+    /// being dropped -- exactly the ambiguous-input case the Kotlin
+    /// sibling (PortRange.parse in
+    /// android/.../filter/FilterRule.kt) already guards against by
+    /// requiring `pieces.size == 2`. Mirror that here.
     pub fn parse_all(spec: &str) -> Vec<Self> {
         spec.split(',')
             .filter_map(|part| {
                 let trimmed = part.trim();
                 if trimmed.contains('-') {
                     let parts: Vec<&str> = trimmed.split('-').collect();
-                    let start = parts.first()?.trim().parse().ok()?;
-                    let end = parts.get(1)?.trim().parse().ok()?;
+                    if parts.len() != 2 {
+                        return None;
+                    }
+                    let start = parts[0].trim().parse().ok()?;
+                    let end = parts[1].trim().parse().ok()?;
                     Some(PortRange { start, end })
                 } else {
                     let port = trimmed.parse().ok()?;
@@ -413,6 +430,23 @@ mod tests {
         assert!(ranges[1].contains(443));
         assert!(ranges[2].contains(8085));
         assert!(!ranges[2].contains(8091));
+    }
+
+    #[test]
+    fn test_port_range_parse_rejects_malformed_triple_dash() {
+        // "80-443-9000" has three dash-separated pieces, not the expected
+        // two -- it must be dropped entirely rather than silently
+        // resolving to "80-443" with the trailing "-9000" ignored. See the
+        // comment on PortRange::parse_all for the full rationale.
+        let ranges = PortRange::parse_all("80-443-9000");
+        assert!(ranges.is_empty());
+
+        // A malformed entry alongside valid ones should only drop the bad
+        // one, not the whole spec.
+        let ranges = PortRange::parse_all("22,80-443-9000,8080");
+        assert_eq!(ranges.len(), 2);
+        assert!(ranges[0].contains(22));
+        assert!(ranges[1].contains(8080));
     }
 
     #[test]

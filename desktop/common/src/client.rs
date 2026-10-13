@@ -206,7 +206,6 @@ pub async fn connect_tls_async(
     token: String,
 ) -> Result<TlsConnectOutcome, ProtocolError> {
     use std::io::Error as IoError;
-    use std::io::ErrorKind;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     info!(
@@ -217,7 +216,7 @@ pub async fn connect_tls_async(
     tcp.set_nodelay(true)?;
 
     let config = certpin::client_tls_config(&token)
-        .map_err(|e| IoError::new(ErrorKind::Other, format!("TLS config error: {}", e)))?;
+        .map_err(|e| IoError::other(format!("TLS config error: {}", e)))?;
     let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
     let server_name = rustls::pki_types::ServerName::IpAddress(addr.ip().into());
 
@@ -227,7 +226,7 @@ pub async fn connect_tls_async(
             "TLS handshake failed: {} (wrong pairing token, or peer doesn't support TLS?)",
             e
         );
-        IoError::new(ErrorKind::Other, format!("TLS handshake failed: {}", e))
+        IoError::other(format!("TLS handshake failed: {}", e))
     })?;
     {
         let (_, conn) = tls.get_ref();

@@ -5,6 +5,33 @@ All notable changes to ET Phone Home will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-13
+
+### Added
+- **TLS (desktop/WiFi):** Wired real cert-pinned TLS into Linux WiFi connections instead of a stub (12afaca)
+- **Packet filtering (desktop):** Wired `FilterEngine` into the real packet path on desktop instead of a no-op (b50f03e)
+
+### Fixed
+- **Security/parsing hardening (protocol, filter, root-tethering):**
+  - Reject malformed 3-piece port ranges instead of silently truncating (7387215)
+  - Fail closed on malformed dest_ip/source_ip CIDR specs in filter rules (cab0c4a)
+  - Walk the full IPv6 extension header chain instead of assuming ports at offset 40 (74c2ecf)
+  - Reject IPv4 packets with out-of-range IHL instead of misparsing ports (e9d0831, ebc3b65)
+  - Avoid out-of-range shift panic for `/0` CIDR rules (d67329f)
+  - Reject truncated HandshakeRequest/HandshakeResponse/StatsUpdate/ErrorMessage payloads instead of crashing (92539c8, 6ab03d4, dea8e02, a612ba7)
+  - Enforce protocol version compatibility at handshake, both directions (b0ed3b7, 5f0cc6c)
+  - Clamp `IpRange` prefix length to avoid out-of-bounds crash; skip malformed `PortRange` entries instead of throwing (9d9cc7b, 4dc357c)
+  - destPort/sourcePort rules no longer match packets with no parsed port (c6b7d52)
+  - Validate `desktopIp` before interpolating into root iptables shell commands; never trust `EXTRA_DESKTOP_IP` for routing target (a3212e0, 7fde1ae)
+  - Close a TOCTOU race in `Config::save` that briefly exposed plaintext auth tokens (5d02d93)
+- **GUI/config:** Persist created/edited/deleted profiles to `config.toml`; stop wiping a profile's filter rules on every edit/rename; stop leaving a duplicate profile behind on rename (7c4ce66, 14a1c9b, c86c3ab)
+- **Android:** Wire `ConfigUpdate` into the live `FilterEngine` instead of silently dropping it (927739b)
+
+### CI
+- Fixed intermittent build-runner flakiness (missing Node.js, Gradle daemon/upload-artifact races, Maven Central/dl.google.com transient failures) and corrected the Rust cargo cache key to hash `Cargo.toml` rather than the gitignored `Cargo.lock`
+
+---
+
 ## [0.4.0] - 2025-10-27
 
 ### Added

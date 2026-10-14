@@ -554,7 +554,7 @@ async fn connect_and_run(
                 // async runtime's worker threads (which also drive the TCP
                 // read/write tasks for the Android side).
                 let packet = tokio::task::spawn_blocking(move || {
-                    let mut tun_guard = tun.lock().unwrap();
+                    let mut tun_guard = tun.lock().unwrap_or_else(|e| e.into_inner());
                     tun_guard.read_packet()
                 })
                 .await;
@@ -689,7 +689,7 @@ async fn connect_and_run(
                 // Same rationale as the read side: run the blocking device
                 // write off the async runtime's worker threads.
                 let result = tokio::task::spawn_blocking(move || {
-                    let mut tun_guard = tun.lock().unwrap();
+                    let mut tun_guard = tun.lock().unwrap_or_else(|e| e.into_inner());
                     tun_guard.write_packet(&packet)
                 })
                 .await;

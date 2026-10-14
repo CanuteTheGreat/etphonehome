@@ -119,12 +119,12 @@ impl ConnectionService {
 
     /// Get current connection state
     pub fn state(&self) -> ConnectionState {
-        self.state.lock().unwrap().clone()
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Get current statistics
     pub fn stats(&self) -> ConnectionStats {
-        self.stats.lock().unwrap().clone()
+        self.stats.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Subscribe to state changes
@@ -149,14 +149,14 @@ impl ConnectionService {
 
     /// Update connection state
     pub fn set_state(&self, new_state: ConnectionState) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         *state = new_state.clone();
         let _ = self.state_tx.send(new_state);
     }
 
     /// Update statistics
     pub fn update_stats(&self, stats: ConnectionStats) {
-        let mut current = self.stats.lock().unwrap();
+        let mut current = self.stats.lock().unwrap_or_else(|e| e.into_inner());
         *current = stats.clone();
         let _ = self.stats_tx.send(stats);
     }
@@ -183,12 +183,12 @@ impl ConnectionService {
 
     /// Check if auto-reconnect is enabled
     pub fn is_auto_reconnect_enabled(&self) -> bool {
-        *self.auto_reconnect.lock().unwrap()
+        *self.auto_reconnect.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Set auto-reconnect
     pub fn set_auto_reconnect(&self, enabled: bool) {
-        *self.auto_reconnect.lock().unwrap() = enabled;
+        *self.auto_reconnect.lock().unwrap_or_else(|e| e.into_inner()) = enabled;
     }
 
     /// Calculate retry delay with exponential backoff

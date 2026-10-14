@@ -18,7 +18,7 @@ env:
 jobs:
   fmt:
     name: Format Check
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +33,7 @@ jobs:
   clippy:
     name: Clippy
     needs: fmt
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +67,7 @@ jobs:
   audit:
     name: Security Audit
     needs: fmt
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -92,7 +92,7 @@ jobs:
   test:
     name: Test
     needs: [clippy, audit]
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -124,7 +124,7 @@ jobs:
   build-linux:
     name: Build Linux
     needs: test
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -165,7 +165,7 @@ jobs:
     # that label silently never picks up a job (stuck "Waiting to run"
     # forever). Cross-compile to Windows via mingw-w64 on the real x86_64
     # runner instead of depending on a nonexistent Windows box.
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -212,7 +212,7 @@ jobs:
     # built here. Add the missing build so a broken GUI-only compile is
     # caught the same way a broken CLI compile would be.
     needs: test
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

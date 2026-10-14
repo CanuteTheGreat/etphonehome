@@ -28,7 +28,7 @@ on:
 jobs:
   lint:
     name: Lint
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +60,7 @@ jobs:
 
   test:
     name: Unit Tests
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -90,7 +90,7 @@ jobs:
 
   build:
     name: Build Debug APK
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

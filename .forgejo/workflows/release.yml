@@ -11,7 +11,7 @@ env:
 jobs:
   build-linux:
     name: Build Linux Release
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +40,7 @@ jobs:
     name: Build Windows Release
     # No windows-latest runner exists in this infra — cross-compile via
     # mingw-w64 on the real x86_64 runner (same fix as rust-ci.yml).
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +72,7 @@ jobs:
     # etphonehome-windows) shipped, even though the GUI is a real, actively
     # maintained feature (part of the v0.5.0 "GUI, TLS, filtering, root mode"
     # release and still getting bugfixes). Ship it like the CLI.
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -99,7 +99,7 @@ jobs:
 
   build-android:
     name: Build Android Release
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -131,7 +131,7 @@ jobs:
   create-release:
     name: Create Release
     needs: [build-linux, build-windows, build-gui-linux, build-android]
-    runs-on: x86_64
+    runs-on: linux-cross-x86_64
     timeout-minutes: 10
     permissions:
       contents: write

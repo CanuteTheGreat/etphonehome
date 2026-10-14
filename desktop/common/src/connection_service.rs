@@ -183,12 +183,18 @@ impl ConnectionService {
 
     /// Check if auto-reconnect is enabled
     pub fn is_auto_reconnect_enabled(&self) -> bool {
-        *self.auto_reconnect.lock().unwrap_or_else(|e| e.into_inner())
+        *self
+            .auto_reconnect
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     /// Set auto-reconnect
     pub fn set_auto_reconnect(&self, enabled: bool) {
-        *self.auto_reconnect.lock().unwrap_or_else(|e| e.into_inner()) = enabled;
+        *self
+            .auto_reconnect
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = enabled;
     }
 
     /// Calculate retry delay with exponential backoff

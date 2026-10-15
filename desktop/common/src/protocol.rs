@@ -91,6 +91,9 @@ pub enum ProtocolError {
         peer_major: u8,
         peer_version: u16,
     },
+
+    #[error("Payload too large: {0} bytes exceeds the 65535-byte wire-format limit")]
+    PayloadTooLarge(usize),
 }
 
 /// Check whether a peer-advertised protocol version is compatible with
@@ -174,10 +177,23 @@ impl Message {
             Message::Error(m) => (MessageType::ErrorMsg, m.to_bytes()),
         };
 
+        // The wire header's length field is a u16. Without this check, a
+        // payload over 65535 bytes was silently truncated by the `as u16`
+        // cast below: the header would declare e.g. `len % 65536` bytes while
+        // the full payload was still written, so the peer would read only a
+        // prefix and then parse the remaining payload bytes as the next
+        // message header -- desyncing the entire stream rather than failing
+        // cleanly. Reject before writing anything so no partial frame is
+        // ever emitted. (This also covers the nested u16 length prefixes in
+        // HandshakeRequest's token and ErrorMessage's text, which can only
+        // overflow if the whole payload does.)
+        let payload_len = u16::try_from(payload.len())
+            .map_err(|_| ProtocolError::PayloadTooLarge(payload.len()))?;
+
         // Write header
         writer.write_all(&MAGIC.to_be_bytes())?;
         writer.write_all(&[msg_type as u8])?;
-        writer.write_all(&(payload.len() as u16).to_be_bytes())?;
+        writer.write_all(&payload_len.to_be_bytes())?;
 
         // Write payload
         writer.write_all(&payload)?;
@@ -552,6 +568,29 @@ mod tests {
         let bytes = msg.to_bytes();
         let parsed = ErrorMessage::from_bytes(&bytes).unwrap();
         assert_eq!(parsed.message, "nope");
+    }
+
+    #[test]
+    fn test_oversized_payload_is_rejected_without_writing_partial_frame() {
+        let msg = Message::IpPacket(IpPacket::new(vec![0u8; u16::MAX as usize + 1]));
+        let mut buf = Vec::new();
+        match msg.write_to(&mut buf) {
+            Err(ProtocolError::PayloadTooLarge(n)) => assert_eq!(n, u16::MAX as usize + 1),
+            other => panic!("expected PayloadTooLarge, got {other:?}"),
+        }
+        assert!(buf.is_empty(), "no bytes may be written for a rejected frame");
+    }
+
+    #[test]
+    fn test_max_size_payload_roundtrips() {
+        let data = vec![0xABu8; u16::MAX as usize];
+        let msg = Message::IpPacket(IpPacket::new(data.clone()));
+        let mut buf = Vec::new();
+        msg.write_to(&mut buf).unwrap();
+        match Message::read_from(&mut &buf[..]).unwrap() {
+            Message::IpPacket(pkt) => assert_eq!(pkt.data, data),
+            _ => panic!("Wrong message type"),
+        }
     }
 
     #[test]

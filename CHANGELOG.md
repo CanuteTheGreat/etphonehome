@@ -468,10 +468,9 @@ sudo etphonehome discover-wifi
 
 ## Links
 
-- **Repository:** https://github.com/yourusername/etphonehome
+- **Repository:** https://git.canutethegreat.com/CanuteTheGreat/etphonehome
 - **Documentation:** [docs/](docs/)
-- **Issue Tracker:** https://github.com/yourusername/etphonehome/issues
-- **Discussions:** https://github.com/yourusername/etphonehome/discussions
+- **Issue Tracker:** https://git.canutethegreat.com/CanuteTheGreat/etphonehome/issues
 
 ---
 

@@ -3,7 +3,7 @@
 A modern, open-source tethering solution for Android with companion apps for Windows and Linux - an alternative to PDANet and EasyTether.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](https://github.com/yourusername/etphonehome)
+[![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](https://git.canutethegreat.com/CanuteTheGreat/etphonehome)
 
 ## 🚀 Quick Start
 
@@ -411,8 +411,7 @@ You are free to use, modify, and distribute this software for any purpose, inclu
 ## 📞 Support
 
 - 📖 [Documentation](docs/)
-- 🐛 [Issue Tracker](https://github.com/yourusername/etphonehome/issues)
-- 💬 [Discussions](https://github.com/yourusername/etphonehome/discussions)
+- 🐛 [Issue Tracker](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/issues)
 
 ---
 

@@ -578,7 +578,10 @@ mod tests {
             Err(ProtocolError::PayloadTooLarge(n)) => assert_eq!(n, u16::MAX as usize + 1),
             other => panic!("expected PayloadTooLarge, got {other:?}"),
         }
-        assert!(buf.is_empty(), "no bytes may be written for a rejected frame");
+        assert!(
+            buf.is_empty(),
+            "no bytes may be written for a rejected frame"
+        );
     }
 
     #[test]

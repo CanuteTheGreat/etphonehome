@@ -76,6 +76,9 @@ sealed class Message {
     abstract fun toBytes(): ByteArray
 
     companion object {
+        /** Largest payload the u16 header length field can describe. */
+        const val MAX_PAYLOAD_SIZE = 0xFFFF
+
         /**
          * Parse message from byte array
          */
@@ -115,6 +118,21 @@ sealed class Message {
     }
 
     protected fun createHeader(payloadLength: Int): ByteArray {
+        // The on-wire length field is a u16. `payloadLength.toShort()` used to
+        // silently wrap anything over 65535 bytes to `len % 65536` while
+        // toBytes() still appended the full payload, so the peer would read a
+        // prefix and then parse leftover payload bytes as the next frame
+        // header -- desyncing the whole stream instead of failing cleanly.
+        // Mirrors ProtocolError::PayloadTooLarge on the Rust side (76994eb).
+        // This also covers the nested u16 prefixes in HandshakeRequest (token)
+        // and ErrorMessage (text): they can only overflow if the enclosing
+        // payload does. toBytes() returns the whole frame at once, so throwing
+        // here means nothing partial is ever written.
+        if (payloadLength < 0 || payloadLength > MAX_PAYLOAD_SIZE) {
+            throw ProtocolException(
+                "Payload too large: $payloadLength bytes (max $MAX_PAYLOAD_SIZE)"
+            )
+        }
         return ByteBuffer.allocate(5)
             .order(ByteOrder.BIG_ENDIAN)
             .putShort(Protocol.MAGIC)

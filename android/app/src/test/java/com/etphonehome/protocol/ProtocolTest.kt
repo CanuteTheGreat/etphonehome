@@ -165,4 +165,26 @@ class ProtocolTest {
         assertEquals(false, Protocol.isVersionCompatible(0x0200.toShort()))
         assertEquals(false, Protocol.isVersionCompatible(0x0000.toShort()))
     }
+
+    @Test
+    fun oversizedPayloadIsRejectedInsteadOfWrappingLengthHeader() {
+        // Regression: createHeader() used payloadLength.toShort(), so a
+        // 65536-byte payload got a header claiming 0 bytes and desynced the
+        // stream. It must now fail cleanly with a ProtocolException.
+        assertThrows(ProtocolException::class.java) {
+            IpPacket(ByteArray(Message.MAX_PAYLOAD_SIZE + 1)).toBytes()
+        }
+        // Nested u16 prefix: a 65536-byte error text would also wrap.
+        assertThrows(ProtocolException::class.java) {
+            ErrorMessage(Protocol.ERR_INTERNAL_ERROR, "x".repeat(65536)).toBytes()
+        }
+    }
+
+    @Test
+    fun maxSizePayloadRoundTrips() {
+        val data = ByteArray(Message.MAX_PAYLOAD_SIZE) { it.toByte() }
+        val bytes = IpPacket(data).toBytes()
+        assertEquals(5 + Message.MAX_PAYLOAD_SIZE, bytes.size)
+        assertEquals(IpPacket(data), Message.fromBytes(bytes))
+    }
 }

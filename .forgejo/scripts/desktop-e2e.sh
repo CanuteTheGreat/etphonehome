@@ -19,7 +19,7 @@ cleanup() { docker rm -f -v "$NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 docker create --name "$NAME" --cap-add NET_ADMIN --device /dev/net/tun \
-  --memory 1g --memory-swap 1g --cpus 2 --network none \
+  --memory 1g --memory-swap 1g --cpus 2 \
   "$IMAGE" sleep 900 >/dev/null
 docker start "$NAME" >/dev/null
 docker exec "$NAME" mkdir -p /e2e/bin /e2e/shim
@@ -52,10 +52,13 @@ esac
 exit 0
 EOF
 
-# The image lacks nothing we need except possibly ping/iproute2.
-docker exec "$NAME" sh -c 'command -v ping >/dev/null && command -v ip >/dev/null' || {
-  echo "e2e image is missing ping/iproute2" >&2
-  exit 1
-}
+# The runner image has no ping/iproute2: install them while the container
+# still has the default bridge network, then cut it off from every network
+# (scenarios only use loopback and the TUN link, and the client adds a
+# default route via the TUN device).
+if ! docker exec "$NAME" sh -c 'command -v ping >/dev/null && command -v ip >/dev/null'; then
+  docker exec "$NAME" sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 iputils-ping procps >/dev/null'
+fi
+docker network disconnect bridge "$NAME"
 
 docker exec "$NAME" bash /e2e/run.sh

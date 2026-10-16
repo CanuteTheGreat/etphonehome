@@ -21,7 +21,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 ## ✨ Features
 
-### Current Features (v0.4.0)
+### Current Features (v0.5.0)
 
 - ✅ **USB Tethering** - Fast and reliable connection via USB cable
 - ✅ **WiFi Tethering** - Wireless connection over local network
@@ -42,7 +42,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 - ✅ Root mode for improved performance (Android root tethering — implemented)
 - ✅ Desktop GUI application (implemented; Linux release build, Windows GUI release pending)
-- 🔲 Connection encryption (TLS/DTLS) — PSK/crypto code exists on both sides but is not yet wired into the live connection (traffic is still plaintext on the wire)
+- ✅ Connection encryption for WiFi — `etphonehome wifi --tls` uses TLS 1.3 with a certificate pinned to the pairing token and fails closed (USB and Bluetooth stay plaintext)
 - 🔲 Multi-device support
 - 🔲 Mobile data usage tracking
 - 🔲 Custom DNS servers

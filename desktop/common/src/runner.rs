@@ -429,20 +429,33 @@ where
     let mut n: u32 = 0;
     loop {
         n += 1;
+        let fut = attempt(n);
+        tokio::pin!(fut);
         let result = tokio::select! {
-            r = attempt(n) => r,
-            _ = wait_shutdown(shutdown.clone()) => Ok(SessionEnd::Cancelled),
-        };
-        let retry = match &result {
-            Ok(end) => {
-                info!("Connection closed: {:?}", end);
-                end.should_reconnect()
+            r = &mut fut => r,
+            _ = wait_shutdown(shutdown.clone()) => {
+                // The attempt sees the same shutdown signal (the forwarding
+                // loop uses it to send Disconnect to the phone). Give it a
+                // moment to finish that instead of dropping it mid-send; only
+                // a still-connecting attempt gets cut off.
+                match tokio::time::timeout(Duration::from_secs(3), &mut fut).await {
+                    Ok(r) => r,
+                    Err(_) => Ok(SessionEnd::Cancelled),
+                }
             }
-            Err(e) => {
-                error!("Connection failed: {:#}", e);
-                true
-            }
         };
+        let stopping = *shutdown.borrow();
+        let retry = !stopping
+            && match &result {
+                Ok(end) => {
+                    info!("Connection closed: {:?}", end);
+                    end.should_reconnect()
+                }
+                Err(e) => {
+                    error!("Connection failed: {:#}", e);
+                    true
+                }
+            };
         let budget_left = policy.max_retries == 0 || n < policy.max_retries;
         if !(policy.reconnect && retry && budget_left) {
             if let Some(svc) = &service {
@@ -976,6 +989,41 @@ mod tests {
         tx.send(true).unwrap();
         assert!(task.await.unwrap().is_ok());
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    /// Ctrl-C while connected must let the session finish (it sends
+    /// Disconnect to the phone) rather than dropping it mid-flight. This
+    /// raced before: the retry loop and the session both watched the signal
+    /// and the loop sometimes won, so the phone only saw the socket close.
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_lets_running_session_finish_cleanly() {
+        let finished = Arc::new(AtomicU32::new(0));
+        let (tx, rx) = shutdown_channel();
+        let f = Arc::clone(&finished);
+        let rx2 = rx.clone();
+        let task = tokio::spawn(run_with_retry(
+            RetryPolicy {
+                reconnect: true,
+                max_retries: 0,
+            },
+            rx,
+            None,
+            move |_| {
+                let f = Arc::clone(&f);
+                let rx = rx2.clone();
+                async move {
+                    wait_shutdown(rx).await;
+                    // e.g. sending Disconnect and flushing
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    f.fetch_add(1, Ordering::SeqCst);
+                    Ok(SessionEnd::TransportClosed("closed after goodbye".into()))
+                }
+            },
+        ));
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        tx.send(true).unwrap();
+        assert!(task.await.unwrap().is_ok());
+        assert_eq!(finished.load(Ordering::SeqCst), 1, "session was cut off");
     }
 
     #[tokio::test(start_paused = true)]

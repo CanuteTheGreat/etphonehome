@@ -18,7 +18,18 @@ NAME="etph-e2e-${GITHUB_RUN_ID:-local}-$$"
 cleanup() { docker rm -f -v "$NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
-docker create --name "$NAME" --cap-add NET_ADMIN --device /dev/net/tun \
+# Run the sibling on the same architecture the binaries were built for. A
+# runner whose job container is emulated (e.g. amd64 on an Apple-silicon
+# Docker host) would otherwise start a native arm64 sibling that cannot load
+# the x86_64 binaries at all.
+case "$(uname -m)" in
+  x86_64 | amd64) PLATFORM=linux/amd64 ;;
+  aarch64 | arm64) PLATFORM=linux/arm64 ;;
+  *) PLATFORM="" ;;
+esac
+
+docker create --name "$NAME" ${PLATFORM:+--platform "$PLATFORM"} \
+  --cap-add NET_ADMIN --device /dev/net/tun \
   --memory 1g --memory-swap 1g --cpus 2 \
   "$IMAGE" sleep 900 >/dev/null
 docker start "$NAME" >/dev/null
@@ -36,9 +47,14 @@ docker exec -i "$NAME" sh -c 'cat > /e2e/shim/adb && chmod +x /e2e/shim/adb' <<'
 #!/bin/sh
 echo "$*" >> /e2e/adb-calls.log
 case "$*" in
-  devices*)
+  "devices -l")
     echo "List of devices attached"
-    echo "R5CT1234567	device usb:1-1 product:e2e model:Stand_In"
+    echo "R5CT1234567            device usb:1-1 product:e2e model:Stand_In"
+    ;;
+  devices)
+    # Same format as real `adb devices`: serial<TAB>state
+    echo "List of devices attached"
+    printf 'R5CT1234567\tdevice\n'
     ;;
   "shell pm list packages")
     echo "package:com.etphonehome"

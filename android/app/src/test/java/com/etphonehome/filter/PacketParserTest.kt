@@ -113,4 +113,58 @@ class PacketParserTest {
         assertEquals(8080, parsed?.sourcePort)
         assertEquals(80, parsed?.destPort)
     }
+
+    private fun ipv4Tcp(flagsAndOffsetHi: Int, offsetLo: Int): ByteArray {
+        val pkt = ByteArray(24)
+        pkt[0] = 0x45
+        pkt[6] = flagsAndOffsetHi.toByte()
+        pkt[7] = offsetLo.toByte()
+        pkt[9] = 6 // TCP
+        pkt[20] = 0x1F; pkt[21] = 0x90.toByte() // would-be src port 8080
+        pkt[22] = 0x00; pkt[23] = 0x50 // would-be dst port 80
+        return pkt
+    }
+
+    @Test
+    fun `IPv4 non-first fragment yields no ports since its payload is not a transport header`() {
+        // Fragment offset 185 (x8 = 1480 bytes in); MF clear. Bytes at the
+        // transport offset are mid-stream payload, not ports.
+        val parsed = PacketParser.parse(ipv4Tcp(0x00, 185))
+        assertEquals(Protocol.TCP, parsed?.protocol)
+        assertNull(parsed?.sourcePort)
+        assertNull(parsed?.destPort)
+
+        // Offset high bits only (offset = 0x100), with MF set as well.
+        val parsed2 = PacketParser.parse(ipv4Tcp(0x21, 0x00))
+        assertNull(parsed2?.destPort)
+    }
+
+    @Test
+    fun `IPv4 first fragment and DF packets still parse ports`() {
+        // MF set, offset 0: first fragment carries the real TCP header.
+        val first = PacketParser.parse(ipv4Tcp(0x20, 0x00))
+        assertEquals(8080, first?.sourcePort)
+        assertEquals(80, first?.destPort)
+
+        // DF set, offset 0: ordinary unfragmented packet.
+        val df = PacketParser.parse(ipv4Tcp(0x40, 0x00))
+        assertEquals(80, df?.destPort)
+    }
+
+    @Test
+    fun `IPv6 non-first fragment yields no ports`() {
+        val pkt = ByteArray(40 + 8 + 4)
+        pkt[0] = 0x60
+        pkt[6] = 44 // Next Header: Fragment
+        pkt[40] = 17 // UDP
+        // Fragment Offset = 185 (top 13 bits of bytes 42-43): 185 << 3 = 0x05C8
+        pkt[42] = 0x05; pkt[43] = 0xC8.toByte()
+        pkt[48] = 0x00; pkt[49] = 0x35
+        pkt[50] = 0x1F; pkt[51] = 0x90.toByte()
+
+        val parsed = PacketParser.parse(pkt)
+        assertEquals(Protocol.UDP, parsed?.protocol)
+        assertNull(parsed?.sourcePort)
+        assertNull(parsed?.destPort)
+    }
 }

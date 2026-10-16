@@ -122,8 +122,19 @@ object PacketParser {
         var sourcePort: Int? = null
         var destPort: Int? = null
 
+        // Fragment offset (low 13 bits of bytes 6-7, in 8-byte units). Only
+        // the first fragment (offset 0) carries the TCP/UDP header; in every
+        // later fragment the bytes at headerLength are arbitrary payload, so
+        // reading "ports" there yields sender-controlled garbage that could
+        // match (or dodge) a port-scoped rule by accident or on purpose.
+        // Leave ports null for non-first fragments so port-scoped rules
+        // simply don't match them (FilterEngine treats null ports as
+        // non-matching), the same as any packet without a transport header.
+        val fragmentOffset = ((packet[6].toInt() and 0x1F) shl 8) or (packet[7].toInt() and 0xFF)
+
         // Parse TCP/UDP ports if applicable
         if ((protocol == Protocol.TCP || protocol == Protocol.UDP) &&
+            fragmentOffset == 0 &&
             packet.size >= headerLength + 4) {
             val buffer = ByteBuffer.wrap(packet, headerLength, 4)
             sourcePort = buffer.getShort().toInt() and 0xFFFF
@@ -189,6 +200,9 @@ object PacketParser {
         var nextHeader = packet[6].toInt() and 0xFF
         var offset = 40
         var hops = 0
+        // Set when a Fragment header with a non-zero offset is seen: such a
+        // fragment carries no transport header (see the IPv4 note above).
+        var nonFirstFragment = false
 
         // Walk the extension header chain. Cap the number of hops so a
         // maliciously/accidentally looping chain can't spin forever; eight
@@ -210,6 +224,13 @@ object PacketParser {
 
             if (extLen <= 0 || offset + extLen > packet.size) return null // truncated/invalid
 
+            if (nextHeader == 44) {
+                // Fragment Offset is the top 13 bits of bytes 2-3.
+                val fragField = ((packet[offset + 2].toInt() and 0xFF) shl 8) or
+                    (packet[offset + 3].toInt() and 0xFF)
+                if ((fragField shr 3) != 0) nonFirstFragment = true
+            }
+
             nextHeader = thisNextHeader
             offset += extLen
             hops++
@@ -226,6 +247,7 @@ object PacketParser {
         // Parse TCP/UDP ports if applicable, now at the real transport
         // offset (past any extension headers) instead of always at 40.
         if ((protocol == Protocol.TCP || protocol == Protocol.UDP) &&
+            !nonFirstFragment &&
             packet.size >= offset + 4) {
             val buffer = ByteBuffer.wrap(packet, offset, 4)
             sourcePort = buffer.getShort().toInt() and 0xFFFF

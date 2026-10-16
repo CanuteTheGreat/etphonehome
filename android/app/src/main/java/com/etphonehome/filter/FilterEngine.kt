@@ -40,8 +40,14 @@ class FilterEngine(private var config: FilterConfig) {
         // If filtering is disabled, allow everything
         if (!config.enabled) return true
 
-        // Parse the packet
-        val parsed = PacketParser.parse(packet) ?: return true // Can't parse = allow
+        // Parse the packet. A packet PacketParser can't parse (empty,
+        // truncated header, unknown IP version, broken IPv6 extension
+        // chain) can't match any rule, so it gets the same verdict as a
+        // parsed packet that matches no rule. This used to be
+        // `?: return true` ("can't parse = allow"), which made WHITELIST
+        // (default-deny) mode fail open for any malformed packet. Same fix
+        // as the desktop sibling (desktop/common/src/filter.rs, 4e14619).
+        val parsed = PacketParser.parse(packet) ?: return defaultVerdict()
 
         // Check against rules
         for (rule in config.rules) {
@@ -76,10 +82,15 @@ class FilterEngine(private var config: FilterConfig) {
         }
 
         // No rule matched - apply default based on mode
-        return when (config.mode) {
-            FilterMode.WHITELIST -> false  // Whitelist: default block
-            FilterMode.BLACKLIST -> true   // Blacklist: default allow
-        }
+        return defaultVerdict()
+    }
+
+    /**
+     * Verdict for a packet no rule decides (no match, or unparseable).
+     */
+    private fun defaultVerdict(): Boolean = when (config.mode) {
+        FilterMode.WHITELIST -> false  // Whitelist: default block
+        FilterMode.BLACKLIST -> true   // Blacklist: default allow
     }
 
     /**

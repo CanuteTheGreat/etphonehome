@@ -171,4 +171,66 @@ class FilterEngineTest {
             engine.shouldAllow(unmatched)
         )
     }
+
+    @Test
+    fun `unparseable packets follow the mode default instead of failing open`() {
+        val unparseable = listOf(
+            ByteArray(0),                                   // empty
+            ByteArray(12).also { it[0] = 0x45 },            // truncated IPv4 header
+            ByteArray(40).also { it[0] = 0x55 },            // unknown IP version 5
+            ByteArray(30).also { it[0] = 0x60 }             // truncated IPv6 header
+        )
+        unparseable.forEach { assertTrue(PacketParser.parse(it) == null) }
+
+        val valid443 = buildTcpPacket(
+            srcIp = byteArrayOf(10, 0, 0, 1),
+            dstIp = byteArrayOf(10, 0, 0, 5),
+            srcPort = 12345,
+            dstPort = 443
+        )
+
+        val whitelist = FilterEngine(
+            FilterConfig(
+                enabled = true,
+                mode = FilterMode.WHITELIST,
+                rules = listOf(
+                    FilterRule(
+                        id = "allow-443",
+                        action = FilterAction.ALLOW,
+                        destPort = PortRange(443)
+                    )
+                ),
+                logBlocked = false
+            )
+        )
+        unparseable.forEach {
+            assertFalse(
+                "WHITELIST mode must deny a ${it.size}-byte unparseable packet",
+                whitelist.shouldAllow(it)
+            )
+        }
+        assertTrue(whitelist.shouldAllow(valid443))
+
+        val blacklist = FilterEngine(
+            FilterConfig(
+                enabled = true,
+                mode = FilterMode.BLACKLIST,
+                rules = listOf(
+                    FilterRule(
+                        id = "block-443",
+                        action = FilterAction.BLOCK,
+                        destPort = PortRange(443)
+                    )
+                ),
+                logBlocked = false
+            )
+        )
+        unparseable.forEach {
+            assertTrue(
+                "BLACKLIST mode must still allow a ${it.size}-byte unparseable packet",
+                blacklist.shouldAllow(it)
+            )
+        }
+        assertFalse(blacklist.shouldAllow(valid443))
+    }
 }

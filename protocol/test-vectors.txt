@@ -1,0 +1,17 @@
+# ET Phone Home wire-format golden vectors (see PROTOCOL.md).
+#
+# Both implementations are tested against this one file:
+#   desktop/common/src/protocol_vectors.rs   (cargo test)
+#   android/app/src/test/.../ProtocolVectorsTest.kt   (./gradlew test)
+# Each must encode the described message to exactly these bytes and decode
+# these bytes back to the described values, so the Rust desktop client and
+# the Kotlin Android app can't drift apart on the wire. Format: name hex
+handshake_req_token 4554010018010000000002001041624331323358795a34353637383930
+handshake_req_no_token 45540100080100000000010000
+handshake_resp 455402000e0100000000030a00000208080808
+ip_packet 45540300144500001400000000400100000a0000010a000002
+stats_update 455404001800000000499602d2000000024cb016ea00000e1000000000
+config_update 455405001366696c7465722e656e61626c65643d74727565
+disconnect 4554060003627965
+keepalive 4554070000
+error_auth_failed 45540800080300056e6f706521

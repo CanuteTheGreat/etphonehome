@@ -24,17 +24,16 @@ jobs:
       - name: Build release
         working-directory: desktop
         run: cargo build --release -p etphonehome-linux
-      - name: Strip binary
-        run: strip desktop/target/release/etphonehome-linux
-      - name: Create tarball
-        run: |
-          cd desktop/target/release
-          tar -czvf etphonehome-linux-${{ github.ref_name }}.tar.gz etphonehome-linux
+      - name: Package
+        # Same script the per-push Rust CI build job runs, so this path is
+        # exercised on every push (it used to strip/tar a nonexistent
+        # `etphonehome-linux` file and fail).
+        run: bash .forgejo/scripts/package.sh linux "${{ github.ref_name }}"
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: etphonehome-linux-${{ github.ref_name }}
-          path: desktop/target/release/etphonehome-linux-${{ github.ref_name }}.tar.gz
+          path: dist/etphonehome-linux-${{ github.ref_name }}.tar.gz
 
   build-windows:
     name: Build Windows Release
@@ -51,19 +50,17 @@ jobs:
       - name: Install mingw-w64 and zip
         run: |
           sudo apt-get update
-          sudo apt-get install -y mingw-w64 zip
+          sudo apt-get install -y mingw-w64 zip unzip
       - name: Build release
         working-directory: desktop
         run: cargo build --release -p etphonehome-windows --target x86_64-pc-windows-gnu
-      - name: Create zip
-        run: |
-          cd desktop/target/x86_64-pc-windows-gnu/release
-          zip etphonehome-windows-${{ github.ref_name }}.zip etphonehome-windows.exe
+      - name: Package
+        run: bash .forgejo/scripts/package.sh windows "${{ github.ref_name }}"
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: etphonehome-windows-${{ github.ref_name }}
-          path: desktop/target/x86_64-pc-windows-gnu/release/etphonehome-windows-${{ github.ref_name }}.zip
+          path: dist/etphonehome-windows-${{ github.ref_name }}.zip
 
   build-gui-linux:
     name: Build Desktop GUI (Linux)
@@ -85,17 +82,13 @@ jobs:
       - name: Build release
         working-directory: desktop
         run: cargo build --release -p etphonehome-gui
-      - name: Strip binary
-        run: strip desktop/target/release/etphonehome-gui
-      - name: Create tarball
-        run: |
-          cd desktop/target/release
-          tar -czvf etphonehome-gui-${{ github.ref_name }}.tar.gz etphonehome-gui
+      - name: Package
+        run: bash .forgejo/scripts/package.sh gui "${{ github.ref_name }}"
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: etphonehome-gui-${{ github.ref_name }}
-          path: desktop/target/release/etphonehome-gui-${{ github.ref_name }}.tar.gz
+          path: dist/etphonehome-gui-${{ github.ref_name }}.tar.gz
 
   build-android:
     name: Build Android Release
@@ -108,8 +101,8 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+      # (gradle/actions/setup-gradle@v3 removed: it fails on this runner with
+      # "node: executable file not found", see android-ci.yml.)
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Build release APK
@@ -118,15 +111,16 @@ jobs:
           export ANDROID_HOME="$HOME/android-sdk"
           export PATH="$PATH:$ANDROID_HOME/platform-tools"
           ./gradlew assembleRelease
-      - name: Rename APK
-        run: |
-          mv android/app/build/outputs/apk/release/app-release-unsigned.apk \
-             android/app/build/outputs/apk/release/etphonehome-${{ github.ref_name }}.apk
+      - name: Package
+        # Release builds are signed (release key, or the debug key as a
+        # fallback), so the APK is app-release.apk, never
+        # app-release-unsigned.apk as this step used to assume.
+        run: bash .forgejo/scripts/package.sh android "${{ github.ref_name }}"
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: etphonehome-android-${{ github.ref_name }}
-          path: android/app/build/outputs/apk/release/etphonehome-${{ github.ref_name }}.apk
+          path: dist/etphonehome-${{ github.ref_name }}.apk
 
   create-release:
     name: Create Release

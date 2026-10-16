@@ -2,22 +2,22 @@
 name = "etphonehome-testpeer"
 version = "0.1.0"
 edition = "2021"
+publish = false
+description = "Android-protocol stand-in used by tests and the CI e2e job (not shipped)"
 
-# Deliberately NOT part of the main `desktop` workspace -- this is a
-# test-only harness (see module doc in src/main.rs), not a shipped artifact,
-# so it stays out of the real release/CI build graph.
-[workspace]
-
+# Part of the workspace so it is built, linted and tested by CI (the e2e job
+# runs the real `etphonehome` client against it through a real TUN device).
+# It is never part of a release artifact: release builds use `-p`.
 
 [dependencies]
 etphonehome-common = { path = "../common" }
-tokio = { version = "1.35", features = ["full"] }
-rustls = { version = "0.23", features = ["ring"] }
-tokio-rustls = "0.26"
-anyhow = "1.0"
-clap = { version = "4.4", features = ["derive"] }
-log = "0.4"
-env_logger = "0.11"
+tokio = { workspace = true }
+rustls = { workspace = true }
+tokio-rustls = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
 
 [[bin]]
 name = "testpeer"

@@ -12,7 +12,7 @@ use etphonehome_common::client::{connect_tls_async, Client};
 use etphonehome_common::protocol::{capabilities, Message};
 use log::info;
 use std::net::SocketAddr;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 const TEST_MARKER: &str = "SECRET-PLAINTEXT-MARKER-0xDEADBEEF-DO-NOT-LEAK";
 

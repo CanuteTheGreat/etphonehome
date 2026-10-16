@@ -1,40 +1,61 @@
-//! Protocol-compatible test peer for verifying ET Phone Home's desktop
-//! client wire protocol and cert-pinned TLS end-to-end over a real network
-//! link between two independent hosts.
+//! Protocol-compatible stand-in for the Android app, used by tests and CI.
 //!
-//! This is **not** the real Android server -- it's a minimal stand-in that
-//! speaks the same `desktop/common/src/protocol.rs` wire format (magic/
-//! type/length framing, `HandshakeReq`/`HandshakeResp`) and, when `--tls` is
-//! given, the same cert-pinned TLS layer (`etphonehome_common::tls::certpin`)
-//! the real `etphonehome-linux` client now uses. It exists because there's
-//! no real Android device/emulator available in this environment to test
-//! against; using it lets the *actual* client-side crypto and protocol code
-//! be exercised against a real second process, over a real TCP connection,
-//! with real captured packets -- rather than only unit-tested in isolation.
+//! This is **not** the real Android server -- it's a minimal peer that
+//! speaks the same `desktop/common/src/protocol.rs` wire format and, with
+//! `--tls`, the same cert-pinned TLS layer (`etphonehome_common::tls::certpin`)
+//! the real `etphonehome` client uses. There's no Android device or emulator
+//! (no KVM) on the CI runners, so this lets the *actual* desktop client run
+//! end to end over a real network connection: the `e2e` CI job starts it,
+//! connects the real `etphonehome` binary to it over a real TUN device and
+//! pings through the tunnel.
+//!
+//! Behaviour after the handshake, per connection:
+//! * verifies the application token when `--token` is set (replying with an
+//!   `ErrorMsg` / `AuthFailed`, like the Android app, on mismatch),
+//! * answers IPv4 ICMP echo requests carried in `IpPacket` messages with
+//!   echo replies (so `ping 10.0.0.2` through the tunnel succeeds),
+//! * sends a `StatsUpdate` and a `Keepalive` every `--keepalive-secs`,
+//! * logs every non-ICMP packet it receives,
+//! * with `--disconnect-after N` sends `Disconnect` after N echo replies
+//!   (exercises client auto-reconnect).
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use etphonehome_common::protocol::{capabilities, HandshakeResponse, Message, MAGIC, PROTOCOL_VERSION};
+use etphonehome_common::protocol::{
+    capabilities, Disconnect, ErrorCode, ErrorMessage, HandshakeResponse, IpPacket, Message,
+    StatsUpdate, PROTOCOL_VERSION,
+};
+use etphonehome_common::session::{read_message, write_message};
 use etphonehome_common::tls::certpin;
-use log::{error, info};
+use log::{error, info, warn};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
 
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 struct Args {
     /// Address to listen on
     #[arg(long, default_value = "0.0.0.0:8888")]
     listen: String,
 
-    /// Require cert-pinned TLS (mirrors `etphonehome-linux --tls`)
+    /// Require cert-pinned TLS (mirrors `etphonehome wifi --tls`)
     #[arg(long)]
     tls: bool,
 
-    /// Pairing token used both as the pinning trust anchor (TLS mode) and
-    /// expected in the application HandshakeReq token field.
+    /// Pairing token: TLS pinning anchor and the expected HandshakeReq token.
     #[arg(long)]
     token: Option<String>,
+
+    /// Interval for StatsUpdate + Keepalive messages.
+    #[arg(long, default_value = "5")]
+    keepalive_secs: u64,
+
+    /// Send Disconnect after this many ICMP echo replies (0 = never).
+    #[arg(long, default_value = "0")]
+    disconnect_after: u64,
 }
 
 #[tokio::main]
@@ -55,10 +76,9 @@ async fn main() -> Result<()> {
     loop {
         let (sock, peer) = listener.accept().await?;
         info!("connection from {}", peer);
-        let tls = args.tls;
-        let token = args.token.clone();
+        let args2 = args.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle(sock, tls, token).await {
+            if let Err(e) = handle(sock, &args2).await {
                 error!("connection from {} ended with error: {:#}", peer, e);
             } else {
                 info!("connection from {} handled successfully", peer);
@@ -67,18 +87,19 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn handle(sock: TcpStream, tls: bool, token: Option<String>) -> Result<()> {
+async fn handle(sock: TcpStream, args: &Args) -> Result<()> {
     sock.set_nodelay(true).ok();
-
-    if tls {
-        let token = token.ok_or_else(|| anyhow!("--tls requires --token"))?;
+    if args.tls {
+        let token = args
+            .token
+            .clone()
+            .ok_or_else(|| anyhow!("--tls requires --token"))?;
         let config = certpin::server_tls_config(&token)
             .map_err(|e| anyhow!("TLS server config error: {}", e))?;
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
-        let mut tls_stream = acceptor.accept(sock).await.map_err(|e| {
+        let tls_stream = acceptor.accept(sock).await.map_err(|e| {
             error!(
-                "TLS handshake failed: {} -- wrong/mismatched pairing token, or peer isn't \
-                 presenting the expected cert-pinned identity",
+                "TLS handshake failed: {} -- wrong/mismatched pairing token",
                 e
             );
             anyhow!("TLS handshake failed: {}", e)
@@ -89,78 +110,185 @@ async fn handle(sock: TcpStream, tls: bool, token: Option<String>) -> Result<()>
             conn.protocol_version(),
             conn.negotiated_cipher_suite()
         );
-        run_protocol(&mut tls_stream, token).await
+        run_protocol(tls_stream, args).await
     } else {
-        let mut sock = sock;
-        run_protocol(&mut sock, token.unwrap_or_default()).await
+        run_protocol(sock, args).await
     }
 }
 
-async fn run_protocol<S: AsyncRead + AsyncWrite + Unpin>(
-    stream: &mut S,
-    expected_token: String,
-) -> Result<()> {
-    let mut header = [0u8; 5];
-    stream.read_exact(&mut header).await?;
-    let magic = ((header[0] as u16) << 8) | (header[1] as u16);
-    ensure!(magic == MAGIC, "bad magic bytes in request");
-    let length = ((header[3] as u16) << 8) | (header[4] as u16);
-    let mut payload = vec![0u8; length as usize];
-    stream.read_exact(&mut payload).await?;
-    let mut full = header.to_vec();
-    full.extend_from_slice(&payload);
-    let msg = Message::read_from(&mut std::io::Cursor::new(full))?;
+async fn run_protocol<S>(stream: S, args: &Args) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (mut rd, wr) = tokio::io::split(stream);
+    let wr = Arc::new(Mutex::new(wr));
 
-    match msg {
-        Message::HandshakeReq(req) => {
-            info!(
-                "HandshakeReq: version={:#06x} capabilities={:#010x} token={:?}",
-                req.version, req.capabilities, req.token
-            );
-            if !expected_token.is_empty() {
-                ensure!(
-                    req.token.as_deref() == Some(expected_token.as_str()),
-                    "application-level token mismatch (expected {:?}, got {:?})",
-                    expected_token,
-                    req.token
-                );
-            }
+    let req = match read_message(&mut rd).await? {
+        Message::HandshakeReq(req) => req,
+        other => return Err(anyhow!("expected HandshakeReq, got {:?}", other)),
+    };
+    info!(
+        "HandshakeReq: version={:#06x} capabilities={:#010x} token={}",
+        req.version,
+        req.capabilities,
+        if req.token.is_some() {
+            "present"
+        } else {
+            "absent"
         }
-        other => bail!("expected HandshakeReq, got {:?}", other),
+    );
+    if let Some(expected) = &args.token {
+        if req.token.as_deref() != Some(expected.as_str()) {
+            warn!("application-level token mismatch, rejecting");
+            let e = Message::Error(ErrorMessage {
+                error_code: ErrorCode::AuthFailed,
+                message: "Authentication failed: invalid token".into(),
+            });
+            write_message(&mut *wr.lock().await, &e).await?;
+            return Err(anyhow!("token mismatch"));
+        }
     }
-
     let resp = Message::HandshakeResp(HandshakeResponse {
         version: PROTOCOL_VERSION,
         capabilities: capabilities::WIFI | capabilities::TLS | capabilities::TLS_PSK,
         ip_address: 0x0a000002, // 10.0.0.2
         dns: 0x08080808,        // 8.8.8.8
     });
-    let mut buf = Vec::new();
-    resp.write_to(&mut buf)?;
-    stream.write_all(&buf).await?;
-    stream.flush().await?;
-    info!("Sent HandshakeResp -- waiting up to 10s for a follow-up test packet...");
+    write_message(&mut *wr.lock().await, &resp).await?;
+    info!("Sent HandshakeResp");
 
-    let mut header2 = [0u8; 5];
-    match tokio::time::timeout(std::time::Duration::from_secs(10), stream.read_exact(&mut header2))
-        .await
-    {
-        Ok(Ok(_)) => {
-            let magic2 = ((header2[0] as u16) << 8) | (header2[1] as u16);
-            if magic2 == MAGIC {
-                let len2 = ((header2[3] as u16) << 8) | (header2[4] as u16);
-                let mut payload2 = vec![0u8; len2 as usize];
-                stream.read_exact(&mut payload2).await?;
-                info!(
-                    "Received follow-up packet ({} bytes): {:?}",
-                    payload2.len(),
-                    String::from_utf8_lossy(&payload2)
-                );
+    let received = Arc::new(AtomicU64::new(0));
+    let started = Instant::now();
+    let ticker = {
+        let wr = Arc::clone(&wr);
+        let received = Arc::clone(&received);
+        let every = Duration::from_secs(args.keepalive_secs.max(1));
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(every).await;
+                let mut w = wr.lock().await;
+                let s = Message::StatsUpdate(StatsUpdate {
+                    bytes_sent: 0,
+                    bytes_received: received.load(Ordering::Relaxed),
+                    uptime_seconds: started.elapsed().as_secs() as u32,
+                });
+                if write_message(&mut *w, &s).await.is_err()
+                    || write_message(&mut *w, &Message::Keepalive).await.is_err()
+                {
+                    break;
+                }
             }
-        }
-        Ok(Err(e)) => info!("follow-up read ended: {}", e),
-        Err(_) => info!("no follow-up packet received within 10s (fine for handshake-only test)"),
-    }
+        })
+    };
 
-    Ok(())
+    let mut replies = 0u64;
+    let result = loop {
+        let msg = match read_message(&mut rd).await {
+            Ok(m) => m,
+            Err(e) => break Err(anyhow!("read ended: {}", e)),
+        };
+        match msg {
+            Message::IpPacket(pkt) => {
+                received.fetch_add(pkt.data.len() as u64, Ordering::Relaxed);
+                if let Some(reply) = icmp_echo_reply(&pkt.data) {
+                    write_message(
+                        &mut *wr.lock().await,
+                        &Message::IpPacket(IpPacket::new(reply)),
+                    )
+                    .await?;
+                    replies += 1;
+                    info!("answered ICMP echo request #{}", replies);
+                    if args.disconnect_after != 0 && replies >= args.disconnect_after {
+                        info!("sending Disconnect after {} replies", replies);
+                        let d = Message::Disconnect(Disconnect::new("testpeer: disconnect-after"));
+                        write_message(&mut *wr.lock().await, &d).await?;
+                        break Ok(());
+                    }
+                } else {
+                    info!(
+                        "Received packet ({} bytes): {:?}",
+                        pkt.data.len(),
+                        String::from_utf8_lossy(&pkt.data)
+                    );
+                }
+            }
+            Message::Disconnect(d) => {
+                info!("client sent Disconnect: {}", d.reason);
+                break Ok(());
+            }
+            Message::Keepalive => info!("client keepalive"),
+            other => info!("ignoring {:?}", other),
+        }
+    };
+    ticker.abort();
+    result
+}
+
+/// Build an ICMP echo reply for an IPv4 ICMP echo request, or None.
+fn icmp_echo_reply(pkt: &[u8]) -> Option<Vec<u8>> {
+    if pkt.len() < 20 || pkt[0] >> 4 != 4 || pkt[9] != 1 {
+        return None;
+    }
+    let ihl = ((pkt[0] & 0x0f) as usize) * 4;
+    if ihl < 20 || pkt.len() < ihl + 8 || pkt[ihl] != 8 {
+        return None;
+    }
+    let mut r = pkt.to_vec();
+    r[12..16].copy_from_slice(&pkt[16..20]);
+    r[16..20].copy_from_slice(&pkt[12..16]);
+    r[8] = 64;
+    r[10] = 0;
+    r[11] = 0;
+    let ck = checksum(&r[..ihl]);
+    r[10..12].copy_from_slice(&ck.to_be_bytes());
+    r[ihl] = 0; // echo reply
+    r[ihl + 2] = 0;
+    r[ihl + 3] = 0;
+    let ck = checksum(&r[ihl..]);
+    r[ihl + 2..ihl + 4].copy_from_slice(&ck.to_be_bytes());
+    Some(r)
+}
+
+fn checksum(data: &[u8]) -> u16 {
+    let mut sum: u32 = 0;
+    for c in data.chunks(2) {
+        let w = if c.len() == 2 {
+            u16::from_be_bytes([c[0], c[1]])
+        } else {
+            u16::from_be_bytes([c[0], 0])
+        };
+        sum += w as u32;
+    }
+    while sum > 0xffff {
+        sum = (sum & 0xffff) + (sum >> 16);
+    }
+    !(sum as u16)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn echo_reply_swaps_addresses_and_has_valid_checksums() {
+        // 10.0.0.1 -> 10.0.0.2 ICMP echo request, id 0x1234 seq 1, "abcd"
+        let mut req = vec![
+            0x45, 0, 0, 32, 0, 1, 0x40, 0, 64, 1, 0, 0, 10, 0, 0, 1, 10, 0, 0, 2, 8, 0, 0, 0, 0x12,
+            0x34, 0, 1, b'a', b'b', b'c', b'd',
+        ];
+        let ck = checksum(&req[..20]);
+        req[10..12].copy_from_slice(&ck.to_be_bytes());
+        let ck = checksum(&req[20..]);
+        req[22..24].copy_from_slice(&ck.to_be_bytes());
+
+        let r = icmp_echo_reply(&req).unwrap();
+        assert_eq!(&r[12..16], &[10, 0, 0, 2]);
+        assert_eq!(&r[16..20], &[10, 0, 0, 1]);
+        assert_eq!(r[20], 0);
+        assert_eq!(checksum(&r[..20]), 0, "IP header checksum must verify");
+        assert_eq!(checksum(&r[20..]), 0, "ICMP checksum must verify");
+        assert_eq!(&r[24..], &req[24..], "id/seq/payload preserved");
+        assert!(icmp_echo_reply(&r).is_none(), "replies are not answered");
+        assert!(icmp_echo_reply(b"not an ip packet at all").is_none());
+    }
 }

@@ -23,14 +23,6 @@ fi
 # Check for dependencies
 echo "Checking dependencies..."
 
-# Check for Rust
-if ! command -v cargo &> /dev/null; then
-    echo "Error: Rust/Cargo not found"
-    echo "Install Rust from: https://rustup.rs/"
-    exit 1
-fi
-echo "✓ Rust found"
-
 # Check for ADB
 if ! command -v adb &> /dev/null; then
     echo "Error: ADB not found"
@@ -41,17 +33,28 @@ if ! command -v adb &> /dev/null; then
 fi
 echo "✓ ADB found"
 
-# Check for TUN module
-if ! lsmod | grep -q "^tun"; then
+# Check for TUN support. Many kernels build tun in (so it never shows up in
+# lsmod); the device node is what matters. Only try modprobe if it's missing.
+if [ ! -c /dev/net/tun ]; then
     echo "Loading TUN module..."
-    modprobe tun
+    modprobe tun || true
 fi
-echo "✓ TUN module loaded"
+if [ ! -c /dev/net/tun ]; then
+    echo "Error: /dev/net/tun is not available (sudo modprobe tun)"
+    exit 1
+fi
+echo "✓ TUN device available"
 
 # Build the desktop client if not already built
 BINARY_PATH="$PROJECT_ROOT/desktop/target/release/etphonehome"
 
 if [ ! -f "$BINARY_PATH" ]; then
+    # Rust is only needed when the client hasn't been built yet.
+    if ! command -v cargo &> /dev/null; then
+        echo "Error: $BINARY_PATH not found and Rust/Cargo is not installed"
+        echo "Install Rust from: https://rustup.rs/ (or copy a release build there)"
+        exit 1
+    fi
     echo ""
     echo "Building desktop client..."
     cd "$PROJECT_ROOT/desktop"

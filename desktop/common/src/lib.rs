@@ -1,8 +1,11 @@
+pub mod cli;
 pub mod client;
 pub mod config;
 pub mod connection_service;
 pub mod filter;
 pub mod protocol;
+pub mod runner;
+pub mod session;
 pub mod tls;
 pub mod tun_interface;
 

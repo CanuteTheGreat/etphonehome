@@ -77,7 +77,7 @@ etphonehome.exe setup-adb --port 8888
 etphonehome.exe usb --port 8888 --interface etph0
 ```
 
-**Note:** On Windows, you need TAP-Windows adapter installed. If you have OpenVPN installed, you already have it.
+**Note:** On Windows the client uses the Wintun driver: put `wintun.dll` (https://www.wintun.net) next to `etphonehome.exe`.
 
 ### WiFi Tethering
 
@@ -457,7 +457,7 @@ Tap "Stop Tethering" in the app
 **Problem:** "Failed to create TUN interface"
 - **Linux:** Ensure you're running with `sudo`
 - **Linux:** Load TUN module: `sudo modprobe tun`
-- **Windows:** Install TAP-Windows adapter (comes with OpenVPN)
+- **Windows:** Put `wintun.dll` (https://www.wintun.net) next to `etphonehome.exe`
 - **Windows:** Run as Administrator
 
 **Problem:** "VPN permission required" on Android

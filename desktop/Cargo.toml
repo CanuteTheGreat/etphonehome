@@ -4,6 +4,7 @@ members = [
     "windows",
     "linux",
     "gui",
+    "testpeer",
 ]
 resolver = "2"
 

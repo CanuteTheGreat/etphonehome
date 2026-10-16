@@ -49,14 +49,15 @@ try {
     exit 1
 }
 
-# Check for TAP-Windows adapter
-$tapAdapters = Get-NetAdapter | Where-Object { $_.DriverDescription -like "*TAP-Windows*" }
-if ($tapAdapters) {
-    Write-Host "✓ TAP-Windows adapter found" -ForegroundColor Green
+# Check for the Wintun driver DLL (the client's TUN backend is Wintun,
+# not TAP-Windows)
+$WintunDll = Join-Path $ProjectRoot "desktop\target\release\wintun.dll"
+if (Test-Path $WintunDll) {
+    Write-Host "✓ wintun.dll found" -ForegroundColor Green
 } else {
-    Write-Host "⚠ TAP-Windows adapter not found" -ForegroundColor Yellow
-    Write-Host "  Install OpenVPN to get TAP-Windows adapter" -ForegroundColor Yellow
-    Write-Host "  or install TAP-Windows separately" -ForegroundColor Yellow
+    Write-Host "⚠ wintun.dll not found next to etphonehome.exe" -ForegroundColor Yellow
+    Write-Host "  Download Wintun from https://www.wintun.net and copy" -ForegroundColor Yellow
+    Write-Host "  wintun\bin\amd64\wintun.dll to $WintunDll" -ForegroundColor Yellow
 }
 
 # Build the desktop client if not already built

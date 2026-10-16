@@ -94,6 +94,12 @@ pub enum ProtocolError {
 
     #[error("Payload too large: {0} bytes exceeds the 65535-byte wire-format limit")]
     PayloadTooLarge(usize),
+
+    /// The peer answered with an `ErrorMsg` (e.g. Android rejecting a wrong
+    /// pairing token with `AuthFailed`). Previously every such rejection was
+    /// reported as a bare "Unexpected message type", hiding the reason.
+    #[error("Android rejected the connection ({code:?}): {message}")]
+    PeerError { code: ErrorCode, message: String },
 }
 
 /// Check whether a peer-advertised protocol version is compatible with
@@ -496,6 +502,18 @@ impl ErrorMessage {
         })
     }
 }
+
+// Extra protocol tests live in protocol_tests.rs. That file existed for a long
+// time without being referenced by any `mod` declaration, so its 13 tests were
+// never compiled or run by `cargo test`; it is a child module here so it can
+// reach the private to_bytes/from_bytes helpers it exercises.
+#[cfg(test)]
+#[path = "protocol_tests.rs"]
+mod protocol_tests;
+
+#[cfg(test)]
+#[path = "protocol_vectors.rs"]
+mod protocol_vectors;
 
 #[cfg(test)]
 mod tests {

@@ -115,7 +115,10 @@ impl Client {
             }
             Message::Error(err) => {
                 error!("Handshake failed: {:?} - {}", err.error_code, err.message);
-                Err(ProtocolError::UnexpectedMessage)
+                Err(ProtocolError::PeerError {
+                    code: err.error_code,
+                    message: err.message,
+                })
             }
             _ => {
                 error!("Unexpected response during handshake");
@@ -287,7 +290,10 @@ pub async fn connect_tls_async(
         }
         Message::Error(err) => {
             error!("Handshake failed: {:?} - {}", err.error_code, err.message);
-            Err(ProtocolError::UnexpectedMessage)
+            Err(ProtocolError::PeerError {
+                code: err.error_code,
+                message: err.message,
+            })
         }
         _ => {
             error!("Unexpected response during handshake");

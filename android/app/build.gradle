@@ -59,6 +59,19 @@ android {
     buildFeatures {
         viewBinding true
     }
+
+    testOptions {
+        unitTests.all {
+            // Shared Rust/Kotlin wire-format vectors (ProtocolVectorsTest).
+            systemProperty 'etph.protocolVectors',
+                rootProject.file('../protocol/test-vectors.txt').absolutePath
+            // Print every test so CI logs prove which tests actually ran.
+            testLogging {
+                events "passed", "skipped", "failed"
+                exceptionFormat "full"
+            }
+        }
+    }
 }
 
 dependencies {

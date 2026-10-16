@@ -15,7 +15,7 @@ Get up and running with ET Phone Home in 5 minutes!
 - [ ] Root/Administrator access
 - [ ] ADB installed
 - [ ] (Linux) Build tools installed
-- [ ] (Windows) TAP-Windows adapter installed
+- [ ] (Windows) `wintun.dll` next to `etphonehome.exe` (https://www.wintun.net)
 
 ## Step 1: Enable USB Debugging
 
@@ -175,8 +175,7 @@ lsmod | grep tun
 ```
 
 **Windows:**
-- Install OpenVPN (includes TAP-Windows)
-- Or install TAP-Windows separately
+- Put `wintun.dll` (https://www.wintun.net) next to `etphonehome.exe`
 - Restart computer
 
 ### "Connection refused"

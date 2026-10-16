@@ -5,11 +5,17 @@ on:
     branches: [main]
     paths:
       - 'desktop/**'
+      - 'protocol/**'
+      - '.forgejo/scripts/desktop-e2e*.sh'
+      - '.forgejo/scripts/package.sh'
       - '.forgejo/workflows/rust-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'desktop/**'
+      - 'protocol/**'
+      - '.forgejo/scripts/desktop-e2e*.sh'
+      - '.forgejo/scripts/package.sh'
       - '.forgejo/workflows/rust-ci.yml'
 
 env:
@@ -119,7 +125,55 @@ jobs:
             ${{ runner.os }}-cargo-test-
       - name: Run tests
         working-directory: desktop
-        run: cargo test --all
+        # --no-fail-fast so one failing crate can't hide the others' results.
+        run: cargo test --all --no-fail-fast
+
+  e2e:
+    name: End-to-end (real client + TUN + Android stand-in)
+    # Runs the release `etphonehome` binary against `testpeer` (speaks the
+    # Android app's protocol and TLS) through a real TUN device and pings
+    # across the tunnel: WiFi plaintext/TLS, wrong tokens, USB via an adb
+    # shim, profile filter rules, auto-reconnect, Ctrl-C disconnect. Also
+    # runs the TUN unit tests that need CAP_NET_ADMIN. The job container
+    # can't create TUN devices, so desktop-e2e.sh starts a capped sibling
+    # container (NET_ADMIN + /dev/net/tun only) via the mounted Docker socket.
+    needs: [clippy]
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Ensure Node.js is present (self-heal)
+        run: command -v node || sudo apt-get install -y nodejs
+      - name: Compute cache key
+        id: cachekey
+        run: echo "hash=$(find desktop -name Cargo.toml | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/target
+          key: ${{ runner.os }}-cargo-e2e-${{ steps.cachekey.outputs.hash }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-e2e-
+      - name: Build client, Android stand-in and privileged tests
+        working-directory: desktop
+        run: |
+          cargo build --release -p etphonehome-linux -p etphonehome-testpeer
+          T=$(cargo test -p etphonehome-common --no-run 2>&1 | grep -o 'target/debug/deps/etphonehome_common-[a-z0-9]*' | head -1)
+          test -n "$T"
+          mkdir -p ../e2e-bin
+          cp target/release/etphonehome target/release/testpeer ../e2e-bin/
+          cp "$T" ../e2e-bin/common-tests
+      - name: Run end-to-end scenarios
+        run: bash .forgejo/scripts/desktop-e2e.sh "$PWD/e2e-bin"
 
   build-linux:
     name: Build Linux
@@ -152,11 +206,15 @@ jobs:
       - name: Build release
         working-directory: desktop
         run: cargo build --release -p etphonehome-linux
+      - name: Package (same script as release.yml) and smoke-test
+        run: bash .forgejo/scripts/package.sh linux "ci-${GITHUB_SHA::8}"
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: etphonehome-linux
-          path: desktop/target/release/etphonehome-linux
+          # The binary is `etphonehome`; this used to point at a
+          # nonexistent `etphonehome-linux`, so nothing was ever uploaded.
+          path: dist/etphonehome-linux-*.tar.gz
 
   build-windows:
     name: Build Windows
@@ -176,7 +234,7 @@ jobs:
       - name: Install mingw-w64
         run: |
           sudo apt-get update
-          sudo apt-get install -y mingw-w64
+          sudo apt-get install -y mingw-w64 zip unzip
       - name: Ensure Node.js is present (self-heal)
         run: command -v node || sudo apt-get install -y nodejs
       - name: Compute cache key
@@ -195,11 +253,14 @@ jobs:
       - name: Build release
         working-directory: desktop
         run: cargo build --release -p etphonehome-windows --target x86_64-pc-windows-gnu
+      - name: Package (same script as release.yml)
+        run: bash .forgejo/scripts/package.sh windows "ci-${GITHUB_SHA::8}"
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: etphonehome-windows
-          path: desktop/target/x86_64-pc-windows-gnu/release/etphonehome-windows.exe
+          # Binary is etphonehome.exe (was pointed at etphonehome-windows.exe).
+          path: dist/etphonehome-windows-*.zip
 
   build-gui:
     name: Build Desktop GUI
@@ -240,8 +301,10 @@ jobs:
       - name: Build release
         working-directory: desktop
         run: cargo build --release -p etphonehome-gui
+      - name: Package (same script as release.yml)
+        run: bash .forgejo/scripts/package.sh gui "ci-${GITHUB_SHA::8}"
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: etphonehome-gui
-          path: desktop/target/release/etphonehome-gui
+          path: dist/etphonehome-gui-*.tar.gz

@@ -25,7 +25,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 - ✅ **USB Tethering** - Fast and reliable connection via USB cable
 - ✅ **WiFi Tethering** - Wireless connection over local network
-- ✅ **Bluetooth Tethering** - Full RFCOMM implementation on all platforms
+- ✅ **Bluetooth Tethering** - RFCOMM on Linux (BlueZ); not yet available in the Windows client
 - ✅ **No Root Required** - Uses Android VPN API
 - ✅ **Cross-Platform** - Windows and Linux desktop clients
 - ✅ **Multi-threaded I/O** - Async packet forwarding for better performance
@@ -63,7 +63,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 **Windows:**
 - Administrator privileges
-- TAP-Windows adapter (install OpenVPN or TAP-Windows separately)
+- Wintun driver: download it from https://www.wintun.net and put `wintun.dll` next to `etphonehome.exe` (the client uses Wintun, not TAP-Windows)
 - ADB (Android Debug Bridge)
 
 ## 🏗️ Project Structure
@@ -185,8 +185,8 @@ ET Phone Home uses different approaches based on what's available:
 - Use `discover-wifi` command for automatic discovery
 
 **Bluetooth (Low Power):**
-- Full RFCOMM socket implementation
-- Works on Linux (BlueZ) and Windows
+- RFCOMM (SPP, channel 1) via BlueZ on Linux
+- The Windows client does not support Bluetooth yet (use USB or WiFi there)
 - Token authentication for security
 - Lower power consumption than WiFi
 - Slowest connection method (typical Bluetooth speeds)
@@ -267,12 +267,7 @@ bluetoothctl
 sudo etphonehome bluetooth --address XX:XX:XX:XX:XX:XX --token AbC123XyZ4567890
 ```
 
-**On Desktop (Windows):**
-```bash
-# Pair device via Windows Settings first
-# Then connect using Bluetooth address
-etphonehome bluetooth --address XX:XX:XX:XX:XX:XX --token AbC123XyZ4567890
-```
+**On Desktop (Windows):** Bluetooth is not supported by the Windows client yet; use USB or WiFi.
 
 ### Connection Profiles
 
@@ -295,6 +290,12 @@ sudo etphonehome connect my-home-wifi
 etphonehome delete-profile my-home-wifi
 ```
 
+Profiles live in `~/.config/etphonehome/config.toml`. `sudo etphonehome connect ...`
+reads the invoking user's file (not root's), so profiles saved without sudo are found.
+Use `--config <file>` or `ETPHONEHOME_CONFIG=<file>` to pick another file. WiFi
+profiles use `auth.wifi_token` and Bluetooth profiles `auth.bluetooth_token` from that
+file; a profile's `[profiles.filter]` rules are applied to outgoing traffic.
+
 ### Auto-Reconnect
 
 Enable automatic reconnection on connection drops:
@@ -309,6 +310,11 @@ sudo etphonehome wifi --host 192.168.1.100 --token XXX --reconnect --max-retries
 # USB with auto-reconnect
 sudo etphonehome usb --reconnect
 ```
+
+Auto-reconnect is off unless `--reconnect` is given for `usb`/`wifi`/`bluetooth`;
+`connect <profile>` follows the profile file's `default.auto_reconnect` and accepts
+`--reconnect=false` to override it. Backoff is 1, 2, 4 ... 60 seconds. Ctrl-C sends a
+Disconnect to the phone and exits.
 
 ### Custom Configuration
 
@@ -345,9 +351,8 @@ sudo modprobe tun
 lsmod | grep tun
 ```
 
-**Windows TAP adapter:**
-- Install OpenVPN (includes TAP-Windows)
-- Or install TAP-Windows separately
+**Windows TUN adapter:**
+- The client uses the Wintun driver: put `wintun.dll` (https://www.wintun.net) next to `etphonehome.exe`
 - Run as Administrator
 
 See [FAQ.md](docs/FAQ.md) for more troubleshooting help.

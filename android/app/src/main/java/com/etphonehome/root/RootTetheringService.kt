@@ -16,8 +16,6 @@ import com.etphonehome.util.TokenManager
 import kotlinx.coroutines.*
 import java.io.EOFException
 import java.io.IOException
-import java.io.InputStream
-import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
 
@@ -134,7 +132,9 @@ class RootTetheringService : Service() {
         clientSocket?.keepAlive = true
 
         // Perform handshake
-        performHandshake()
+        val socket = clientSocket ?: throw IOException("No desktop connection")
+        val stream = MessageStream(socket.getInputStream(), socket.getOutputStream())
+        performHandshake(stream)
 
         // Setup iptables routing
         iptablesManager = IptablesManager()
@@ -160,86 +160,34 @@ class RootTetheringService : Service() {
         Log.i(TAG, "Root tethering active - traffic being routed via iptables")
 
         // Keep connection alive and handle control messages
-        handleControlMessages()
+        handleControlMessages(stream)
     }
 
-    private suspend fun performHandshake() = withContext(Dispatchers.IO) {
-        val input = clientSocket?.getInputStream() ?: throw IOException("No input stream")
-        val output = clientSocket?.getOutputStream() ?: throw IOException("No output stream")
-
+    private suspend fun performHandshake(stream: MessageStream) = withContext(Dispatchers.IO) {
         Log.d(TAG, "Starting handshake")
-
-        // Read handshake request
-        val request = readMessage(input) as? HandshakeRequest
-            ?: throw ProtocolException("Expected HandshakeRequest")
-
-        Log.d(TAG, "Received handshake: version=${request.version}, capabilities=${request.capabilities}, has_token=${request.token != null}")
-
-        // Reject incompatible protocol versions instead of proceeding and desyncing later.
-        // Both of VpnService's handshake paths (USB/WiFi and Bluetooth) already reject a
-        // major-version mismatch here before doing anything else -- this root-tethering
-        // handshake was missing the same check entirely, so a desktop build running an
-        // incompatible protocol major version would sail through the handshake, get a
-        // HandshakeResponse back, and only fail later (or desync the wire framing
-        // entirely) once it tried to interpret messages it can't actually parse. See
-        // Protocol.isVersionCompatible doc for the full rationale.
-        if (!Protocol.isVersionCompatible(request.version)) {
-            Log.e(TAG, "Protocol version mismatch: peer=${request.version}, local=${Protocol.PROTOCOL_VERSION}")
-            val errorMsg = ErrorMessage(
-                errorCode = Protocol.ERR_PROTOCOL_VERSION,
-                message = "Protocol version mismatch: expected major version " +
-                    "${(Protocol.PROTOCOL_VERSION.toInt() ushr 8) and 0xFF}, got " +
-                    "${(request.version.toInt() ushr 8) and 0xFF}"
-            )
-            writeMessage(output, errorMsg)
-            throw ProtocolException("Protocol version mismatch")
-        }
-
-        // Verify token before granting root-level routing. The server socket in
-        // startRootTethering() is a plain `ServerSocket(port)`, which binds to ALL
-        // interfaces (0.0.0.0) -- same as VpnService's CONNECTION_WIFI path, not the
-        // loopback-only CONNECTION_USB path. This handshake previously accepted any
-        // HandshakeRequest unconditionally and handed back CAP_ROOT, meaning any host
-        // on the same WiFi network could connect to this port and get the device's
-        // entire traffic routed through it via iptables DNAT, with zero authentication
-        // -- the same bypass class already fixed for VpnService's WiFi/Bluetooth paths
-        // and for TokenManager.verifyWifiToken/verifyBluetoothToken. Root tethering has
-        // no connection-type concept of its own (it's always reached over the network,
-        // never over USB loopback), so it reuses the WiFi token here.
-        if (!TokenManager.verifyWifiToken(applicationContext, request.token)) {
-            Log.e(TAG, "Root tethering token verification failed")
-            val errorMsg = ErrorMessage(
-                errorCode = Protocol.ERR_AUTH_FAILED,
-                message = "Authentication failed: invalid token"
-            )
-            writeMessage(output, errorMsg)
-            throw SecurityException("Root tethering authentication failed")
-        }
-
-        // Send response with ROOT capability flag
-        // ip_address = 0 indicates root mode (no VPN interface)
-        val capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI or Protocol.CAP_ROOT
-        val response = HandshakeResponse(
-            version = Protocol.PROTOCOL_VERSION,
-            capabilities = capabilities,
-            ipAddress = 0,  // 0 indicates root mode
-            dns = 0
+        // Root tethering is reached over the network (the server socket binds all
+        // interfaces), never over USB loopback, so it always requires the WiFi
+        // token before handing out CAP_ROOT routing -- see ServerHandshake for the
+        // shared version/token checks. ip_address = 0 tells the desktop this is
+        // root mode (no VPN interface).
+        ServerHandshake.perform(
+            stream,
+            capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI or Protocol.CAP_ROOT,
+            ipAddress = 0,
+            dns = 0,
+            tokenVerifier = { token -> TokenManager.verifyWifiToken(applicationContext, token) }
         )
-
-        writeMessage(output, response)
         Log.d(TAG, "Handshake complete (ROOT mode)")
     }
 
-    private suspend fun handleControlMessages() = withContext(Dispatchers.IO) {
-        val input = clientSocket?.getInputStream() ?: return@withContext
-        val output = clientSocket?.getOutputStream() ?: return@withContext
+    private suspend fun handleControlMessages(stream: MessageStream) = withContext(Dispatchers.IO) {
 
         // Start keepalive sender
         val keepaliveJob = launch {
             while (isRunning) {
                 delay(30000)
                 try {
-                    writeMessage(output, Keepalive)
+                    stream.write(Keepalive)
                     Log.d(TAG, "Sent keepalive")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error sending keepalive", e)
@@ -257,7 +205,7 @@ class RootTetheringService : Service() {
                     // In root mode, we don't have exact byte counts
                     // Could potentially read from /proc/net/dev
                     val stats = StatsUpdate(bytesSent, bytesReceived, uptime)
-                    writeMessage(output, stats)
+                    stream.write(stats)
                     Log.d(TAG, "Sent stats: uptime=${uptime}s")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error sending stats", e)
@@ -269,7 +217,7 @@ class RootTetheringService : Service() {
         // Handle incoming control messages
         while (isRunning) {
             try {
-                val message = readMessage(input)
+                val message = stream.read()
                 when (message) {
                     is Disconnect -> {
                         Log.d(TAG, "Desktop requested disconnect: ${message.reason}")
@@ -278,7 +226,7 @@ class RootTetheringService : Service() {
                     }
                     is Keepalive -> {
                         // Desktop keepalive received, send response
-                        writeMessage(output, Keepalive)
+                        stream.write(Keepalive)
                     }
                     is ConfigUpdate -> {
                         Log.d(TAG, "Config update received: ${message.config}")
@@ -330,44 +278,6 @@ class RootTetheringService : Service() {
         }
 
         serviceScope.cancel()
-    }
-
-    private fun readMessage(input: InputStream): Message {
-        // Read header (5 bytes)
-        val header = ByteArray(5)
-        var offset = 0
-        while (offset < 5) {
-            val read = input.read(header, offset, 5 - offset)
-            if (read < 0) throw EOFException("Stream closed")
-            offset += read
-        }
-
-        // Parse header
-        val magic = ((header[0].toInt() and 0xFF) shl 8) or (header[1].toInt() and 0xFF)
-        if (magic != Protocol.MAGIC.toInt()) {
-            throw ProtocolException("Invalid magic bytes: $magic")
-        }
-
-        val length = ((header[3].toInt() and 0xFF) shl 8) or (header[4].toInt() and 0xFF)
-
-        // Read payload
-        val payload = ByteArray(length)
-        offset = 0
-        while (offset < length) {
-            val read = input.read(payload, offset, length - offset)
-            if (read < 0) throw EOFException("Stream closed")
-            offset += read
-        }
-
-        // Reconstruct full message
-        val fullMessage = header + payload
-        return Message.fromBytes(fullMessage)
-    }
-
-    private fun writeMessage(output: OutputStream, message: Message) {
-        val data = message.toBytes()
-        output.write(data)
-        output.flush()
     }
 
     private fun createNotificationChannel() {

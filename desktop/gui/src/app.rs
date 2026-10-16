@@ -5,10 +5,12 @@ use std::time::Duration;
 use iced::widget::{button, column, container, horizontal_space, row, text};
 use iced::{Element, Length, Subscription, Task, Theme};
 
+use etphonehome_common::runner::{self, RetryPolicy};
 use etphonehome_common::{
     Config, ConnectionService, ConnectionState, ConnectionStats, ConnectionType, FilterConfig,
-    LogEntry, Profile,
+    LogEntry, LogLevel, Profile,
 };
+use tokio::sync::{broadcast, watch};
 
 use crate::message::{Message, View};
 use crate::views;
@@ -44,6 +46,12 @@ pub struct EtPhoneHomeApp {
 
     /// Profile being edited (for create/edit form)
     editing_profile: Option<ProfileForm>,
+
+    /// Stops the running connection task (Disconnect button).
+    shutdown: Option<watch::Sender<bool>>,
+
+    /// Log events published by the connection task.
+    log_rx: broadcast::Receiver<LogEntry>,
 }
 
 /// Profile edit form state
@@ -76,7 +84,7 @@ impl ProfileForm {
         Self {
             name: String::new(),
             host: "192.168.1.1".to_string(),
-            port: "8765".to_string(),
+            port: "8888".to_string(),
             connection_type: "wifi".to_string(),
             description: String::new(),
             address: String::new(),
@@ -96,7 +104,7 @@ impl ProfileForm {
             port: profile
                 .port
                 .map(|p| p.to_string())
-                .unwrap_or_else(|| "8765".to_string()),
+                .unwrap_or_else(|| "8888".to_string()),
             connection_type: format!("{:?}", profile.connection_type).to_lowercase(),
             description: profile.description.clone().unwrap_or_default(),
             address: profile.address.clone().unwrap_or_default(),
@@ -110,6 +118,7 @@ impl ProfileForm {
 impl EtPhoneHomeApp {
     pub fn new() -> (Self, Task<Message>) {
         let connection_service = ConnectionService::new();
+        let log_rx = connection_service.subscribe_logs();
 
         let app = Self {
             current_view: View::Connection,
@@ -122,6 +131,8 @@ impl EtPhoneHomeApp {
             auto_reconnect: true,
             dark_mode: false,
             editing_profile: None,
+            shutdown: None,
+            log_rx,
         };
 
         // Load profiles on startup
@@ -143,20 +154,55 @@ impl EtPhoneHomeApp {
 
             // Connection actions
             Message::Connect => {
-                if let Some(profile_name) = &self.selected_profile {
-                    if let Some(profile) = self.profiles.iter().find(|p| &p.name == profile_name) {
-                        self.connection_state = ConnectionState::Connecting {
-                            profile: profile.clone(),
-                            attempt: 1,
-                        };
-                        log::info!("Connecting to profile: {}", profile_name);
-                    }
+                // The Connect button used to only set the label to
+                // "Connecting" -- nothing ever opened a connection. It now
+                // runs the same session runner the CLI uses, reporting state
+                // and stats through `connection_service`.
+                if self.shutdown.is_some() {
+                    return Task::none();
                 }
-                Task::none()
+                let Some(profile) = self
+                    .selected_profile
+                    .as_ref()
+                    .and_then(|n| self.profiles.iter().find(|p| &p.name == n))
+                    .cloned()
+                else {
+                    return Task::none();
+                };
+                log::info!("Connecting to profile: {}", profile.name);
+                let (tx, rx) = runner::shutdown_channel();
+                self.shutdown = Some(tx);
+                self.connection_state = ConnectionState::Connecting {
+                    profile: profile.clone(),
+                    attempt: 1,
+                };
+                self.connection_service
+                    .set_state(self.connection_state.clone());
+                let svc = self.connection_service.clone();
+                let auto = self.auto_reconnect;
+                Task::perform(
+                    async move {
+                        let config = Config::load_or_default().map_err(|e| format!("{:#}", e))?;
+                        let policy = RetryPolicy {
+                            reconnect: auto,
+                            max_retries: config.default.max_retries,
+                        };
+                        let iface = config.default.interface.clone();
+                        runner::connect_profile(&config, &profile, &iface, policy, rx, Some(svc))
+                            .await
+                            .map_err(|e| format!("{:#}", e))
+                    },
+                    Message::ConnectionResult,
+                )
             }
 
             Message::Disconnect => {
+                if let Some(tx) = self.shutdown.take() {
+                    let _ = tx.send(true);
+                }
                 self.connection_state = ConnectionState::Disconnected;
+                self.connection_service
+                    .set_state(ConnectionState::Disconnected);
                 self.stats = ConnectionStats::default();
                 log::info!("Disconnected");
                 Task::none()
@@ -334,13 +380,43 @@ impl EtPhoneHomeApp {
                 Task::none()
             }
 
-            Message::ConnectionResult(_) => Task::none(),
+            Message::ConnectionResult(result) => {
+                self.shutdown = None;
+                match result {
+                    Ok(()) => self.connection_state = ConnectionState::Disconnected,
+                    Err(message) => {
+                        log::error!("Connection failed: {}", message);
+                        self.connection_service
+                            .log(LogLevel::Error, message.clone());
+                        self.connection_state = ConnectionState::Error { message };
+                    }
+                }
+                Task::none()
+            }
 
-            // Periodic tick
+            // Periodic tick: pull live state/stats/logs from the connection task.
             Message::Tick => {
-                // Update uptime if connected
+                if self.shutdown.is_some() {
+                    self.connection_state = self.connection_service.state();
+                    self.stats = self.connection_service.stats();
+                }
+                loop {
+                    match self.log_rx.try_recv() {
+                        Ok(entry) => {
+                            self.logs.push(entry);
+                        }
+                        Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+                        Err(_) => break,
+                    }
+                }
+                if self.logs.len() > 1000 {
+                    let excess = self.logs.len() - 1000;
+                    self.logs.drain(..excess);
+                }
                 if let ConnectionState::Connected { started_at, .. } = &self.connection_state {
-                    self.stats.uptime_seconds = started_at.elapsed().as_secs() as u32;
+                    if self.stats.uptime_seconds == 0 {
+                        self.stats.uptime_seconds = started_at.elapsed().as_secs() as u32;
+                    }
                 }
                 Task::none()
             }
@@ -536,11 +612,151 @@ async fn load_profiles_from_config() -> Vec<Profile> {
                 name: "Default".to_string(),
                 connection_type: ConnectionType::Usb,
                 description: Some("Default USB connection".to_string()),
-                port: Some(8765),
+                port: Some(8888),
                 host: None,
                 address: None,
                 filter: FilterConfig::default(),
             }]
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app_with(profiles: Vec<Profile>) -> EtPhoneHomeApp {
+        let (mut app, _) = EtPhoneHomeApp::new();
+        let _ = app.update(Message::ProfilesLoaded(profiles));
+        app
+    }
+
+    fn wifi(name: &str) -> Profile {
+        Profile {
+            name: name.into(),
+            connection_type: ConnectionType::Wifi,
+            description: None,
+            port: Some(8888),
+            host: Some("192.168.1.10".into()),
+            address: None,
+            filter: FilterConfig::default(),
+        }
+    }
+
+    #[test]
+    fn new_profile_form_defaults_to_the_app_port() {
+        // The form used to default to 8765 while the Android app listens on
+        // 8888, so every GUI-created profile pointed at the wrong port.
+        assert_eq!(ProfileForm::new().port, "8888");
+        let mut p = wifi("x");
+        p.port = None;
+        assert_eq!(ProfileForm::from_profile(&p).port, "8888");
+    }
+
+    #[test]
+    fn rename_replaces_instead_of_duplicating() {
+        let mut app = app_with(vec![wifi("a"), wifi("b")]);
+        assert_eq!(app.selected_profile().map(String::as_str), Some("a"));
+        let mut renamed = wifi("a2");
+        renamed.filter.enabled = true;
+        let _ = app.update(Message::SaveProfile(Some("a".into()), renamed));
+        let names: Vec<_> = app.profiles().iter().map(|p| p.name.clone()).collect();
+        assert_eq!(names, vec!["b".to_string(), "a2".to_string()]);
+        assert_eq!(app.selected_profile().map(String::as_str), Some("a2"));
+        assert!(app.profiles()[1].filter.enabled);
+    }
+
+    #[test]
+    fn edit_form_carries_filter_through() {
+        let mut p = wifi("f");
+        p.filter.enabled = true;
+        let mut app = app_with(vec![p]);
+        let _ = app.update(Message::EditProfile("f".into()));
+        assert!(app.editing_profile().unwrap().filter.enabled);
+        let _ = app.update(Message::CancelProfileEdit);
+        assert!(app.editing_profile().is_none());
+    }
+
+    #[test]
+    fn deleting_selected_profile_moves_selection() {
+        let mut app = app_with(vec![wifi("a"), wifi("b")]);
+        let _ = app.update(Message::DeleteProfile("a".into()));
+        assert_eq!(app.profiles().len(), 1);
+        assert_eq!(app.selected_profile().map(String::as_str), Some("b"));
+    }
+
+    #[test]
+    fn connect_starts_a_session_and_disconnect_stops_it() {
+        let mut app = app_with(vec![wifi("a")]);
+        let _task = app.update(Message::Connect);
+        assert!(matches!(
+            app.connection_state(),
+            ConnectionState::Connecting { .. }
+        ));
+        assert!(
+            app.shutdown.is_some(),
+            "Connect must start a connection task"
+        );
+        let mut rx = app.shutdown.as_ref().unwrap().subscribe();
+        // A second click while connecting is ignored.
+        let _ = app.update(Message::Connect);
+        let _ = app.update(Message::Disconnect);
+        assert!(matches!(
+            app.connection_state(),
+            ConnectionState::Disconnected
+        ));
+        assert!(*rx.borrow_and_update(), "Disconnect must signal the task");
+        assert!(app.shutdown.is_none());
+    }
+
+    #[test]
+    fn connection_failure_is_shown_and_logged() {
+        let mut app = app_with(vec![wifi("a")]);
+        let _ = app.update(Message::Connect);
+        let _ = app.update(Message::ConnectionResult(Err("connection refused".into())));
+        match app.connection_state() {
+            ConnectionState::Error { message } => assert!(message.contains("refused")),
+            s => panic!("{:?}", s),
+        }
+        let _ = app.update(Message::Tick);
+        assert!(app.logs().iter().any(|l| l.message.contains("refused")));
+    }
+
+    #[test]
+    fn tick_pulls_live_state_and_stats_from_the_service() {
+        let mut app = app_with(vec![wifi("a")]);
+        let _ = app.update(Message::Connect);
+        app.connection_service
+            .set_state(ConnectionState::Connected {
+                profile: wifi("a"),
+                started_at: std::time::Instant::now(),
+            });
+        app.connection_service.update_stats(ConnectionStats {
+            bytes_received: 1234,
+            packets_received: 3,
+            ..Default::default()
+        });
+        app.connection_service.log_info("tunnel up");
+        let _ = app.update(Message::Tick);
+        assert!(matches!(
+            app.connection_state(),
+            ConnectionState::Connected { .. }
+        ));
+        assert_eq!(app.stats().bytes_received, 1234);
+        assert!(app.logs().iter().any(|l| l.message == "tunnel up"));
+    }
+
+    #[test]
+    fn toggles() {
+        let mut app = app_with(vec![]);
+        assert!(app.auto_reconnect());
+        let _ = app.update(Message::ToggleAutoReconnect);
+        assert!(!app.auto_reconnect());
+        assert!(!app.dark_mode());
+        let _ = app.update(Message::ToggleDarkMode);
+        assert!(app.dark_mode());
+        let _ = app.update(Message::NavigateTo(View::Logs));
+        let _ = app.update(Message::ClearLogs);
+        assert!(app.logs().is_empty());
     }
 }

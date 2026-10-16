@@ -5,6 +5,22 @@ All notable changes to ET Phone Home will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Desktop forwarding stall:** the TUN reader held the device mutex during its blocking read, so packets from the phone were only written to the TUN device when the desktop happened to send something. The forwarding loop now uses the async TUN device with independent read/write halves (shared `session` module).
+- **GUI Connect did nothing:** the button only changed the status label. It now runs a real session (same runner as the CLI) with live state, stats and logs; Disconnect stops it. GUI-created profiles defaulted to port 8765 instead of 8888.
+- **Bluetooth (Linux):** the RFCOMM connection was opened and then abandoned with "integration incomplete"; it now completes the handshake (with `--token` / `auth.bluetooth_token`) and forwards packets.
+- **CLI:** `--reconnect` could not be turned off (it defaulted to true); `save-profile --type` from the README was rejected; `sudo etphonehome connect` looked in root's config instead of the invoking user's; WiFi hosts had to be IP literals; Ctrl-C now sends Disconnect; wrong-token rejections now show the phone's reason instead of "Unexpected message type"; saving a profile from the CLI no longer wipes its filter rules; `list-profiles` output goes to stdout; a silent phone is detected after 90 s so auto-reconnect can kick in.
+- **Android:** stats, keepalive and packet writers shared one socket stream without locking (frames could interleave); StatsUpdate was 20 bytes instead of the specified 24. One shared `ServerHandshake` replaces three copies.
+- **Release packaging:** release.yml stripped/zipped binaries that don't exist (`etphonehome-linux`, `etphonehome-windows.exe`) and expected an unsigned APK; CI artifact uploads pointed at the same wrong names.
+- **quick-start-linux.sh:** failed on kernels with built-in tun (modprobe under `set -e`) and required Rust even when the client was already built.
+- **Docs:** Windows needs `wintun.dll`, not TAP-Windows; Windows Bluetooth is not supported yet.
+
+### Tests / CI
+- New end-to-end CI job runs the real client through a real TUN device against an Android-protocol stand-in (plaintext, TLS, wrong tokens, USB via adb, filters, auto-reconnect, quick-start script).
+- Shared Rust/Kotlin golden wire vectors (`protocol/test-vectors.txt`); 13 orphaned protocol tests that never compiled now run; TUN tests run with CAP_NET_ADMIN in CI.
+
 ## [0.5.0] - 2026-10-13
 
 ### Added

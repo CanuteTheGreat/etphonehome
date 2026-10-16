@@ -18,11 +18,15 @@ on:
     branches: [main]
     paths:
       - 'android/**'
+      - 'protocol/**'
+      - '.forgejo/scripts/package.sh'
       - '.forgejo/workflows/android-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'android/**'
+      - 'protocol/**'
+      - '.forgejo/scripts/package.sh'
       - '.forgejo/workflows/android-ci.yml'
 
 jobs:
@@ -113,9 +117,11 @@ jobs:
           # all failing with "Could not GET '.../repo.maven.apache.org/...'" --
           # a runner-side network/DNS blip, not a real dependency problem.
           for attempt in 1 2 3; do
-            ./gradlew assembleDebug && break
+            # assembleRelease too, so the release.yml packaging path (and
+            # its APK naming) is exercised on every push, not only on tags.
+            ./gradlew assembleDebug assembleRelease && break
             if [ "$attempt" -eq 3 ]; then
-              echo "gradlew assembleDebug failed after 3 attempts"
+              echo "gradlew assemble failed after 3 attempts"
               exit 1
             fi
             echo "gradlew assembleDebug failed (attempt $attempt/3), retrying in 20s..."
@@ -127,6 +133,8 @@ jobs:
           # its docker exec with "node: executable file not found in $PATH"
           # -- a resource-starvation symptom, not a missing binary.
           ./gradlew --stop
+      - name: Package release APK (same script as release.yml)
+        run: bash .forgejo/scripts/package.sh android "ci-${GITHUB_SHA::8}"
       - name: Upload APK
         # continue-on-error: this step is a Node-based action and the one
         # most likely to hit the documented beauxbatons Docker Desktop VM

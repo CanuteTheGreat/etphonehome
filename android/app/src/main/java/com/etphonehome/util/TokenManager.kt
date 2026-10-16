@@ -29,7 +29,7 @@ object TokenManager {
     /**
      * Generate a random token
      */
-    private fun generateToken(): String {
+    internal fun generateToken(): String {
         return (1..TOKEN_LENGTH)
             .map { CHARSET[secureRandom.nextInt(CHARSET.length)] }
             .joinToString("")
@@ -103,8 +103,7 @@ object TokenManager {
             return false
         }
 
-        val storedToken = getWifiToken(context)
-        val matches = constantTimeEquals(providedToken, storedToken)
+        val matches = tokenMatches(providedToken, getWifiToken(context))
 
         if (matches) {
             Log.i(TAG, "WiFi token verified successfully")
@@ -127,8 +126,7 @@ object TokenManager {
             return false
         }
 
-        val storedToken = getBluetoothToken(context)
-        val matches = constantTimeEquals(providedToken, storedToken)
+        val matches = tokenMatches(providedToken, getBluetoothToken(context))
 
         if (matches) {
             Log.i(TAG, "Bluetooth token verified successfully")
@@ -145,6 +143,16 @@ object TokenManager {
     fun clearTokens(context: Context) {
         getPrefs(context).edit().clear().apply()
         Log.i(TAG, "Cleared all tokens")
+    }
+
+    /**
+     * The verification rule shared by WiFi and Bluetooth: a token must be
+     * present and equal (in constant time) to the stored one. Split out of
+     * verify*Token so it can be unit-tested without an Android Context.
+     */
+    internal fun tokenMatches(providedToken: String?, storedToken: String): Boolean {
+        if (providedToken == null) return false
+        return constantTimeEquals(providedToken, storedToken)
     }
 
     /**

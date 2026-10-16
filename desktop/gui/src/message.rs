@@ -33,9 +33,9 @@ pub enum Message {
     ProfileDescriptionChanged(String),
     ProfileAddressChanged(String),
 
-    // State updates from connection service. Not yet dispatched by app.rs's
-    // update loop — the connection-service subscription/event-pump wiring
-    // that would construct these is still pending.
+    // State updates from connection service. The live connection is now
+    // polled from `ConnectionService` on every Tick; these remain for
+    // pushing updates directly.
     #[allow(dead_code)]
     StateChanged(ConnectionState),
     #[allow(dead_code)]
@@ -51,7 +51,6 @@ pub enum Message {
     ProfilesLoaded(Vec<Profile>),
     ProfileSaved(Result<(), String>),
     ProfileDeleted(Result<(), String>),
-    #[allow(dead_code)]
     ConnectionResult(Result<(), String>),
 
     // Ticks for periodic updates

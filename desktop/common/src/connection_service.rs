@@ -77,6 +77,7 @@ pub enum LogLevel {
 /// - Statistics broadcasting
 /// - Log event broadcasting
 /// - Command handling
+#[derive(Clone)]
 pub struct ConnectionService {
     state: Arc<Mutex<ConnectionState>>,
     stats: Arc<Mutex<ConnectionStats>>,
@@ -147,6 +148,16 @@ impl ConnectionService {
         self.command_tx.clone()
     }
 
+    /// Profile of the connection currently in progress, if any.
+    pub fn current_profile(&self) -> Option<Profile> {
+        match self.state() {
+            ConnectionState::Connecting { profile, .. }
+            | ConnectionState::Connected { profile, .. }
+            | ConnectionState::Reconnecting { profile, .. } => Some(profile),
+            _ => None,
+        }
+    }
+
     /// Update connection state
     pub fn set_state(&self, new_state: ConnectionState) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -212,5 +223,75 @@ impl ConnectionService {
 impl Default for ConnectionService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::ConnectionType;
+    use crate::filter::FilterConfig;
+
+    fn profile() -> Profile {
+        Profile {
+            name: "p".into(),
+            connection_type: ConnectionType::Usb,
+            description: None,
+            port: None,
+            host: None,
+            address: None,
+            filter: FilterConfig::default(),
+        }
+    }
+
+    #[test]
+    fn retry_delay_doubles_and_caps_at_60s() {
+        let secs: Vec<u64> = (1..=9)
+            .map(|n| ConnectionService::calculate_retry_delay(n).as_secs())
+            .collect();
+        assert_eq!(secs, vec![1, 2, 4, 8, 16, 32, 60, 60, 60]);
+        assert_eq!(ConnectionService::calculate_retry_delay(0).as_secs(), 1);
+    }
+
+    #[tokio::test]
+    async fn state_stats_and_logs_are_broadcast_to_subscribers() {
+        let svc = ConnectionService::new();
+        let clone = svc.clone();
+        let mut states = svc.subscribe_state();
+        let mut stats = svc.subscribe_stats();
+        let mut logs = svc.subscribe_logs();
+
+        clone.set_state(ConnectionState::Connecting {
+            profile: profile(),
+            attempt: 2,
+        });
+        assert!(matches!(
+            states.recv().await.unwrap(),
+            ConnectionState::Connecting { attempt: 2, .. }
+        ));
+        assert_eq!(svc.current_profile().unwrap().name, "p");
+
+        clone.update_stats(ConnectionStats {
+            bytes_sent: 10,
+            ..Default::default()
+        });
+        assert_eq!(stats.recv().await.unwrap().bytes_sent, 10);
+        assert_eq!(svc.stats().bytes_sent, 10, "clones share state");
+
+        clone.log_error("boom");
+        let e = logs.recv().await.unwrap();
+        assert_eq!(e.level, LogLevel::Error);
+        assert_eq!(e.message, "boom");
+
+        svc.set_state(ConnectionState::Disconnected);
+        assert!(svc.current_profile().is_none());
+    }
+
+    #[test]
+    fn auto_reconnect_toggle_is_shared() {
+        let svc = ConnectionService::new();
+        assert!(svc.is_auto_reconnect_enabled());
+        svc.clone().set_auto_reconnect(false);
+        assert!(!svc.is_auto_reconnect_enabled());
     }
 }

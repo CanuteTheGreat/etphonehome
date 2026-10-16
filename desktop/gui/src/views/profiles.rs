@@ -189,7 +189,7 @@ fn view_profile_form(form: &ProfileForm) -> Element<'static, Message> {
 
     let port_input = column![
         text("Port"),
-        text_input("8765", &form.port)
+        text_input("8888", &form.port)
             .padding(10)
             .on_input(Message::ProfilePortChanged),
     ]

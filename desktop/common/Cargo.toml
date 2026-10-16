@@ -18,6 +18,15 @@ rustls = { workspace = true }
 tokio-rustls = { workspace = true }
 ring = { workspace = true }
 rcgen = { workspace = true }
+mdns-sd = { workspace = true }
+clap = { workspace = true }
+env_logger = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 
 [lib]
 name = "etphonehome_common"

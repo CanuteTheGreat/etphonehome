@@ -183,7 +183,7 @@ The `common` crate provides shared functionality:
 - systemd service support (future)
 
 **Windows** (`windows/`):
-- Uses TAP-Windows adapter
+- Uses the Wintun driver (`wintun.dll` next to the executable)
 - Windows routing API
 - Windows service support (future)
 
@@ -251,7 +251,7 @@ lsmod | grep tun
 ```
 
 **Windows:**
-- Install TAP-Windows (comes with OpenVPN)
+- Put `wintun.dll` (https://www.wintun.net) next to `etphonehome.exe`
 - Run as Administrator
 
 ### "Permission denied"

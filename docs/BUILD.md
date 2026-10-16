@@ -44,7 +44,7 @@ This document provides instructions for building the ET Phone Home tethering sol
    **Windows:**
    - Install Visual Studio Build Tools or Visual Studio Community
    - Install Rust for Windows: https://www.rust-lang.org/tools/install
-   - TAP-Windows adapter (for TUN interface) - Install OpenVPN or TAP-Windows separately
+   - Wintun driver: download it from https://www.wintun.net and put `wintun.dll` next to `etphonehome.exe` (the client uses Wintun, not TAP-Windows)
 
 3. **Android Debug Bridge (ADB)** - For USB tethering
    ```bash
@@ -236,7 +236,7 @@ After building, verify the installation:
 
 **Problem:** TUN interface creation fails
 - **Solution:** On Linux, install TUN/TAP kernel module: `sudo modprobe tun`
-- **Solution:** On Windows, install TAP-Windows adapter (included with OpenVPN)
+- **Solution:** On Windows, put `wintun.dll` (https://www.wintun.net) next to `etphonehome.exe`
 
 **Problem:** "failed to run custom build command for `libdbus-sys`" (v0.4.0+)
 - **Solution (Linux):** Install D-Bus development libraries:

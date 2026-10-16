@@ -303,56 +303,23 @@ class VpnService : AndroidVpnService() {
         // Initialize filter engine (disabled by default, can be enabled via config update)
         filterEngine = FilterEngine(FilterConfig.disabled())
 
-        // Perform handshake using Bluetooth streams
-        val input = bluetoothSocket.inputStream
-        val output = bluetoothSocket.outputStream
-
-        // Handshake
+        // Perform handshake using Bluetooth streams. Bluetooth always requires the
+        // Bluetooth pairing token (this path once completed the handshake with no
+        // token check at all); see ServerHandshake for the shared logic.
+        val stream = MessageStream(bluetoothSocket.inputStream, bluetoothSocket.outputStream)
         Log.d(tag, "Starting handshake")
-        val request = readMessage(input) as? HandshakeRequest
-            ?: throw ProtocolException("Expected HandshakeRequest")
-
-        Log.d(tag, "Received handshake request: version=${request.version}, capabilities=${request.capabilities}, has_token=${request.token != null}")
-
-        // Reject incompatible protocol versions instead of proceeding and desyncing
-        // later (see Protocol.isVersionCompatible doc for the full rationale).
-        if (!Protocol.isVersionCompatible(request.version)) {
-            Log.e(tag, "Protocol version mismatch: peer=${request.version}, local=${Protocol.PROTOCOL_VERSION}")
-            val errorMsg = ErrorMessage(
-                errorCode = Protocol.ERR_PROTOCOL_VERSION,
-                message = "Protocol version mismatch: expected major version " +
-                    "${(Protocol.PROTOCOL_VERSION.toInt() ushr 8) and 0xFF}, got " +
-                    "${(request.version.toInt() ushr 8) and 0xFF}"
+        try {
+            ServerHandshake.perform(
+                stream,
+                capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI or Protocol.CAP_BLUETOOTH,
+                ipAddress = ipToInt(VPN_ADDRESS),
+                dns = ipToInt(VPN_DNS),
+                tokenVerifier = { token -> TokenManager.verifyBluetoothToken(this@VpnService, token) }
             )
-            writeMessage(output, errorMsg)
-            throw ProtocolException("Protocol version mismatch")
-        }
-
-        // Verify token for Bluetooth connections -- this path previously completed the
-        // handshake unconditionally regardless of the request token, unlike the WiFi path
-        // in performHandshake() which always checks TokenManager.verifyWifiToken(). That
-        // meant any Bluetooth-paired/discoverable device could connect, complete the
-        // handshake, and get full VPN routing with zero authentication.
-        // TokenManager.verifyBluetoothToken() already existed but was never called.
-        if (!TokenManager.verifyBluetoothToken(this@VpnService, request.token)) {
+        } catch (e: SecurityException) {
             Log.e(tag, "Bluetooth token verification failed")
-            val errorMsg = ErrorMessage(
-                errorCode = Protocol.ERR_AUTH_FAILED,
-                message = "Authentication failed: invalid token"
-            )
-            writeMessage(output, errorMsg)
-            throw SecurityException("Bluetooth authentication failed")
+            throw e
         }
-
-        val capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI or Protocol.CAP_BLUETOOTH
-        val response = HandshakeResponse(
-            version = Protocol.PROTOCOL_VERSION,
-            capabilities = capabilities,
-            ipAddress = ipToInt(VPN_ADDRESS),
-            dns = ipToInt(VPN_DNS)
-        )
-
-        writeMessage(output, response)
         Log.d(tag, "Handshake complete")
 
         isRunning = true
@@ -362,17 +329,17 @@ class VpnService : AndroidVpnService() {
 
         // Start packet forwarding with Bluetooth streams
         coroutineScope {
-            launch { forwardFromVpnToDesktopBluetooth(output) }
-            launch { forwardFromDesktopToVpnBluetooth(input) }
-            launch { sendPeriodicStatsBluetooth(output) }
-            launch { sendPeriodicKeepaliveBluetooth(output) }
+            launch { forwardFromVpnToDesktopBluetooth(stream) }
+            launch { forwardFromDesktopToVpnBluetooth(stream) }
+            launch { sendPeriodicStatsBluetooth(stream) }
+            launch { sendPeriodicKeepaliveBluetooth(stream) }
         }
     }
 
     /**
      * Forward packets from VPN to desktop via Bluetooth
      */
-    private suspend fun forwardFromVpnToDesktopBluetooth(output: OutputStream) = withContext(Dispatchers.IO) {
+    private suspend fun forwardFromVpnToDesktopBluetooth(stream: MessageStream) = withContext(Dispatchers.IO) {
         val vpnInput = FileInputStream(vpnInterface!!.fileDescriptor)
         val buffer = ByteArray(VPN_MTU)
 
@@ -387,7 +354,7 @@ class VpnService : AndroidVpnService() {
                     // Apply traffic filter
                     if (filterEngine?.shouldAllow(packet) != false) {
                         val message = IpPacket(packet)
-                        writeMessage(output, message)
+                        stream.write(message)
                         bytesSent += length
                     }
                 }
@@ -405,14 +372,14 @@ class VpnService : AndroidVpnService() {
     /**
      * Forward packets from desktop to VPN via Bluetooth
      */
-    private suspend fun forwardFromDesktopToVpnBluetooth(input: InputStream) = withContext(Dispatchers.IO) {
+    private suspend fun forwardFromDesktopToVpnBluetooth(stream: MessageStream) = withContext(Dispatchers.IO) {
         val vpnOutput = FileOutputStream(vpnInterface!!.fileDescriptor)
 
         Log.d(tag, "Started Desktop (Bluetooth) -> VPN forwarding")
 
         while (isRunning) {
             try {
-                val message = readMessage(input)
+                val message = stream.read()
 
                 when (message) {
                     is IpPacket -> {
@@ -453,7 +420,7 @@ class VpnService : AndroidVpnService() {
     /**
      * Send periodic statistics via Bluetooth
      */
-    private suspend fun sendPeriodicStatsBluetooth(output: OutputStream) = withContext(Dispatchers.IO) {
+    private suspend fun sendPeriodicStatsBluetooth(stream: MessageStream) = withContext(Dispatchers.IO) {
         while (isRunning) {
             delay(5000)
 
@@ -461,7 +428,7 @@ class VpnService : AndroidVpnService() {
             val stats = StatsUpdate(bytesSent, bytesReceived, uptime)
 
             try {
-                writeMessage(output, stats)
+                stream.write(stats)
                 Log.d(tag, "Sent stats (Bluetooth): sent=$bytesSent, received=$bytesReceived, uptime=${uptime}s")
             } catch (e: Exception) {
                 Log.e(tag, "Error sending stats (Bluetooth)", e)
@@ -473,12 +440,12 @@ class VpnService : AndroidVpnService() {
     /**
      * Send periodic keepalive via Bluetooth
      */
-    private suspend fun sendPeriodicKeepaliveBluetooth(output: OutputStream) = withContext(Dispatchers.IO) {
+    private suspend fun sendPeriodicKeepaliveBluetooth(stream: MessageStream) = withContext(Dispatchers.IO) {
         while (isRunning) {
             delay(30000)
 
             try {
-                writeMessage(output, Keepalive)
+                stream.write(Keepalive)
                 Log.d(tag, "Sent keepalive (Bluetooth)")
             } catch (e: Exception) {
                 Log.e(tag, "Error sending keepalive (Bluetooth)", e)
@@ -509,83 +476,52 @@ class VpnService : AndroidVpnService() {
         filterEngine = FilterEngine(FilterConfig.disabled())
 
         // Perform handshake
-        performHandshake()
+        val socket = clientSocket ?: throw IOException("No desktop connection")
+        val stream = MessageStream(socket.getInputStream(), socket.getOutputStream())
+        performHandshake(stream)
 
         isRunning = true
         startTime = System.currentTimeMillis()
 
         Log.d(tag, "Starting packet forwarding")
 
-        // Start packet forwarding
+        // Start packet forwarding; every writer shares one MessageStream so
+        // frames are never interleaved.
         coroutineScope {
-            launch { forwardFromVpnToDesktop() }
-            launch { forwardFromDesktopToVpn() }
-            launch { sendPeriodicStats() }
-            launch { sendPeriodicKeepalive() }
+            launch { forwardFromVpnToDesktop(stream) }
+            launch { forwardFromDesktopToVpn(stream) }
+            launch { sendPeriodicStats(stream) }
+            launch { sendPeriodicKeepalive(stream) }
         }
     }
 
     /**
-     * Perform handshake with desktop
+     * Perform handshake with desktop. WiFi requires the WiFi token; USB does not
+     * (the USB port is bound to loopback and only reachable via adb reverse).
      */
-    private suspend fun performHandshake() = withContext(Dispatchers.IO) {
+    private suspend fun performHandshake(stream: MessageStream) = withContext(Dispatchers.IO) {
         Log.d(tag, "Starting handshake")
-
-        val input = clientSocket?.getInputStream() ?: throw IOException("No input stream")
-        val output = clientSocket?.getOutputStream() ?: throw IOException("No output stream")
-
-        // Wait for handshake request from desktop
-        val request = readMessage(input) as? HandshakeRequest
-            ?: throw ProtocolException("Expected HandshakeRequest")
-
-        Log.d(tag, "Received handshake request: version=${request.version}, capabilities=${request.capabilities}, has_token=${request.token != null}")
-
-        // Reject incompatible protocol versions instead of proceeding and desyncing
-        // later (see Protocol.isVersionCompatible doc for the full rationale).
-        if (!Protocol.isVersionCompatible(request.version)) {
-            Log.e(tag, "Protocol version mismatch: peer=${request.version}, local=${Protocol.PROTOCOL_VERSION}")
-            val errorMsg = ErrorMessage(
-                errorCode = Protocol.ERR_PROTOCOL_VERSION,
-                message = "Protocol version mismatch: expected major version " +
-                    "${(Protocol.PROTOCOL_VERSION.toInt() ushr 8) and 0xFF}, got " +
-                    "${(request.version.toInt() ushr 8) and 0xFF}"
-            )
-            writeMessage(output, errorMsg)
-            throw ProtocolException("Protocol version mismatch")
-        }
-
-        // Verify token for WiFi connections
-        if (currentConnectionType == CONNECTION_WIFI) {
-            if (!TokenManager.verifyWifiToken(this@VpnService, request.token)) {
-                Log.e(tag, "WiFi token verification failed")
-                val errorMsg = ErrorMessage(
-                    errorCode = Protocol.ERR_AUTH_FAILED,
-                    message = "Authentication failed: invalid token"
-                )
-                writeMessage(output, errorMsg)
-                throw SecurityException("WiFi authentication failed")
+        val verifier: ((String?) -> Boolean)? =
+            if (currentConnectionType == CONNECTION_WIFI) {
+                { token -> TokenManager.verifyWifiToken(this@VpnService, token) }
+            } else {
+                null
             }
-        }
-
-        // Send handshake response
-        val capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI
-        val response = HandshakeResponse(
-            version = Protocol.PROTOCOL_VERSION,
-            capabilities = capabilities,
+        ServerHandshake.perform(
+            stream,
+            capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI,
             ipAddress = ipToInt(VPN_ADDRESS),
-            dns = ipToInt(VPN_DNS)
+            dns = ipToInt(VPN_DNS),
+            tokenVerifier = verifier
         )
-
-        writeMessage(output, response)
         Log.d(tag, "Handshake complete")
     }
 
     /**
      * Forward packets from VPN interface to desktop
      */
-    private suspend fun forwardFromVpnToDesktop() = withContext(Dispatchers.IO) {
+    private suspend fun forwardFromVpnToDesktop(stream: MessageStream) = withContext(Dispatchers.IO) {
         val vpnInput = FileInputStream(vpnInterface!!.fileDescriptor)
-        val output = clientSocket?.getOutputStream() ?: return@withContext
         val buffer = ByteArray(VPN_MTU)
 
         Log.d(tag, "Started VPN -> Desktop forwarding")
@@ -601,7 +537,7 @@ class VpnService : AndroidVpnService() {
                     if (filterEngine?.shouldAllow(packet) != false) {
                         // Wrap in protocol message and send to desktop
                         val message = IpPacket(packet)
-                        writeMessage(output, message)
+                        stream.write(message)
                         bytesSent += length
                     }
                 }
@@ -619,15 +555,14 @@ class VpnService : AndroidVpnService() {
     /**
      * Forward packets from desktop to VPN interface
      */
-    private suspend fun forwardFromDesktopToVpn() = withContext(Dispatchers.IO) {
+    private suspend fun forwardFromDesktopToVpn(stream: MessageStream) = withContext(Dispatchers.IO) {
         val vpnOutput = FileOutputStream(vpnInterface!!.fileDescriptor)
-        val input = clientSocket?.getInputStream() ?: return@withContext
 
         Log.d(tag, "Started Desktop -> VPN forwarding")
 
         while (isRunning) {
             try {
-                val message = readMessage(input)
+                val message = stream.read()
 
                 when (message) {
                     is IpPacket -> {
@@ -669,8 +604,7 @@ class VpnService : AndroidVpnService() {
     /**
      * Send periodic statistics to desktop
      */
-    private suspend fun sendPeriodicStats() = withContext(Dispatchers.IO) {
-        val output = clientSocket?.getOutputStream() ?: return@withContext
+    private suspend fun sendPeriodicStats(stream: MessageStream) = withContext(Dispatchers.IO) {
 
         while (isRunning) {
             delay(5000) // Send stats every 5 seconds
@@ -679,7 +613,7 @@ class VpnService : AndroidVpnService() {
             val stats = StatsUpdate(bytesSent, bytesReceived, uptime)
 
             try {
-                writeMessage(output, stats)
+                stream.write(stats)
                 Log.d(tag, "Sent stats: sent=$bytesSent, received=$bytesReceived, uptime=${uptime}s")
             } catch (e: Exception) {
                 Log.e(tag, "Error sending stats", e)
@@ -691,64 +625,19 @@ class VpnService : AndroidVpnService() {
     /**
      * Send periodic keepalive messages
      */
-    private suspend fun sendPeriodicKeepalive() = withContext(Dispatchers.IO) {
-        val output = clientSocket?.getOutputStream() ?: return@withContext
+    private suspend fun sendPeriodicKeepalive(stream: MessageStream) = withContext(Dispatchers.IO) {
 
         while (isRunning) {
             delay(30000) // Send keepalive every 30 seconds
 
             try {
-                writeMessage(output, Keepalive)
+                stream.write(Keepalive)
                 Log.d(tag, "Sent keepalive")
             } catch (e: Exception) {
                 Log.e(tag, "Error sending keepalive", e)
                 break
             }
         }
-    }
-
-    /**
-     * Read a message from input stream
-     */
-    private fun readMessage(input: InputStream): Message {
-        // Read header (5 bytes)
-        val header = ByteArray(5)
-        var offset = 0
-        while (offset < 5) {
-            val read = input.read(header, offset, 5 - offset)
-            if (read < 0) throw EOFException("Stream closed")
-            offset += read
-        }
-
-        // Parse header
-        val magic = ((header[0].toInt() and 0xFF) shl 8) or (header[1].toInt() and 0xFF)
-        if (magic != Protocol.MAGIC.toInt()) {
-            throw ProtocolException("Invalid magic bytes: $magic")
-        }
-
-        val length = ((header[3].toInt() and 0xFF) shl 8) or (header[4].toInt() and 0xFF)
-
-        // Read payload
-        val payload = ByteArray(length)
-        offset = 0
-        while (offset < length) {
-            val read = input.read(payload, offset, length - offset)
-            if (read < 0) throw EOFException("Stream closed")
-            offset += read
-        }
-
-        // Reconstruct full message
-        val fullMessage = header + payload
-        return Message.fromBytes(fullMessage)
-    }
-
-    /**
-     * Write a message to output stream
-     */
-    private fun writeMessage(output: OutputStream, message: Message) {
-        val data = message.toBytes()
-        output.write(data)
-        output.flush()
     }
 
     /**

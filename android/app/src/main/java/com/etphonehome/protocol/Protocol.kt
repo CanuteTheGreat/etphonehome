@@ -302,11 +302,16 @@ data class StatsUpdate(
     override val type = Protocol.MSG_STATS_UPDATE
 
     override fun toBytes(): ByteArray {
-        val payload = ByteBuffer.allocate(20)
+        // 8 + 8 + 4 + 4 reserved = 24 bytes, per PROTOCOL.md and the Rust
+        // implementation. This used to allocate 20 and drop the reserved
+        // word, so Android's frames didn't match the spec (caught by the
+        // shared golden vectors in protocol/test-vectors.txt).
+        val payload = ByteBuffer.allocate(24)
             .order(ByteOrder.BIG_ENDIAN)
             .putLong(bytesSent)
             .putLong(bytesReceived)
             .putInt(uptimeSeconds)
+            .putInt(0)
             .array()
 
         return createHeader(payload.size) + payload

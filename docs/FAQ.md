@@ -250,7 +250,7 @@ lsmod | grep tun
 ```
 
 **Windows:**
-- Install TAP-Windows adapter (comes with OpenVPN)
+- Put `wintun.dll` (https://www.wintun.net) next to `etphonehome.exe`
 - Run as Administrator
 
 ### "Failed to connect to Android device"

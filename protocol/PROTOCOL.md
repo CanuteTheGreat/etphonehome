@@ -58,11 +58,19 @@ Desktop                                    Android
 
 #### HANDSHAKE_REQ Payload
 ```
-+----------+---------------+
-| Version  | Capabilities  |
-| 2 bytes  | 4 bytes       |
-+----------+---------------+
++----------+---------------+--------------+----------------+
+| Version  | Capabilities  | Token Length | Token (UTF-8)  |
+| 2 bytes  | 4 bytes       | 2 bytes      | N bytes        |
++----------+---------------+--------------+----------------+
 ```
+Token Length is 0 when no token is sent (USB). WiFi, Bluetooth and root mode
+require the token shown in the Android app; a wrong or missing token is
+answered with an ERROR message (code 0x03, AUTH_FAILED) and the connection is
+closed.
+
+Byte-exact examples of every message type are in
+[`test-vectors.txt`](test-vectors.txt); both the Rust and the Kotlin test
+suites check their encoders and decoders against that file.
 
 #### HANDSHAKE_RESP Payload
 ```

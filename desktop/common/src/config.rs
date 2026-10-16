@@ -194,6 +194,12 @@ impl Config {
                     path.as_ref().display()
                 ),
             )?;
+
+            // Written via `sudo etphonehome ...`: give it back to the user
+            // whose config dir it lives in (see `default_path`).
+            if sudo_invoking_user_home().is_some_and(|h| path.as_ref().starts_with(h)) {
+                chown_to_sudo_user(path.as_ref());
+            }
         }
 
         #[cfg(not(unix))]
@@ -207,8 +213,26 @@ impl Config {
         Ok(())
     }
 
-    /// Get default config path
+    /// Get default config path.
+    ///
+    /// Order: `$ETPHONEHOME_CONFIG`; then, when running under `sudo`, the
+    /// *invoking* user's config dir; then the current user's config dir.
+    ///
+    /// The sudo case matters because the documented workflow is
+    /// `etphonehome save-profile ...` (as the user) followed by
+    /// `sudo etphonehome connect <name>` (TUN needs root). sudo resets HOME
+    /// to /root, so the connect used to look in /root/.config and report
+    /// "Profile not found" for a profile that had just been saved.
     pub fn default_path() -> Result<PathBuf> {
+        if let Some(p) = std::env::var_os("ETPHONEHOME_CONFIG") {
+            if !p.is_empty() {
+                return Ok(PathBuf::from(p));
+            }
+        }
+        #[cfg(unix)]
+        if let Some(home) = sudo_invoking_user_home() {
+            return Ok(home.join(".config").join("etphonehome").join("config.toml"));
+        }
         // Try user config directory first
         if let Some(config_dir) = dirs::config_dir() {
             let path = config_dir.join("etphonehome").join("config.toml");
@@ -217,6 +241,20 @@ impl Config {
 
         // Fallback to current directory
         Ok(PathBuf::from("config.toml"))
+    }
+
+    /// Save to the default path, creating its directory. Under sudo the file
+    /// is handed back to the invoking user so later unprivileged runs can
+    /// still update it.
+    pub fn save_default(&self) -> Result<PathBuf> {
+        let path = Self::default_path()?;
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+        self.save(&path)?;
+        Ok(path)
     }
 
     /// Load from default path or create default config
@@ -267,9 +305,88 @@ impl Config {
     }
 }
 
+/// Home directory of the user who invoked `sudo`, if we are running under it.
+#[cfg(unix)]
+fn sudo_invoking_user_home() -> Option<PathBuf> {
+    let user = std::env::var("SUDO_USER").ok()?;
+    let passwd = fs::read_to_string("/etc/passwd").ok()?;
+    home_from_passwd(&user, &passwd)
+}
+
+/// Look up `user`'s home directory in passwd(5)-formatted text. Returns None
+/// for root (no redirect needed) or an unknown user.
+#[cfg(unix)]
+fn home_from_passwd(user: &str, passwd: &str) -> Option<PathBuf> {
+    if user.is_empty() || user == "root" {
+        return None;
+    }
+    passwd.lines().find_map(|line| {
+        let f: Vec<&str> = line.split(':').collect();
+        if f.len() >= 6 && f[0] == user && !f[5].is_empty() {
+            Some(PathBuf::from(f[5]))
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(unix)]
+fn chown_to_sudo_user(path: &Path) {
+    let (Ok(uid), Ok(gid)) = (std::env::var("SUDO_UID"), std::env::var("SUDO_GID")) else {
+        return;
+    };
+    let (Ok(uid), Ok(gid)) = (uid.parse::<u32>(), gid.parse::<u32>()) else {
+        return;
+    };
+    let mut p = Some(path);
+    // The file plus any etphonehome/ directory we may have just created.
+    for _ in 0..2 {
+        if let Some(cur) = p {
+            let _ = std::os::unix::fs::chown(cur, Some(uid), Some(gid));
+            p = cur.parent();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn sudo_user_home_is_found_in_passwd() {
+        let passwd = "root:x:0:0:root:/root:/bin/bash\n\
+                      alice:x:1000:1000:Alice,,,:/home/alice:/bin/bash\n\
+                      bob:x:1001:1001::/srv/bob:/bin/sh\n";
+        assert_eq!(
+            home_from_passwd("alice", passwd),
+            Some(PathBuf::from("/home/alice"))
+        );
+        assert_eq!(
+            home_from_passwd("bob", passwd),
+            Some(PathBuf::from("/srv/bob"))
+        );
+        assert_eq!(home_from_passwd("root", passwd), None);
+        assert_eq!(home_from_passwd("mallory", passwd), None);
+        assert_eq!(home_from_passwd("", passwd), None);
+    }
+
+    #[test]
+    fn example_config_file_parses() {
+        let text = include_str!("../../config.example.toml");
+        let cfg: Config = toml::from_str(text).expect("desktop/config.example.toml must parse");
+        assert!(!cfg.profiles.is_empty());
+        for p in &cfg.profiles {
+            match p.connection_type {
+                ConnectionType::Wifi => assert!(p.host.is_some(), "{}", p.name),
+                ConnectionType::Bluetooth => assert!(p.address.is_some(), "{}", p.name),
+                ConnectionType::Usb => {}
+            }
+        }
+        let root: Config = toml::from_str(include_str!("../../../config.example.toml"))
+            .expect("config.example.toml must parse");
+        let _ = root;
+    }
 
     #[test]
     fn test_config_default() {

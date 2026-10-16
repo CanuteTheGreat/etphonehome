@@ -859,7 +859,12 @@ mod tests {
         let a = resolve_addr("localhost", 1234).await.unwrap();
         assert!(a.ip().is_loopback());
         assert_eq!(a.port(), 1234);
-        assert!(resolve_addr("no-such-host.invalid", 1).await.is_err());
+        // Trailing dot = absolute name, so the resolver skips the resolv.conf
+        // search list. Without it, a CI host with `search redweek.com` (whose
+        // zone has a wildcard record) resolved `no-such-host.invalid` as
+        // `no-such-host.invalid.redweek.com` and this assertion failed.
+        // RFC 6761 guarantees `.invalid.` itself never resolves.
+        assert!(resolve_addr("no-such-host.invalid.", 1).await.is_err());
     }
 
     #[tokio::test(start_paused = true)]

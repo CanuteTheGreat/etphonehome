@@ -293,9 +293,18 @@ impl FilterEngine {
             return true;
         }
 
+        // A packet we can't parse (shorter than an IPv4 header, or any
+        // non-IPv4 version -- `parse_packet` is IPv4-only, so this includes
+        // *all* IPv6 traffic) has no fields any rule could match against, so
+        // it gets the mode's no-match default, exactly like a parsed packet
+        // that matched no rule. This used to be an unconditional `return
+        // true`, which made Whitelist (default-deny) mode fail open: every
+        // IPv6 packet and every malformed/truncated packet was forwarded
+        // even though no ALLOW rule permitted it. Blacklist mode is
+        // unchanged (unparseable traffic is still allowed there).
         let parsed = match parse_packet(packet) {
             Some(p) => p,
-            None => return true, // Can't parse = allow
+            None => return self.default_verdict(),
         };
 
         for rule in &self.config.rules {
@@ -337,6 +346,12 @@ impl FilterEngine {
         }
 
         // No rule matched
+        self.default_verdict()
+    }
+
+    /// Verdict for traffic no rule decides: deny in Whitelist mode, allow in
+    /// Blacklist mode.
+    fn default_verdict(&self) -> bool {
         match self.config.mode {
             FilterMode::Whitelist => false,
             FilterMode::Blacklist => true,
@@ -778,5 +793,72 @@ mod tests {
         });
         assert!(!blacklist.should_allow(&first_frag));
         assert!(!blacklist.should_allow(&df));
+    }
+
+    /// Regression test: unparseable packets (IPv6, which `parse_packet`
+    /// doesn't handle, and truncated IPv4) used to be allowed
+    /// unconditionally, so Whitelist (default-deny) mode failed open for
+    /// them. They must now get the mode's default: denied in Whitelist,
+    /// still allowed in Blacklist.
+    #[test]
+    fn test_unparseable_packets_follow_mode_default() {
+        // Minimal IPv6 header (40 bytes): version 6, next header TCP, then
+        // ports 55000 -> 443 right after the fixed header.
+        let mut ipv6 = [0u8; 44];
+        ipv6[0] = 0x60;
+        ipv6[6] = 6;
+        ipv6[40..42].copy_from_slice(&55000u16.to_be_bytes());
+        ipv6[42..44].copy_from_slice(&443u16.to_be_bytes());
+        // Truncated IPv4: version nibble 4 but shorter than a 20-byte header.
+        let truncated_v4 = [0x45u8; 12];
+        let unparseable: [(&str, &[u8]); 3] = [
+            ("ipv6", &ipv6),
+            ("truncated ipv4", &truncated_v4),
+            ("empty", &[]),
+        ];
+
+        let allow_443 = FilterRule {
+            id: "allow-443".to_string(),
+            enabled: true,
+            action: FilterAction::Allow,
+            protocol: Some(Protocol::Tcp),
+            dest_ip: None,
+            dest_port: Some("443".to_string()),
+            source_ip: None,
+            source_port: None,
+            description: None,
+        };
+
+        let whitelist = FilterEngine::new(FilterConfig {
+            enabled: true,
+            mode: FilterMode::Whitelist,
+            rules: vec![allow_443.clone()],
+            log_blocked: false,
+        });
+        for (name, pkt) in unparseable {
+            assert!(
+                !whitelist.should_allow(pkt),
+                "Whitelist mode must deny an unparseable {name} packet, not fail open"
+            );
+        }
+        // Parseable traffic is unaffected.
+        assert!(whitelist.should_allow(&build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443)));
+
+        let blacklist = FilterEngine::new(FilterConfig {
+            enabled: true,
+            mode: FilterMode::Blacklist,
+            rules: vec![FilterRule {
+                action: FilterAction::Block,
+                id: "block-443".to_string(),
+                ..allow_443
+            }],
+            log_blocked: false,
+        });
+        for (name, pkt) in unparseable {
+            assert!(
+                blacklist.should_allow(pkt),
+                "Blacklist mode must still allow an unparseable {name} packet"
+            );
+        }
     }
 }

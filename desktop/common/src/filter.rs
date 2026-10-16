@@ -232,7 +232,20 @@ fn parse_packet(data: &[u8]) -> Option<ParsedPacket> {
     // dst_ip/protocol (parsed from fixed, always-valid offsets) still look
     // legitimate. IP/protocol-based rules keep working correctly either way;
     // we only refuse to trust ports extracted via a malformed header_len.
+    //
+    // Fragments: only the first fragment (fragment offset 0) carries the
+    // transport header. In a non-first fragment, the 4 bytes at
+    // `header_len` are mid-stream payload chosen by the sender, so reading
+    // "ports" there lets a crafted fragment match an ALLOW rule (under
+    // Whitelist mode) or dodge a BLOCK rule, and lets innocent fragments
+    // randomly hit block rules. The fragment offset is the low 13 bits of
+    // bytes 6-7 (RFC 791). For non-first fragments we leave the ports as
+    // `None`, which `matches_rule` already treats as "no port-scoped rule
+    // matches" -- the same handling as ICMP. Matches the Android
+    // `PacketParser` fix (c294729).
+    let fragment_offset = u16::from_be_bytes([data[6], data[7]]) & 0x1FFF;
     let (src_port, dst_port) = if matches!(protocol, Protocol::Tcp | Protocol::Udp)
+        && fragment_offset == 0
         && header_len >= 20
         && data.len() >= header_len + 4
     {
@@ -691,5 +704,79 @@ mod tests {
             "a rule with an unparseable source_ip must not match (and therefore \
              must not block) traffic -- it must fail closed, not match everything"
         );
+    }
+
+    fn port_rule(id: &str, action: FilterAction, dest_port: &str) -> FilterRule {
+        FilterRule {
+            id: id.to_string(),
+            enabled: true,
+            action,
+            protocol: Some(Protocol::Tcp),
+            dest_ip: None,
+            dest_port: Some(dest_port.to_string()),
+            source_ip: None,
+            source_port: None,
+            description: None,
+        }
+    }
+
+    /// Regression test: a non-first IPv4 fragment carries payload, not a
+    /// TCP header, at `header_len`. Its "ports" must not be parsed, or a
+    /// crafted fragment whose payload starts with the right two bytes would
+    /// match a port-scoped ALLOW rule under Whitelist (default-deny) mode.
+    #[test]
+    fn test_non_first_fragment_ports_are_not_parsed() {
+        // Offset in the low byte, MF clear (last fragment).
+        let mut frag_low = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        frag_low[6] = 0x00;
+        frag_low[7] = 0x01;
+        // Offset in the high bits of the 13-bit field, MF set.
+        let mut frag_high = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        frag_high[6] = 0x20 | 0x10; // MF + offset bit 12
+        frag_high[7] = 0x00;
+
+        for pkt in [&frag_low, &frag_high] {
+            let parsed = parse_packet(pkt).expect("still a parseable IPv4 packet");
+            assert_eq!(parsed.protocol, Protocol::Tcp);
+            assert_eq!(parsed.src_port, None);
+            assert_eq!(parsed.dst_port, None);
+        }
+
+        let whitelist = FilterEngine::new(FilterConfig {
+            enabled: true,
+            mode: FilterMode::Whitelist,
+            rules: vec![port_rule("allow-443", FilterAction::Allow, "443")],
+            log_blocked: true,
+        });
+        assert!(
+            !whitelist.should_allow(&frag_low),
+            "a non-first fragment must not match a port-scoped ALLOW rule"
+        );
+        assert!(!whitelist.should_allow(&frag_high));
+    }
+
+    /// First fragments (offset 0, MF set) and DF packets carry the real
+    /// transport header, so their ports must still be parsed.
+    #[test]
+    fn test_first_fragment_and_df_ports_still_parsed() {
+        let mut first_frag = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        first_frag[6] = 0x20; // MF set, offset 0
+        let mut df = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        df[6] = 0x40; // DF set, offset 0
+
+        for pkt in [&first_frag, &df] {
+            let parsed = parse_packet(pkt).expect("parseable");
+            assert_eq!(parsed.src_port, Some(55000));
+            assert_eq!(parsed.dst_port, Some(443));
+        }
+
+        let blacklist = FilterEngine::new(FilterConfig {
+            enabled: true,
+            mode: FilterMode::Blacklist,
+            rules: vec![port_rule("block-443", FilterAction::Block, "443")],
+            log_blocked: true,
+        });
+        assert!(!blacklist.should_allow(&first_frag));
+        assert!(!blacklist.should_allow(&df));
     }
 }

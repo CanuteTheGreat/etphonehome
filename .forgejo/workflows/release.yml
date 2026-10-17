@@ -171,7 +171,17 @@ jobs:
             OLD=$(curl -fsS "${auth[@]}" "$API/releases/$ID/assets" | python3 -c 'import json,sys; n=sys.argv[1]; print(" ".join(str(a["id"]) for a in json.load(sys.stdin) if a["name"]==n))' "$name")
             for a in $OLD; do curl -fsS "${auth[@]}" -X DELETE "$API/releases/$ID/assets/$a"; done
             echo "uploading $name ($(stat -c %s "$f") bytes)"
-            curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=$name" -F "attachment=@$f" >/dev/null
+            # Forgejo stores attachments on Backblaze B2, which intermittently drops a PUT
+            # ("ContentLength=N with Body length 0" -> HTTP 500). Retry; clear a partial
+            # asset of the same name before each new attempt.
+            ok=0
+            for try in 1 2 3 4 5 6; do
+              if curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=$name" -F "attachment=@$f" >/dev/null; then ok=1; break; fi
+              echo "upload of $name failed (attempt $try); retrying in $((try*20))s"
+              sleep $((try*20))
+              for a in $(curl -fsS "${auth[@]}" "$API/releases/$ID/assets" | python3 -c 'import json,sys; n=sys.argv[1]; print(" ".join(str(a["id"]) for a in json.load(sys.stdin) if a["name"]==n))' "$name"); do curl -fsS "${auth[@]}" -X DELETE "$API/releases/$ID/assets/$a" || true; done
+            done
+            [ "$ok" = 1 ] || { echo "giving up on $name"; exit 1; }
           done
       - name: Verify the published release
         env:

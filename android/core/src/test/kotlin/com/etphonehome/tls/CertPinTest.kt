@@ -28,7 +28,10 @@ class CertPinTest {
         )
     }
 
-    private fun handshake(serverToken: String, clientToken: String): Pair<Result<SSLSocket>, Result<SSLSocket>> {
+    private fun handshake(serverToken: String, clientToken: String): Pair<Result<SSLSocket>, Result<SSLSocket>> =
+        handshakeWith(serverToken, CertPin.serverContext(clientToken))
+
+    private fun handshakeWith(serverToken: String, clientContext: javax.net.ssl.SSLContext): Pair<Result<SSLSocket>, Result<SSLSocket>> {
         val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
         val pool = Executors.newSingleThreadExecutor()
         try {
@@ -39,7 +42,7 @@ class CertPinTest {
             }
             val clientResult = runCatching {
                 val raw = Socket(InetAddress.getLoopbackAddress(), server.localPort)
-                val c = CertPin.serverContext(clientToken).socketFactory
+                val c = clientContext.socketFactory
                     .createSocket(raw, "etphonehome", server.localPort, true) as SSLSocket
                 c.useClientMode = true
                 c.enabledProtocols = arrayOf("TLSv1.3")
@@ -85,5 +88,92 @@ class CertPinTest {
         } else {
             assertTrue(server.isFailure)
         }
+    }
+
+    /** The phone must accept data only from a peer whose certificate it
+     *  verified itself: true if the phone's socket ever delivered it. */
+    private fun phoneAcceptedData(server: Result<SSLSocket>): Boolean {
+        if (server.isFailure) return false
+        val s = server.getOrThrow()
+        return try {
+            s.soTimeout = 3000
+            s.inputStream.read() == 42
+        } catch (_: Exception) {
+            false
+        } finally {
+            s.close()
+        }
+    }
+
+    /**
+     * Mutual TLS: the phone checks the desktop's certificate itself. A
+     * client that skips its own pin check (trusts any phone) but presents a
+     * certificate from the wrong token must be refused by the phone -- the
+     * desktop's pin check is not what protects the phone.
+     */
+    @Test
+    fun `phone rejects a desktop certificate from the wrong token even if the desktop trusts anything`() {
+        val (_, server) = handshakeWith("right-token", CertPin.permissiveContext("wrong-token"))
+        if (phoneAcceptedData(server)) fail("phone accepted a desktop certificate derived from the wrong token")
+    }
+
+    @Test
+    fun `phone requires a desktop certificate`() {
+        val (_, server) = handshakeWith("right-token", CertPin.permissiveContext(null))
+        if (phoneAcceptedData(server)) fail("phone accepted a desktop that presented no certificate")
+    }
+
+    /** Control for the two tests above: the permissive client does work
+     *  when it presents the right identity (so their failures are the pin
+     *  check, not a broken client). */
+    @Test
+    fun `permissive client with the right identity is accepted`() {
+        val (client, server) = handshakeWith("right-token", CertPin.permissiveContext("right-token"))
+        assertTrue("phone should accept the right identity", phoneAcceptedData(server))
+        client.getOrNull()?.close()
+    }
+
+    /** Only TLS 1.3 is offered to the desktop. */
+    @Test
+    fun `phone refuses TLS 1_2`() {
+        val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        val pool = Executors.newSingleThreadExecutor()
+        try {
+            val accepted = pool.submit<SSLSocket> {
+                val s = server.accept()
+                val first = s.getInputStream().read()
+                CertPin.accept(s, byteArrayOf(first.toByte()), "tok")
+            }
+            val client = runCatching {
+                val raw = Socket(InetAddress.getLoopbackAddress(), server.localPort)
+                val c = CertPin.permissiveContext("tok").socketFactory
+                    .createSocket(raw, "etphonehome", server.localPort, true) as SSLSocket
+                c.useClientMode = true
+                c.enabledProtocols = arrayOf("TLSv1.2")
+                c.soTimeout = 5000
+                c.startHandshake()
+                c
+            }
+            assertTrue("a TLS 1.2-only client must not get a session", client.isFailure)
+            assertTrue(runCatching { accepted.get(10, TimeUnit.SECONDS) }.isFailure)
+        } finally {
+            pool.shutdownNow()
+            server.close()
+        }
+    }
+
+    /** The certificate is valid now (not expired, not yet-to-come): a
+     *  strict desktop TLS stack would otherwise refuse it. */
+    @Test
+    fun `server certificate is currently valid`() {
+        val (client, server) = handshake("tok-v", "tok-v")
+        val s = server.getOrThrow()
+        val cert = s.session.localCertificates.first() as java.security.cert.X509Certificate
+        cert.checkValidity()
+        val now = System.currentTimeMillis()
+        assertTrue("notBefore must be in the past", cert.notBefore.time < now)
+        assertTrue("valid for years, not days", cert.notAfter.time > now + 365L * 86_400_000L)
+        client.getOrThrow().close()
+        s.close()
     }
 }

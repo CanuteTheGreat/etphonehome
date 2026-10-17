@@ -54,10 +54,12 @@ class TcpLink private constructor(
          * @param tlsToken pairing token for TLS, or null if this transport
          *   has none (then a TLS ClientHello is refused).
          */
-        fun accept(socket: Socket, tlsToken: String?): TcpLink {
+        fun accept(socket: Socket, tlsToken: String?, firstByteTimeoutMs: Int = FIRST_BYTE_TIMEOUT_MS): TcpLink {
             socket.tcpNoDelay = true
             socket.keepAlive = true
-            socket.soTimeout = FIRST_BYTE_TIMEOUT_MS
+            // A connection that never says anything must not hold the
+            // phone's only session slot.
+            socket.soTimeout = firstByteTimeoutMs
             val input = socket.getInputStream()
             val first = input.read()
             if (first < 0) throw EOFException("desktop closed the connection before sending anything")

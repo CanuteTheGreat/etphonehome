@@ -175,4 +175,153 @@ class TetherSessionTest {
         assertEquals("need TLS", err.message)
         t.join(5000)
     }
+
+    private fun udpTo(port: Int, text: String) =
+        IpPacket(PacketBuilder.udp(ipFromString("10.0.0.1"), 4000 + port % 1000, ipFromString("127.0.0.1"), port, text.toByteArray(), 0, text.length))
+
+    /** Read until a relayed IP packet arrives, or null after [ms]. */
+    private fun nextIp(desk: MessageStream, sock: Socket, ms: Int): IpPacket? {
+        sock.soTimeout = ms
+        val deadline = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < deadline) {
+            val m = try {
+                desk.read()
+            } catch (_: java.net.SocketTimeoutException) {
+                return null
+            }
+            if (m is IpPacket) return m
+        }
+        return null
+    }
+
+    /** The profile's filter, sent as a ConfigUpdate, is what the phone
+     *  enforces on the flows it opens -- and only on what it blocks. */
+    @Test
+    fun `filter rules from the desktop are enforced by the phone`() {
+        val blocked = DatagramSocket(0, InetAddress.getLoopbackAddress())
+        val allowed = DatagramSocket(0, InetAddress.getLoopbackAddress())
+        for (e in listOf(blocked, allowed)) {
+            thread {
+                val buf = ByteArray(1500)
+                val p = DatagramPacket(buf, buf.size)
+                runCatching {
+                    while (true) {
+                        e.receive(p)
+                        e.send(DatagramPacket(p.data, p.length, p.socketAddress))
+                    }
+                }
+            }
+        }
+        val (sock, t) = serve(SessionOptions(peer = "d", encrypted = false, tokenVerifier = { true }, statsIntervalMs = 60_000))
+        val desk = MessageStream(sock.getInputStream(), sock.getOutputStream())
+        desk.write(HandshakeRequest(capabilities = 2, token = "tok"))
+        desk.read() as HandshakeResponse
+        desk.write(
+            ConfigUpdate(
+                mapOf(
+                    "filter.enabled" to "true",
+                    "filter.mode" to "blacklist",
+                    "filter.rules" to "1",
+                    "filter.rule.0" to "no-port|true|block|udp||${blocked.localPort}||",
+                ),
+            ),
+        )
+        Thread.sleep(200)
+        desk.write(udpTo(blocked.localPort, "must-not-pass"))
+        assertEquals("blocked port must get no reply", null, nextIp(desk, sock, 1000))
+        desk.write(udpTo(allowed.localPort, "may-pass"))
+        val reply = nextIp(desk, sock, 3000)
+        assertTrue("other ports still relayed", reply != null)
+        val ip = Ipv4Packet.parse(reply!!.packetData)!!
+        assertEquals("may-pass", String(ip.data, 28, ip.payloadLength - 8))
+        // Filter off again: the blocked port works.
+        desk.write(ConfigUpdate(mapOf("filter.enabled" to "false", "filter.rules" to "0")))
+        Thread.sleep(200)
+        desk.write(udpTo(blocked.localPort, "now-allowed"))
+        assertTrue("disabling the filter lets it through", nextIp(desk, sock, 3000) != null)
+        sock.soTimeout = 0
+        desk.write(Disconnect("bye"))
+        t.join(5000)
+        blocked.close()
+        allowed.close()
+    }
+
+    /** When the desktop leaves, every connection the phone opened for it
+     *  is closed (no sockets left open on the phone). */
+    @Test
+    fun `ending the session closes the phone's connections`() {
+        val server = ServerSocket(0, 5, InetAddress.getLoopbackAddress())
+        val remoteSawEof = java.util.concurrent.CountDownLatch(1)
+        thread {
+            runCatching {
+                server.accept().use { s ->
+                    if (s.getInputStream().read() == -1) remoteSawEof.countDown()
+                }
+            }
+        }
+        val (sock, t) = serve(SessionOptions(peer = "d", encrypted = false, tokenVerifier = { true }, statsIntervalMs = 60_000))
+        val desk = MessageStream(sock.getInputStream(), sock.getOutputStream())
+        desk.write(HandshakeRequest(capabilities = 2, token = "tok"))
+        desk.read() as HandshakeResponse
+        desk.write(
+            IpPacket(
+                PacketBuilder.tcp(
+                    ipFromString("10.0.0.1"), 45000, ipFromString("127.0.0.1"), server.localPort,
+                    1000, 0, com.etphonehome.relay.TcpFlags.SYN, 65535, null, 0, 0, mss = 1460,
+                ),
+            ),
+        )
+        assertTrue("SYN-ACK from the relay", nextIp(desk, sock, 3000) != null)
+        sock.soTimeout = 0
+        desk.write(Disconnect("bye"))
+        t.join(5000)
+        assertTrue("remote end must see the phone close the relayed connection",
+            remoteSawEof.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        server.close()
+    }
+
+    /** The handshake answer carries what the app configured. */
+    @Test
+    fun `handshake response carries the options and the listener sees the session`() {
+        val infos = CopyOnWriteArrayList<SessionInfo>()
+        val (sock, t) = serve(
+            SessionOptions(
+                peer = "laptop", encrypted = false, tokenVerifier = { it == "tok" },
+                capabilities = 0x23, dns = ipFromString("9.9.9.9"), statsIntervalMs = 60_000,
+            ),
+            object : SessionListener {
+                override fun onConnected(info: SessionInfo) { infos += info }
+            },
+        )
+        val desk = MessageStream(sock.getInputStream(), sock.getOutputStream())
+        desk.write(HandshakeRequest(capabilities = 2, token = "tok"))
+        val resp = desk.read() as HandshakeResponse
+        assertEquals(0x23, resp.capabilities)
+        assertEquals(ipFromString("9.9.9.9"), resp.dns)
+        assertEquals(com.etphonehome.protocol.Protocol.PROTOCOL_VERSION, resp.version)
+        desk.write(Disconnect("bye"))
+        t.join(5000)
+        assertEquals(listOf(SessionInfo("laptop", false, true)), infos.toList())
+    }
+
+    /** Uptime in the stats is real elapsed time, not garbage. */
+    @Test
+    fun `stats uptime counts real seconds`() {
+        val snaps = CopyOnWriteArrayList<SessionSnapshot>()
+        val (sock, t) = serve(
+            SessionOptions(peer = "d", encrypted = false, tokenVerifier = { true }, statsIntervalMs = 60_000),
+            object : SessionListener {
+                override fun onStats(stats: SessionSnapshot) { snaps += stats }
+            },
+        )
+        val desk = MessageStream(sock.getInputStream(), sock.getOutputStream())
+        desk.write(HandshakeRequest(capabilities = 2, token = "tok"))
+        desk.read() as HandshakeResponse
+        Thread.sleep(2300)
+        desk.write(Disconnect("bye"))
+        t.join(5000)
+        val last = snaps.last()
+        assertTrue("uptime ${last.uptimeSeconds}s after ~2.3 s", last.uptimeSeconds in 2..3)
+        assertTrue("UI ticks every second", snaps.size >= 2)
+    }
 }

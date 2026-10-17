@@ -35,6 +35,14 @@ jobs:
         env:
           CARGO_PROFILE_DEV_DEBUG: '0'
         run: |
+          # cargo-mutants builds copies of desktop/ in $TMPDIR/cargo-mutants-*;
+          # the tests include_str! ../config.example.toml and
+          # ../protocol/test-vectors.txt from outside desktop/, so put those
+          # where the copies' relative paths land.
+          export TMPDIR="${RUNNER_TEMP:-/tmp}/etph-mutants"
+          mkdir -p "$TMPDIR/protocol"
+          cp ../config.example.toml "$TMPDIR/"
+          cp ../protocol/test-vectors.txt "$TMPDIR/protocol/"
           set +e
           cargo mutants --package etphonehome-common --jobs 2 --timeout 120 --no-shuffle \
             --file common/src/protocol.rs --file common/src/session.rs \

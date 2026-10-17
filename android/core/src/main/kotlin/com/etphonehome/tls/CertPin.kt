@@ -81,7 +81,29 @@ object CertPin {
     }
 
     /** A TLS 1.3 context whose identity and peer pin both come from [token]. */
-    fun serverContext(token: String): SSLContext {
+    fun serverContext(token: String): SSLContext =
+        context(token, PinningTrustManager(expectedPublicKey(token)))
+
+    /**
+     * Test hook: a peer that presents the identity derived from
+     * [identityToken] (none if null) and trusts ANY certificate -- i.e. a
+     * client that skips its own pin check, to prove the phone's pin check
+     * (and its demand for a client certificate) holds on its own.
+     */
+    internal fun permissiveContext(identityToken: String?): SSLContext {
+        if (identityToken != null) return context(identityToken, TrustAnything)
+        val ctx = SSLContext.getInstance("TLSv1.3", jsseProvider)
+        ctx.init(null, arrayOf(TrustAnything), SecureRandom())
+        return ctx
+    }
+
+    private object TrustAnything : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+        override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+    }
+
+    private fun context(token: String, trust: X509TrustManager): SSLContext {
         val seed = deriveSeed(token)
         val kf = KeyFactory.getInstance("Ed25519", bcProvider)
         val privateKey = kf.generatePrivate(PKCS8EncodedKeySpec(ED25519_PKCS8_PREFIX + seed))
@@ -103,7 +125,7 @@ object CertPin {
         kmf.init(ks, password)
 
         val ctx = SSLContext.getInstance("TLSv1.3", jsseProvider)
-        ctx.init(kmf.keyManagers, arrayOf(PinningTrustManager(publicRaw)), SecureRandom())
+        ctx.init(kmf.keyManagers, arrayOf(trust), SecureRandom())
         return ctx
     }
 

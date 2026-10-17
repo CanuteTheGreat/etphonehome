@@ -83,6 +83,87 @@ class TetherSessionTest {
         echo.close()
     }
 
+    /** Runs a session whose desktop end the test controls; returns the
+     *  desktop socket, the session (once started) and the server thread. */
+    private fun serveAbortable(idleMs: Long): Triple<Socket, Array<TetherSession?>, Thread> {
+        val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        val holder = arrayOfNulls<TetherSession>(1)
+        val t = thread {
+            server.accept().use { s ->
+                val link = TcpLink.accept(s, "tok")
+                val session = TetherSession(
+                    link.stream,
+                    SessionOptions(
+                        peer = "d",
+                        encrypted = link.encrypted,
+                        tokenVerifier = { true },
+                        keepaliveIntervalMs = 60_000,
+                        statsIntervalMs = 60_000,
+                        desktopIdleTimeoutMs = idleMs,
+                        abortLink = { link.abort() },
+                    ),
+                )
+                holder[0] = session
+                runCatching { runBlocking { session.run() } }
+            }
+            server.close()
+        }
+        return Triple(Socket(InetAddress.getLoopbackAddress(), server.localPort), holder, t)
+    }
+
+    /** WiFi drop / lid closed: the desktop stops talking without closing the
+     *  connection. A desktop that sends keepalives gets its session ended,
+     *  so the phone can accept it (or another desktop) again. */
+    @Test
+    fun `a silent keepalive-sending desktop is dropped after the idle timeout`() {
+        val (sock, holder, t) = serveAbortable(idleMs = 400)
+        val desk = MessageStream(sock.getInputStream(), sock.getOutputStream())
+        desk.write(HandshakeRequest(capabilities = 2, token = "tok"))
+        desk.read() as HandshakeResponse
+        val started = System.currentTimeMillis()
+        desk.write(com.etphonehome.protocol.Keepalive)
+        // Then silence, connection still open.
+        t.join(5000)
+        val took = System.currentTimeMillis() - started
+        assertTrue("session must end once the desktop is silent", !t.isAlive)
+        assertTrue("ended too early: ${took}ms", took >= 400)
+        assertTrue("ended too late: ${took}ms", took < 3000)
+        assertTrue("reported as link lost", holder[0]!!.linkLost)
+        sock.close()
+    }
+
+    @Test
+    fun `keepalives keep an idle session alive`() {
+        val (sock, holder, t) = serveAbortable(idleMs = 400)
+        val desk = MessageStream(sock.getInputStream(), sock.getOutputStream())
+        desk.write(HandshakeRequest(capabilities = 2, token = "tok"))
+        desk.read() as HandshakeResponse
+        repeat(8) {
+            desk.write(com.etphonehome.protocol.Keepalive)
+            Thread.sleep(150)
+        }
+        assertTrue("1.2 s with keepalives every 150 ms must not time out", t.isAlive)
+        desk.write(Disconnect("bye"))
+        t.join(5000)
+        assertTrue(!holder[0]!!.linkLost)
+    }
+
+    /** Desktops from before keepalives (0.6.0) never arm the timeout: an
+     *  idle session with one of them must not be cut. */
+    @Test
+    fun `a desktop that never sends keepalives is not timed out`() {
+        val (sock, holder, t) = serveAbortable(idleMs = 300)
+        val desk = MessageStream(sock.getInputStream(), sock.getOutputStream())
+        desk.write(HandshakeRequest(capabilities = 2, token = "tok"))
+        desk.read() as HandshakeResponse
+        Thread.sleep(1200)
+        assertTrue("old desktop's idle session was cut", t.isAlive)
+        desk.write(Disconnect("bye"))
+        t.join(5000)
+        assertTrue(!t.isAlive)
+        assertTrue(!holder[0]!!.linkLost)
+    }
+
     @Test
     fun `plaintext is refused when encryption is required`() {
         val (sock, t) = serve(

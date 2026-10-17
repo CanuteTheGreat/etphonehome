@@ -230,6 +230,7 @@ class TetherService : Service() {
                         },
                         capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI or
                             (if (token != null) Protocol.CAP_TLS else 0),
+                        abortLink = { link.abort() },
                     ),
                 )
             },
@@ -266,6 +267,12 @@ class TetherService : Service() {
                         encrypted = true,
                         tokenVerifier = { presented -> TokenManager.verifyBluetoothToken(this, presented) },
                         capabilities = Protocol.CAP_BLUETOOTH,
+                        abortLink = {
+                            try {
+                                sock.close()
+                            } catch (_: java.io.IOException) {
+                            }
+                        },
                     ),
                 )
             },

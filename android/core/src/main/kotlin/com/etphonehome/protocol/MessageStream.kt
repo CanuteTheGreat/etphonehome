@@ -87,6 +87,7 @@ object ServerHandshake {
         dns: Int,
         tokenVerifier: ((String?) -> Boolean)?,
         refuseReason: String? = null,
+        version: Short = Protocol.PROTOCOL_VERSION,
     ): HandshakeRequest {
         val request = stream.read() as? HandshakeRequest
             ?: throw ProtocolException("Expected HandshakeRequest")
@@ -120,7 +121,7 @@ object ServerHandshake {
 
         stream.write(
             HandshakeResponse(
-                version = Protocol.PROTOCOL_VERSION,
+                version = version,
                 capabilities = capabilities,
                 ipAddress = ipAddress,
                 dns = dns

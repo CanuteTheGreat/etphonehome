@@ -226,19 +226,30 @@ pub struct ForwardOptions {
     pub filter: FilterConfig,
     /// Optional GUI/status sink for live statistics.
     pub service: Option<ConnectionService>,
-    /// Tear the session down if nothing at all (not even the 30s keepalive
-    /// Android sends) arrives for this long. Without it a phone that drops
-    /// off WiFi leaves the read blocked forever and auto-reconnect never
-    /// triggers.
+    /// Tear the session down if nothing at all arrives from Android for
+    /// this long. The app sends a StatsUpdate every 5 s and a Keepalive every
+    /// 30 s, so 30 s of silence means the link is dead (phone off WiFi, out
+    /// of range). Without it the read blocks forever: the TUN device and the
+    /// default route through it stay up with no internet behind them, and
+    /// auto-reconnect never triggers. (It was 90 s; the nightly WiFi-drop
+    /// test asks for a dead tunnel to be gone within 45 s.)
     pub idle_timeout: Option<Duration>,
+    /// Send Android a Keepalive this often, so the phone can tell a silent
+    /// desktop (laptop off WiFi, lid closed) from an idle one and free the
+    /// session for the next connection. `None` disables it (tests).
+    pub keepalive_interval: Option<Duration>,
 }
+
+/// How often the desktop tells the phone it is still there.
+pub const DESKTOP_KEEPALIVE: Duration = Duration::from_secs(10);
 
 impl Default for ForwardOptions {
     fn default() -> Self {
         Self {
             filter: FilterConfig::default(),
             service: None,
-            idle_timeout: Some(Duration::from_secs(90)),
+            idle_timeout: Some(Duration::from_secs(30)),
+            keepalive_interval: Some(DESKTOP_KEEPALIVE),
         }
     }
 }
@@ -311,6 +322,13 @@ where
     let _ = out_tx
         .send(Message::ConfigUpdate(opts.filter.to_config_update()))
         .await;
+    // One keepalive straight away: it arms the phone's idle timeout, so a
+    // link that dies in the first seconds of a session is noticed too (the
+    // nightly WiFi-drop test cut the link 2 s in, before the first periodic
+    // keepalive, and the phone held the dead session for minutes).
+    if opts.keepalive_interval.is_some() {
+        let _ = out_tx.send(Message::Keepalive).await;
+    }
 
     // Uplink: device -> filter -> Android.
     let mut uplink = {
@@ -402,6 +420,23 @@ where
         })
     };
 
+    // Desktop -> Android keepalive. The phone only enforces its idle
+    // timeout once it has seen one, so phones and desktops from before this
+    // existed keep working with each other.
+    let keepalive = opts.keepalive_interval.map(|every| {
+        let out_tx = out_tx.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                if out_tx.send(Message::Keepalive).await.is_err() {
+                    break;
+                }
+            }
+        })
+    });
+
     // Periodic stats push for the GUI.
     let stats_pump = opts.service.clone().map(|svc| {
         let counters = Arc::clone(&counters);
@@ -429,6 +464,9 @@ where
     downlink.abort();
     if let Some(p) = stats_pump {
         p.abort();
+    }
+    if let Some(k) = keepalive {
+        k.abort();
     }
     if matches!(end, SessionEnd::Cancelled | SessionEnd::DeviceClosed(_)) {
         // Tell Android we're going away so it doesn't wait for a timeout.
@@ -696,6 +734,15 @@ pub(crate) mod tests {
             }
             m => panic!("expected ConfigUpdate first, got {:?}", m),
         }
+        // Then a keepalive (arms the phone's idle timeout).
+        match tokio::time::timeout(Duration::from_secs(5), read_message(&mut s))
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            Message::Keepalive => {}
+            m => panic!("expected the initial Keepalive, got {:?}", m),
+        }
 
         // Uplink.
         let up = ipv4(6, b"from-desktop");
@@ -770,6 +817,13 @@ pub(crate) mod tests {
             }
             m => panic!("expected ConfigUpdate first, got {:?}", m),
         }
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), read_message(&mut s))
+                .await
+                .unwrap()
+                .unwrap(),
+            Message::Keepalive
+        ));
         dev_in.send(ipv4(1, b"ping")).unwrap();
         let udp = ipv4(17, b"dns");
         dev_in.send(udp.clone()).unwrap();
@@ -821,6 +875,56 @@ pub(crate) mod tests {
             SessionEnd::TransportClosed(why) => assert!(why.contains("no traffic"), "{}", why),
             e => panic!("expected idle timeout, got {:?}", e),
         }
+    }
+
+    /// The phone frees a session whose desktop went silent (WiFi drop, lid
+    /// closed) only if the desktop keeps saying it is alive while idle.
+    #[tokio::test]
+    async fn idle_desktop_sends_keepalives_to_the_phone() {
+        let (c, mut s) = pair().await;
+        let (dev, _dev_in, _dev_out) = channel_device();
+        let opts = ForwardOptions {
+            keepalive_interval: Some(Duration::from_millis(100)),
+            ..Default::default()
+        };
+        let session = tokio::spawn(forward(transport(c), dev, opts, std::future::pending()));
+        let mut keepalives = 0;
+        let started = Instant::now();
+        // One right away, then one per interval.
+        while keepalives < 4 {
+            match tokio::time::timeout(Duration::from_secs(5), read_message(&mut s))
+                .await
+                .expect("no keepalive from an idle desktop")
+                .unwrap()
+            {
+                Message::Keepalive => keepalives += 1,
+                Message::ConfigUpdate(_) => {}
+                m => panic!("unexpected {:?}", m),
+            }
+        }
+        // The initial one + three ticks of 100 ms: not a burst, not seconds apart.
+        let took = started.elapsed();
+        assert!(took >= Duration::from_millis(250), "{:?}", took);
+        assert!(took < Duration::from_secs(3), "{:?}", took);
+        write_message(&mut s, &Message::Disconnect(Disconnect::new("bye")))
+            .await
+            .unwrap();
+        let (end, _) = session.await.unwrap().unwrap();
+        assert_eq!(end, SessionEnd::PeerDisconnected("bye".into()));
+    }
+
+    #[test]
+    fn default_timeouts_detect_a_dead_link_within_45s() {
+        let o = ForwardOptions::default();
+        let idle = o.idle_timeout.expect("idle timeout must be on by default");
+        assert!(idle <= Duration::from_secs(45), "{:?}", idle);
+        // The app sends StatsUpdate every 5 s: never time out a live phone.
+        assert!(idle >= Duration::from_secs(15), "{:?}", idle);
+        let k = o
+            .keepalive_interval
+            .expect("keepalives must be on by default");
+        // Several keepalives fit in the phone's 30 s idle window.
+        assert!(k <= Duration::from_secs(10), "{:?}", k);
     }
 
     #[tokio::test]

@@ -22,12 +22,27 @@ class TcpLink private constructor(
     val stream: MessageStream,
     val encrypted: Boolean,
     private val socket: Socket,
+    private val raw: Socket = socket,
 ) : Closeable {
     override fun close() {
         try {
             socket.close()
         } catch (_: IOException) {
         }
+    }
+
+    /**
+     * Drop the connection without a TLS close_notify: the desktop is gone,
+     * and a TLS close would try to write to a dead link (blocking once the
+     * send buffer is full). Closing the TCP socket unblocks a read in
+     * progress on either layer.
+     */
+    fun abort() {
+        try {
+            raw.close()
+        } catch (_: IOException) {
+        }
+        close()
     }
 
     companion object {
@@ -58,7 +73,7 @@ class TcpLink private constructor(
                 }
                 tls.soTimeout = 0
                 Log.i(TAG, "TLS handshake complete: ${tls.session.protocol} ${tls.session.cipherSuite}")
-                return TcpLink(MessageStream(tls.inputStream, tls.outputStream), true, tls)
+                return TcpLink(MessageStream(tls.inputStream, tls.outputStream), true, tls, socket)
             }
             socket.soTimeout = 0
             val pushback = PushbackInputStream(input, 1)

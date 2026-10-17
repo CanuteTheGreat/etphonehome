@@ -46,6 +46,16 @@ class TetherSession(
     @Volatile var relay: UserspaceRelay? = null
         private set
 
+    /** When the desktop last sent anything (ms). */
+    @Volatile private var lastFromDesktop = 0L
+
+    /** The desktop sends keepalives, so silence means the link is gone. */
+    @Volatile private var desktopKeepsAlive = false
+
+    /** True if the session ended because the desktop went silent. */
+    @Volatile var linkLost = false
+        private set
+
     /** Run until the desktop leaves. Returns the handshake request. */
     suspend fun run(): HandshakeRequest = withContext(Dispatchers.IO) {
         Log.d(tag, "Starting handshake")
@@ -56,6 +66,7 @@ class TetherSession(
             dns = options.dns,
             tokenVerifier = options.tokenVerifier,
             refuseReason = options.refuseReason,
+            version = options.protocolVersion,
         )
         Log.i(tag, "Handshake complete (${options.peer}, ${if (options.encrypted) "TLS 1.3" else "plaintext"})")
 
@@ -114,6 +125,28 @@ class TetherSession(
                         Log.d(tag, "Keepalive sender stopped: ${e.message}")
                     }
                 }
+                // A desktop that vanishes without closing the connection
+                // (laptop off WiFi, lid closed, out of range) never sends
+                // EOF: the read below would block until TCP gave up, ~15
+                // minutes, and the phone would refuse every new desktop
+                // (one session at a time) meanwhile. Desktops that send
+                // keepalives (0.6.1+) get their session ended after
+                // desktopIdleTimeoutMs of silence; older desktops never
+                // arm this, so their idle sessions are left alone.
+                lastFromDesktop = System.currentTimeMillis()
+                val watchdog = launch {
+                    val idle = options.desktopIdleTimeoutMs
+                    while (true) {
+                        delay(minOf(1000L, maxOf(10L, idle / 4)))
+                        val silent = System.currentTimeMillis() - lastFromDesktop
+                        if (desktopKeepsAlive && silent > idle) {
+                            Log.i(tag, "Desktop silent for ${silent / 1000}s: link lost, ending the session")
+                            linkLost = true
+                            options.abortLink()
+                            break
+                        }
+                    }
+                }
                 val disconnectTimer = options.disconnectAfterMs?.let { ms ->
                     launch {
                         delay(ms)
@@ -129,6 +162,7 @@ class TetherSession(
                 try {
                     readLoop(relay)
                 } finally {
+                    watchdog.cancel()
                     stats.cancel()
                     keepalive.cancel()
                     disconnectTimer?.cancel()
@@ -156,13 +190,17 @@ class TetherSession(
                 Log.d(tag, "Desktop link ended: ${e.message}")
                 return
             }
+            lastFromDesktop = System.currentTimeMillis()
             when (message) {
                 is IpPacket -> relay.handlePacket(message.packetData)
                 is Disconnect -> {
                     Log.i(tag, "Desktop requested disconnect: ${message.reason}")
                     return
                 }
-                is Keepalive -> Unit
+                is Keepalive -> if (!desktopKeepsAlive) {
+                    desktopKeepsAlive = true
+                    Log.d(tag, "Desktop sends keepalives: ending the session after ${options.desktopIdleTimeoutMs / 1000}s of silence")
+                }
                 is ConfigUpdate -> applyConfig(message, relay)
                 else -> Log.w(tag, "Unexpected message: $message")
             }
@@ -200,9 +238,17 @@ data class SessionOptions(
     val relayConfig: RelayConfig = RelayConfig(),
     val statsIntervalMs: Long = 5000,
     val keepaliveIntervalMs: Long = 30000,
+    /** Version advertised in the HandshakeResponse (test hook: the CI
+     *  stand-in plays a future, incompatible phone with it). */
+    val protocolVersion: Short = Protocol.PROTOCOL_VERSION,
     /** Test hook (CI stand-in): send Disconnect after this long. */
     val disconnectAfterMs: Long? = null,
     val onForcedDisconnect: () -> Unit = {},
+    /** End the session once a keepalive-sending desktop is silent this long. */
+    val desktopIdleTimeoutMs: Long = 30_000,
+    /** Tear the transport down hard (the desktop is gone; nothing to say to
+     *  it). Must unblock a read in progress. */
+    val abortLink: () -> Unit = {},
 )
 
 data class SessionInfo(val peer: String, val encrypted: Boolean, val authenticated: Boolean)

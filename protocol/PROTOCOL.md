@@ -177,6 +177,14 @@ Uses Bluetooth RFCOMM sockets with a predefined UUID.
    `filter.log_blocked`, `filter.rules=<n>` and `filter.rule.<i>=
    id|enabled|action|protocol|dest_ip|dest_port|source_ip|source_port`
    (empty field = any); the phone enforces it on the connections it relays.
+5. **Liveness (KEEPALIVE)**: the phone sends a STATS_UPDATE every 5 s and a
+   KEEPALIVE every 30 s; the desktop ends the session after 30 s with nothing
+   from the phone. The desktop (0.6.1+) sends a KEEPALIVE right after its
+   CONFIG_UPDATE and then every 10 s; once the phone has seen one it ends the
+   session after 30 s of silence from the desktop, so a desktop that drops off
+   the network without closing the connection (WiFi loss, lid closed) does not
+   block the next connection. Desktops that never send KEEPALIVE (0.6.0) are
+   not timed out.
 
 ## Version History
 

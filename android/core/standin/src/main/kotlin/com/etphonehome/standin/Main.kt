@@ -2,8 +2,10 @@ package com.etphonehome.standin
 
 import com.etphonehome.log.Log
 import com.etphonehome.protocol.Protocol
+import com.etphonehome.session.SessionListener
 import com.etphonehome.session.SessionLoop
 import com.etphonehome.session.SessionOptions
+import com.etphonehome.session.SessionSnapshot
 import com.etphonehome.session.TcpLink
 import com.etphonehome.session.TetherSession
 import kotlinx.coroutines.runBlocking
@@ -24,6 +26,10 @@ import kotlin.system.exitProcess
  *
  *   standin --listen 127.0.0.1:8888 [--token T] [--require-tls]
  *           [--keepalive-secs N] [--stats-secs N] [--disconnect-after-secs N]
+ *           [--advertise-version 0xMMmm] [--stats-log] [--quiet]
+ *
+ * --stats-log prints the relay's live counters (the numbers the app shows)
+ * every --stats-secs, so tests can check flows are cleaned up.
  */
 fun main(args: Array<String>) {
     var listen = "0.0.0.0:8888"
@@ -32,6 +38,8 @@ fun main(args: Array<String>) {
     var keepaliveSecs = 30L
     var statsSecs = 5L
     var disconnectAfterSecs: Long? = null
+    var advertiseVersion = Protocol.PROTOCOL_VERSION
+    var statsLog = false
     var i = 0
     fun value(): String = args.getOrNull(++i) ?: usage("missing value for ${args[i - 1]}")
     while (i < args.size) {
@@ -42,6 +50,8 @@ fun main(args: Array<String>) {
             "--keepalive-secs" -> keepaliveSecs = value().toLong()
             "--stats-secs" -> statsSecs = value().toLong()
             "--disconnect-after-secs" -> disconnectAfterSecs = value().toLong()
+            "--advertise-version" -> advertiseVersion = Integer.decode(value()).toShort()
+            "--stats-log" -> statsLog = true
             "--quiet" -> Log.debugEnabled = false
             else -> usage("unknown argument ${args[i]}")
         }
@@ -80,8 +90,11 @@ fun main(args: Array<String>) {
                         statsIntervalMs = statsSecs * 1000,
                         keepaliveIntervalMs = keepaliveSecs * 1000,
                         disconnectAfterMs = disconnectAfterSecs?.let { it * 1000 },
+                        protocolVersion = advertiseVersion,
                         onForcedDisconnect = { link.close() },
+                        abortLink = { link.abort() },
                     ),
+                    if (statsLog) StatsLogger(statsSecs * 1000) else SessionListener.NONE,
                 ).run()
                 link.close()
             },
@@ -92,11 +105,28 @@ fun main(args: Array<String>) {
     }
 }
 
+/** Logs the counters the app's status screen shows (UI ticks are 1 s). */
+private class StatsLogger(private val everyMs: Long) : SessionListener {
+    private var last = 0L
+
+    override fun onStats(stats: SessionSnapshot) {
+        val now = System.currentTimeMillis()
+        if (now - last < everyMs) return
+        last = now
+        Log.i(
+            "standin",
+            "relay stats: activeTcp=${stats.activeTcp} activeUdp=${stats.activeUdp} " +
+                "tcpFlows=${stats.tcpFlows} udpFlows=${stats.udpFlows} " +
+                "toDesktop=${stats.bytesToDesktop} fromDesktop=${stats.bytesFromDesktop}",
+        )
+    }
+}
+
 private fun usage(msg: String): Nothing {
     System.err.println("standin: $msg")
     System.err.println(
         "usage: standin --listen HOST:PORT [--token T] [--require-tls] [--keepalive-secs N] " +
-            "[--stats-secs N] [--disconnect-after-secs N] [--quiet]",
+            "[--stats-secs N] [--disconnect-after-secs N] [--advertise-version 0xMMmm] [--stats-log] [--quiet]",
     )
     exitProcess(2)
 }

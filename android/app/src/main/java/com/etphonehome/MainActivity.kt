@@ -123,8 +123,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopVpnService() {
-        val intent = Intent(this, EtVpnService::class.java)
-        stopService(intent)
+        // Not stopService(): with a VPN established the system keeps the
+        // service bound and alive, so the tunnel (and the phone's lost
+        // internet) survived the Stop button. ACTION_STOP tears it down.
+        val intent = Intent(this, EtVpnService::class.java).setAction(EtVpnService.ACTION_STOP)
+        startService(intent)
         isVpnRunning = false
         updateUI()
 

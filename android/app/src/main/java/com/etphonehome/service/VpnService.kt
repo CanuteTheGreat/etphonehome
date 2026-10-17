@@ -51,7 +51,10 @@ class VpnService : AndroidVpnService() {
     private var bytesReceived: Long = 0
     private var startTime: Long = 0
 
+    @Volatile
     private var isRunning = false
+    @Volatile
+    private var sessionLoop: SessionLoop<*>? = null
     private var filterEngine: FilterEngine? = null
 
     companion object {
@@ -63,6 +66,15 @@ class VpnService : AndroidVpnService() {
         private const val VPN_ROUTE = "0.0.0.0"
         private const val VPN_DNS = "8.8.8.8"
         private const val VPN_MTU = 1500
+        /** The VPN fd is non-blocking: an empty read returns 0, so back off briefly instead of spinning. */
+        private const val VPN_IDLE_POLL_MS = 5L
+
+        /**
+         * Stop tethering. stopService() alone cannot do it: while the VPN is
+         * established the system holds a binding to this service, so it is
+         * never destroyed and the phone keeps routing into the dead tunnel.
+         */
+        const val ACTION_STOP = "com.etphonehome.action.STOP"
 
         // Bluetooth Configuration
         private const val BLUETOOTH_SERVICE_NAME = "ETPhoneHome"
@@ -87,6 +99,10 @@ class VpnService : AndroidVpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) {
             stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent.action == ACTION_STOP) {
+            shutdown()
             return START_NOT_STICKY
         }
 
@@ -123,6 +139,7 @@ class VpnService : AndroidVpnService() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(tag, "VpnService destroyed")
+        sessionLoop?.stop()
         isRunning = false
 
         try {
@@ -140,6 +157,69 @@ class VpnService : AndroidVpnService() {
         }
 
         serviceScope.cancel()
+    }
+
+    /** Close the VPN interface so the phone's own traffic stops being routed into it. */
+    private fun endVpn() {
+        try {
+            vpnInterface?.close()
+        } catch (e: Exception) {
+            Log.e(tag, "Error closing VPN interface", e)
+        }
+        vpnInterface = null
+    }
+
+    /** Undo one desktop session; the service keeps listening for the next one. */
+    private fun endSession() {
+        isRunning = false
+        clientSocket = null
+        bluetoothSocket = null
+        endVpn()
+        Log.d(tag, "Session ended: VPN closed, waiting for the next desktop connection")
+    }
+
+    /** Stop everything (Stop button): sessions, listeners, VPN, foreground state. */
+    private fun shutdown() {
+        Log.d(tag, "Stopping tethering")
+        sessionLoop?.stop()
+        isRunning = false
+        for (c in listOf<Closeable?>(clientSocket, serverSocket, bluetoothSocket, bluetoothServerSocket)) {
+            try {
+                c?.close()
+            } catch (e: Exception) {
+                Log.e(tag, "Error closing socket", e)
+            }
+        }
+        endVpn()
+        nsdAdvertiser?.unregisterService()
+        nsdAdvertiser = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+        stopSelf()
+    }
+
+    /** Accept desktop connections on [serverSocket] one session at a time. */
+    private suspend fun serveTcpSessions() {
+        val server = serverSocket ?: return
+        val loop = SessionLoop<Socket>(
+            accept = { server.accept() },
+            session = { sock ->
+                Log.d(tag, "Desktop connected from ${sock.inetAddress}")
+                sock.tcpNoDelay = true
+                sock.soTimeout = 0 // No timeout - let keepalive handle dead connections
+                sock.keepAlive = true
+                clientSocket = sock
+                startVpnAndForwarding()
+            },
+            endSession = { endSession() },
+            onSessionError = { e -> Log.e(tag, "Desktop session failed", e) },
+        )
+        sessionLoop = loop
+        loop.run()
     }
 
     /**
@@ -186,18 +266,8 @@ class VpnService : AndroidVpnService() {
         serverSocket = ServerSocket(port, 50, InetAddress.getLoopbackAddress())
         Log.d(tag, "Server socket listening on loopback port $port")
 
-        // Wait for desktop connection
         Log.d(tag, "Waiting for desktop connection...")
-        clientSocket = serverSocket?.accept()
-        Log.d(tag, "Desktop connected from ${clientSocket?.inetAddress}")
-
-        // Configure socket
-        clientSocket?.tcpNoDelay = true
-        clientSocket?.soTimeout = 0  // No timeout - let keepalive handle dead connections
-        clientSocket?.keepAlive = true
-
-        // Start VPN and packet forwarding
-        startVpnAndForwarding()
+        serveTcpSessions()
     }
 
     /**
@@ -221,18 +291,8 @@ class VpnService : AndroidVpnService() {
             Log.i(tag, "Desktop should connect to: $wifiIp:$port")
         }
 
-        // Wait for desktop connection
         Log.d(tag, "Waiting for desktop connection on WiFi...")
-        clientSocket = serverSocket?.accept()
-        Log.d(tag, "Desktop connected from ${clientSocket?.inetAddress}")
-
-        // Configure socket
-        clientSocket?.tcpNoDelay = true
-        clientSocket?.soTimeout = 0  // No timeout - let keepalive handle dead connections
-        clientSocket?.keepAlive = true
-
-        // Start VPN and packet forwarding
-        startVpnAndForwarding()
+        serveTcpSessions()
     }
 
     /**
@@ -261,48 +321,31 @@ class VpnService : AndroidVpnService() {
         Log.i(tag, "Bluetooth address: ${bluetoothAdapter.address}")
         Log.i(tag, "Desktop should pair and connect to this device")
 
-        // Wait for desktop connection
         Log.d(tag, "Waiting for desktop connection via Bluetooth...")
-        val acceptedSocket = bluetoothServerSocket?.accept()
-            ?: throw Exception("Failed to accept Bluetooth connection")
-        Log.d(tag, "Desktop connected from ${acceptedSocket.remoteDevice.name} (${acceptedSocket.remoteDevice.address})")
-
-        // Store the accepted (connected) socket as a field so onDestroy() can actually close
-        // it. Previously this was a local val only -- onDestroy() closed bluetoothServerSocket
-        // (the *listening* socket) but never the live connected RFCOMM socket, leaking its
-        // native file descriptor every time the service was torn down (app killed, user
-        // stopped tethering, error path) while a Bluetooth session was active.
-        bluetoothSocket = acceptedSocket
-
-        if (!acceptedSocket.isConnected) {
-            throw Exception("Bluetooth socket not connected")
-        }
-
-        // Start VPN and packet forwarding with Bluetooth socket
-        startVpnAndForwardingBluetooth(acceptedSocket)
+        val server = bluetoothServerSocket ?: throw Exception("Bluetooth server socket not available")
+        val loop = SessionLoop<android.bluetooth.BluetoothSocket>(
+            accept = { server.accept() },
+            session = { acceptedSocket ->
+                Log.d(tag, "Desktop connected from ${acceptedSocket.remoteDevice.name} (${acceptedSocket.remoteDevice.address})")
+                // Stored as a field so shutdown()/onDestroy() can close the live
+                // RFCOMM socket, not only the listening one (fd leak, fixed earlier).
+                bluetoothSocket = acceptedSocket
+                if (!acceptedSocket.isConnected) {
+                    throw Exception("Bluetooth socket not connected")
+                }
+                startVpnAndForwardingBluetooth(acceptedSocket)
+            },
+            endSession = { endSession() },
+            onSessionError = { e -> Log.e(tag, "Bluetooth session failed", e) },
+        )
+        sessionLoop = loop
+        loop.run()
     }
 
     /**
      * Start VPN interface and packet forwarding for Bluetooth
      */
     private suspend fun startVpnAndForwardingBluetooth(bluetoothSocket: android.bluetooth.BluetoothSocket) = withContext(Dispatchers.IO) {
-        // Establish VPN interface
-        Log.d(tag, "Establishing VPN interface")
-
-        val builder = Builder()
-            .setSession("ET Phone Home")
-            .addAddress(VPN_ADDRESS, 24)
-            .addRoute(VPN_ROUTE, 0)
-            .addDnsServer(VPN_DNS)
-            .setMtu(VPN_MTU)
-            .setBlocking(false)
-
-        vpnInterface = builder.establish() ?: throw Exception("Failed to establish VPN")
-        Log.d(tag, "VPN interface established")
-
-        // Initialize filter engine (disabled by default, can be enabled via config update)
-        filterEngine = FilterEngine(FilterConfig.disabled())
-
         // Perform handshake using Bluetooth streams. Bluetooth always requires the
         // Bluetooth pairing token (this path once completed the handshake with no
         // token check at all); see ServerHandshake for the shared logic.
@@ -322,18 +365,43 @@ class VpnService : AndroidVpnService() {
         }
         Log.d(tag, "Handshake complete")
 
+        // Only an authenticated desktop gets a VPN: establishing it routes all
+        // of the phone's traffic into the tunnel.
+        establishVpn()
+
         isRunning = true
         startTime = System.currentTimeMillis()
 
         Log.d(tag, "Starting packet forwarding")
 
-        // Start packet forwarding with Bluetooth streams
+        // The session lasts as long as the desktop -> VPN reader; then the
+        // other loops are cancelled and SessionLoop tears the VPN down.
         coroutineScope {
-            launch { forwardFromVpnToDesktopBluetooth(stream) }
-            launch { forwardFromDesktopToVpnBluetooth(stream) }
-            launch { sendPeriodicStatsBluetooth(stream) }
-            launch { sendPeriodicKeepaliveBluetooth(stream) }
+            val others = listOf(
+                launch { forwardFromVpnToDesktopBluetooth(stream) },
+                launch { sendPeriodicStatsBluetooth(stream) },
+                launch { sendPeriodicKeepaliveBluetooth(stream) },
+            )
+            forwardFromDesktopToVpnBluetooth(stream)
+            isRunning = false
+            others.forEach { it.cancel() }
         }
+    }
+
+    /** Establish the VPN interface (all phone traffic now goes into it). */
+    private fun establishVpn() {
+        Log.d(tag, "Establishing VPN interface")
+        val builder = Builder()
+            .setSession("ET Phone Home")
+            .addAddress(VPN_ADDRESS, 24)
+            .addRoute(VPN_ROUTE, 0)
+            .addDnsServer(VPN_DNS)
+            .setMtu(VPN_MTU)
+            .setBlocking(false)
+        vpnInterface = builder.establish() ?: throw Exception("Failed to establish VPN")
+        Log.d(tag, "VPN interface established")
+        // Filter engine is disabled by default, can be enabled via config update
+        filterEngine = FilterEngine(FilterConfig.disabled())
     }
 
     /**
@@ -357,7 +425,11 @@ class VpnService : AndroidVpnService() {
                         stream.write(message)
                         bytesSent += length
                     }
+                } else {
+                    delay(VPN_IDLE_POLL_MS)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (isRunning) {
                     Log.e(tag, "Error forwarding VPN -> Desktop (Bluetooth)", e)
@@ -414,7 +486,6 @@ class VpnService : AndroidVpnService() {
         }
 
         Log.d(tag, "Stopped Desktop (Bluetooth) -> VPN forwarding")
-        stopSelf()
     }
 
     /**
@@ -458,40 +529,33 @@ class VpnService : AndroidVpnService() {
      * Start VPN interface and packet forwarding
      */
     private suspend fun startVpnAndForwarding() = withContext(Dispatchers.IO) {
-        // Establish VPN interface
-        Log.d(tag, "Establishing VPN interface")
-
-        val builder = Builder()
-            .setSession("ET Phone Home")
-            .addAddress(VPN_ADDRESS, 24)
-            .addRoute(VPN_ROUTE, 0)
-            .addDnsServer(VPN_DNS)
-            .setMtu(VPN_MTU)
-            .setBlocking(false)
-
-        vpnInterface = builder.establish() ?: throw Exception("Failed to establish VPN")
-        Log.d(tag, "VPN interface established")
-
-        // Initialize filter engine (disabled by default, can be enabled via config update)
-        filterEngine = FilterEngine(FilterConfig.disabled())
-
-        // Perform handshake
+        // Handshake (and token check for WiFi) BEFORE the VPN goes up: it used
+        // to be established on mere TCP accept, so any client -- even one
+        // with a wrong token -- briefly hijacked the phone's routing.
         val socket = clientSocket ?: throw IOException("No desktop connection")
         val stream = MessageStream(socket.getInputStream(), socket.getOutputStream())
         performHandshake(stream)
+
+        establishVpn()
 
         isRunning = true
         startTime = System.currentTimeMillis()
 
         Log.d(tag, "Starting packet forwarding")
 
-        // Start packet forwarding; every writer shares one MessageStream so
-        // frames are never interleaved.
+        // Every writer shares one MessageStream so frames are never
+        // interleaved. The session lasts as long as the desktop -> VPN reader
+        // (Disconnect, EOF or error); then the other loops are cancelled and
+        // SessionLoop tears the VPN down.
         coroutineScope {
-            launch { forwardFromVpnToDesktop(stream) }
-            launch { forwardFromDesktopToVpn(stream) }
-            launch { sendPeriodicStats(stream) }
-            launch { sendPeriodicKeepalive(stream) }
+            val others = listOf(
+                launch { forwardFromVpnToDesktop(stream) },
+                launch { sendPeriodicStats(stream) },
+                launch { sendPeriodicKeepalive(stream) },
+            )
+            forwardFromDesktopToVpn(stream)
+            isRunning = false
+            others.forEach { it.cancel() }
         }
     }
 
@@ -540,7 +604,11 @@ class VpnService : AndroidVpnService() {
                         stream.write(message)
                         bytesSent += length
                     }
+                } else {
+                    delay(VPN_IDLE_POLL_MS)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (isRunning) {
                     Log.e(tag, "Error forwarding VPN -> Desktop", e)
@@ -598,7 +666,6 @@ class VpnService : AndroidVpnService() {
         }
 
         Log.d(tag, "Stopped Desktop -> VPN forwarding")
-        stopSelf()
     }
 
     /**

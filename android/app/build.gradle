@@ -37,6 +37,16 @@ android {
     }
 
     signingConfigs {
+        // Shared, committed debug key (well-known "android" passwords, like
+        // the SDK's own). Without it every CI runner signed debug APKs with
+        // its own random key, so installing a newer CI artifact over an
+        // older one failed with INSTALL_FAILED_UPDATE_INCOMPATIBLE.
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
         if (hasReleaseSigning) {
             release {
                 storeFile file(keystoreProperties['storeFile'])

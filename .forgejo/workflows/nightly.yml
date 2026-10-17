@@ -39,11 +39,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libdbus-1-dev pkg-config python3
-      - name: Build client
-        working-directory: desktop
+      - name: Build client (as released)
         run: |
-          cargo build --release -p etphonehome-linux
-          mkdir -p ../deep-bin && cp target/release/etphonehome ../deep-bin/
+          bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
+          mkdir -p deep-bin && cp desktop/target/release/etphonehome deep-bin/
       - name: Build the phone stand-in (android/core)
         working-directory: android/core
         run: |
@@ -99,7 +98,7 @@ jobs:
         working-directory: desktop
         run: |
           uname -m
-          cargo build --release -p etphonehome-linux
+          bash ../.forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
           T=$(cargo test -p etphonehome-common --no-run 2>&1 | grep -o 'target/debug/deps/etphonehome_common-[a-z0-9]*' | head -1)
           test -n "$T"
           mkdir -p ../e2e-bin
@@ -136,10 +135,9 @@ jobs:
           sudo apt-get install -y build-essential libdbus-1-dev pkg-config
       - name: Build and package the client exactly as released
         run: |
-          (cd desktop && cargo build --release -p etphonehome-linux)
+          bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
           bash .forgejo/scripts/package.sh linux "nightly"
           mkdir -p distro-bin && tar -C distro-bin -xzf dist/etphonehome-linux-nightly.tar.gz
-          objdump -T distro-bin/etphonehome | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1 | sed 's/^/newest glibc symbol needed: /'
       - name: Build the phone stand-in
         working-directory: android/core
         run: |

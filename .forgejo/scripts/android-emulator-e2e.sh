@@ -57,7 +57,9 @@ trap cleanup EXIT
 IMG="system-images;android-$API;$IMGTAG;x86_64"
 yes | sdkmanager --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
 sdkmanager --sdk_root="$SDK" "emulator" "platform-tools" "$IMG" >/dev/null || { echo "sdkmanager failed"; exit 1; }
-echo no | avdmanager create avd -n "etph$API" -k "$IMG" --force >/dev/null
+# A phone-sized screen (the default AVD is 320x640, where system dialogs
+# cover the app).
+echo no | avdmanager create avd -n "etph$API" -k "$IMG" -d pixel_5 --force >/dev/null
 ls -l /dev/kvm
 emulator -avd "etph$API" -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics \
   -gpu swiftshader_indirect -accel on -memory 3072 -cores 2 -port 5554 >"$LOG/emulator.log" 2>&1 &
@@ -79,11 +81,36 @@ echo "emulator API $API booted in $(( ($(now_ms) - T0) / 1000 ))s"
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
-adb shell input keyevent 82
 adb shell svc power stayon true
+adb shell wm dismiss-keyguard >/dev/null 2>&1
+adb shell input keyevent 82
+# Let the freshly booted system settle: launcher up, and no "isn't
+# responding" dialog left over the screen (they took every tap on API 34).
+settle() {
+  for _ in $(seq 1 20); do
+    adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1
+    F=$(adb shell dumpsys window 2>/dev/null | grep -m1 mCurrentFocus | tr -d '\r')
+    case "$F" in
+      *"Not Responding"* | *"Application Error"*) adb shell input keyevent KEYCODE_ENTER; sleep 2 ;;
+      *null* | "") sleep 2 ;;
+      *) return 0 ;;
+    esac
+  done
+}
+settle
 
 # --- UI helpers -----------------------------------------------------------------
-dump() { adb exec-out uiautomator dump /dev/tty 2>/dev/null | sed 's/UI hierchary dumped to.*//' >"$LOG/ui.xml"; }
+dump() {
+  local i
+  for i in 1 2 3; do
+    adb exec-out uiautomator dump /dev/tty 2>/dev/null | sed 's/UI hierchary dumped to.*//' >"$LOG/ui.xml"
+    # A system dialog over the app ("isn't responding", etc.): clear it.
+    if grep -q 'package="com.etphonehome"' "$LOG/ui.xml"; then return 0; fi
+    settle
+    adb shell am start -n "$PKG/.MainActivity" >/dev/null 2>&1
+    sleep 2
+  done
+}
 ui() { # id -> "x y|text"
   python3 - "$LOG/ui.xml" "$PKG:id/$1" <<'PY'
 import re, sys, xml.etree.ElementTree as ET
@@ -209,7 +236,7 @@ pass "isolation: the desktop namespace has no way out before tethering"
 
 # --- upgrade: previous APK -> this build -----------------------------------------
 HAS_WIFI=0
-adb shell dumpsys wifi 2>/dev/null | grep -q "Wi-Fi is enabled" && HAS_WIFI=1
+adb shell ip -4 addr show wlan0 2>/dev/null | grep -q "inet " && HAS_WIFI=1
 if [ -n "$PREV_APK" ]; then
   adb uninstall "$PKG" >/dev/null 2>&1
   adb install "$PREV_APK" >"$LOG/install-prev.log" 2>&1 || { cat "$LOG/install-prev.log"; fail "previous APK did not install"; }

@@ -14,7 +14,7 @@ set -uo pipefail
 BIN_DIR=$1
 STANDIN_DIR=$2
 HERE=$(cd "$(dirname "$0")" && pwd)
-DISTROS=${DISTROS:-debian:12 debian:13 ubuntu:22.04 ubuntu:24.04 fedora:42 archlinux:latest opensuse/tumbleweed:latest}
+DISTROS=${DISTROS:-debian:11 debian:12 debian:13 ubuntu:20.04 ubuntu:22.04 ubuntu:24.04 fedora:latest archlinux:latest opensuse/tumbleweed:latest}
 E2E_ID="etph-distro-${GITHUB_RUN_ID:-local}-$$"
 # shellcheck source=e2e-lib.sh
 . "$HERE/e2e-lib.sh"

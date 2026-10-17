@@ -198,18 +198,18 @@ echo "$*" >> /e2e/resolvectl-calls.log
 exit 0
 EOF
 
-  # Tools (and libdbus, the client's one shared-library dependency besides
-  # glibc), from whichever package manager the distro has.
-  if ! docker exec "$DESKTOP" sh -c 'command -v ping && command -v ip && command -v tc && command -v ss && command -v socat && command -v curl && command -v getent && command -v python3 && command -v pgrep && ldconfig -p | grep -q libdbus-1.so.3' >/dev/null 2>&1; then
+  # Tools and CA certificates, from whichever package manager the distro has.
+  # (No libdbus: the client links it statically since build-linux-release.sh.)
+  if ! docker exec "$DESKTOP" sh -c 'command -v ping && command -v ip && command -v tc && command -v ss && command -v socat && command -v curl && command -v getent && command -v python3 && command -v pgrep && [ -e /etc/ssl/certs/ca-certificates.crt -o -e /etc/pki/tls/certs/ca-bundle.crt -o -e /etc/ssl/ca-bundle.pem ]' >/dev/null 2>&1; then
     docker exec "$DESKTOP" sh -c '
       if command -v apt-get >/dev/null; then
-        apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 iputils-ping procps socat curl python3 libdbus-1-3 >/dev/null
+        apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 iputils-ping procps socat curl python3 ca-certificates >/dev/null
       elif command -v dnf >/dev/null; then
-        dnf install -y -q iproute iproute-tc iputils procps-ng socat curl python3 dbus-libs >/dev/null
+        dnf install -y -q iproute iproute-tc iputils procps-ng socat curl python3 ca-certificates >/dev/null
       elif command -v pacman >/dev/null; then
-        pacman -Sy --noconfirm --needed iproute2 iputils procps-ng socat curl python dbus >/dev/null
+        pacman -Sy --noconfirm --needed iproute2 iputils procps-ng socat curl python ca-certificates >/dev/null
       elif command -v zypper >/dev/null; then
-        zypper -n -q install iproute2 iputils procps socat curl python3 libdbus-1-3 >/dev/null
+        zypper -n -q install iproute2 iputils procps socat curl python3 ca-certificates ca-certificates-mozilla >/dev/null
       else
         echo "no known package manager" >&2; exit 1
       fi'

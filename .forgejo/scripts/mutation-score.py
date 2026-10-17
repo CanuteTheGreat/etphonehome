@@ -72,6 +72,9 @@ def main():
     kind, report, thresholds_path = sys.argv[1:4]
     stats, survivors = (from_pit if kind == "pit" else from_cargo)(report)
     mins = json.load(open(thresholds_path)).get("kotlin" if kind == "pit" else "rust", {})
+    if not stats:
+        print(f"no mutants were scored in {report}: the run measured nothing")
+        sys.exit(1)
     bad = 0
     print(f"{'module':28} {'killed':>7} {'survived':>8} {'score':>7} {'minimum':>8}")
     for mod in sorted(stats):

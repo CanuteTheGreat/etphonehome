@@ -1,0 +1,47 @@
+# Claims ledger: every user-facing claim in README.md maps to the CI test(s)
+# that prove it. Checked on every push by .forgejo/scripts/check-claims.py:
+#   - the claim text must still be in its source file (claim reworded -> update this row)
+#   - each evidence string must be in its test file, and that test file must be
+#     run by a workflow (directly or through a script a workflow runs)
+#   - every "- ✅ **Feature**" line of README.md must have a row here
+# Columns (tab-separated): id, source file, claim text (substring), evidence file, evidence text (substring)
+# Several rows with the same id = several pieces of evidence for one claim.
+internet	README.md	Real internet for the computer, no root	.forgejo/scripts/desktop-e2e-inner.sh	REAL INTERNET: HTTPS GET https://example.com/ -> 200
+internet	README.md	Real internet for the computer, no root	.forgejo/scripts/android-emulator-e2e.sh	public HTTPS https://example.com -> 200 through the phone
+internet	README.md	Real internet for the computer, no root	.forgejo/scripts/tunnel-deep.sh	10 MB HTTPS download through the tunnel is byte-identical
+internet	README.md	Real internet for the computer, no root	.forgejo/scripts/desktop-e2e-inner.sh	UDP: datagram relayed and the echo came back
+internet	README.md	Real internet for the computer, no root	.forgejo/scripts/desktop-e2e-inner.sh	ICMP: ping to a host beyond the phone answered through the relay
+phone-keeps-internet	README.md	The phone keeps its internet	.forgejo/scripts/android-emulator-e2e.sh	the phone's own HTTP works during the session
+phone-keeps-internet	README.md	The phone keeps its internet	.forgejo/scripts/android-emulator-e2e.sh	no VPN/tun0 on the phone
+usb	README.md	USB Tethering	.forgejo/scripts/desktop-e2e-inner.sh	usb: 'adb forward tcp:8890 tcp:8890', then HTTP and public HTTPS through the phone
+usb	README.md	USB Tethering	.forgejo/scripts/android-emulator-e2e.sh	desktop tunnel up over the real app (USB via adb forward)
+wifi-tls	README.md	WiFi Tethering	.forgejo/scripts/desktop-e2e-inner.sh	wifi is encrypted by default: TLS 1.3 on both ends without --tls
+wifi-tls	README.md	WiFi Tethering	.forgejo/scripts/desktop-e2e-inner.sh	TLS with the wrong pairing token fails closed (pin mismatch)
+wifi-tls	README.md	WiFi Tethering	.forgejo/scripts/desktop-e2e-inner.sh	wrong token refused with 'invalid token', no TUN created
+wifi-tls	README.md	WiFi Tethering	.forgejo/scripts/android-emulator-e2e.sh	WiFi: TLS 1.3 session with the app
+wifi-tls	README.md	WiFi Tethering	android/core/src/test/kotlin/com/etphonehome/tls/CertPinTest.kt	@Test
+bluetooth	README.md	Bluetooth Tethering** (experimental, not yet verified	-	disclaimed: the README says it is unverified; no CI or real-device test exists yet
+desktop-platforms	README.md	Cross-Platform desktop	.forgejo/scripts/distro-smoke.sh	WiFi+TLS tunnel, 5 MiB intact, public HTTPS, DNS, Ctrl-C cleanup
+desktop-platforms	README.md	Cross-Platform desktop	.forgejo/scripts/windows-wine-smoke.sh	Windows client: cert-pinned TLS 1.3 + protocol handshake with the phone core
+desktop-platforms	README.md	Cross-Platform desktop	desktop/gui/src/app.rs	fn connect_starts_a_session_and_disconnect_stops_it
+dns	README.md	DNS set up for you	.forgejo/scripts/desktop-e2e-inner.sh	client pointed DNS for etph0 at the phone's DNS server
+phone-stats	README.md	Live statistics on the phone	.forgejo/scripts/android-emulator-e2e.sh	UI live stats show the relayed traffic
+phone-stats	README.md	Live statistics on the phone	.forgejo/scripts/android-emulator-e2e.sh	UI status: '$ST'
+phone-stats	README.md	Live statistics on the phone	android/app/src/test/java/com/etphonehome/service/StatusTextTest.kt	@Test
+filter	README.md	Traffic filter	.forgejo/scripts/desktop-e2e-inner.sh	filter: the profile's 2 rules were sent to the phone and applied there
+filter	README.md	Traffic filter	.forgejo/scripts/desktop-e2e-inner.sh	filter: TCP to the blocked port fails
+filter	README.md	Traffic filter	.forgejo/scripts/desktop-e2e-inner.sh	filter: other TCP (port 8080) still relayed
+reconnect	README.md	Auto-Reconnect	.forgejo/scripts/desktop-e2e-inner.sh	auto-reconnect: phone disconnected, client reconnected
+reconnect	README.md	Auto-Reconnect	desktop/common/src/runner.rs	fn retry_backs_off_and_respects_max_retries
+reconnect	README.md	Auto-Reconnect	.forgejo/scripts/tunnel-deep.sh	WiFi back: reconnected by itself
+discovery-profiles	README.md	mDNS Discovery	desktop/common/src/runner.rs	fn mdns_discovery_finds_advertised_service
+discovery-profiles	README.md	IP Discovery	.forgejo/scripts/desktop-e2e-inner.sh	discover-ip parses the phone's wlan0 address
+discovery-profiles	README.md	Connection Profiles	desktop/common/src/runner.rs	fn save_list_update_delete_profile_roundtrip
+discovery-profiles	README.md	Connection Profiles	.forgejo/scripts/tunnel-deep.sh	profiles saved by the previous release are listed by HEAD
+protocol	README.md	Open Protocol	desktop/common/src/protocol_vectors.rs	fn every_message_matches_the_shared_vectors
+protocol	README.md	Open Protocol	android/core/src/test/kotlin/com/etphonehome/protocol/ProtocolVectorsTest.kt	@Test
+android-min	README.md	Android 8.0+ (API Level 26+)	.forgejo/workflows/android-emulator.yml	API 26 (minSdk, Android 8.0)
+no-root-no-vpn	README.md	No root and no VPN permission needed	.forgejo/scripts/android-emulator-e2e.sh	no VPN/tun0 on the phone
+distros	README.md	tested nightly with a real tunnel on Debian 11/12/13, Ubuntu 20.04/22.04/24.04, Fedora, Arch and openSUSE Tumbleweed	.forgejo/scripts/distro-smoke.sh	debian:11 debian:12 debian:13 ubuntu:20.04 ubuntu:22.04 ubuntu:24.04 fedora:latest archlinux:latest opensuse/tumbleweed:latest
+arm64	README.md	plus the full tunnel test on arm64	.forgejo/workflows/nightly.yml	run: bash .forgejo/scripts/desktop-e2e.sh
+wintun	README.md	put `wintun.dll` next to `etphonehome.exe`	.forgejo/scripts/windows-wine-smoke.sh	without the Wintun driver it stops with a clear wintun.dll message

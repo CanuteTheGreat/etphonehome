@@ -415,7 +415,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for details.
 
 **Done (v0.6.0):**
 - ✅ Real internet for the computer without root (userspace relay); the phone keeps its own internet
-- ✅ USB, WiFi and Bluetooth tethering (Bluetooth: Android + Linux desktop only)
+- ✅ USB and WiFi tethering; Bluetooth is experimental (Android + Linux desktop only, not yet verified on a real phone)
 - ✅ WiFi encrypted by default (TLS 1.3 pinned to the pairing token)
 - ✅ Live status and statistics on the phone; notification with Stop
 - ✅ Traffic filtering on the desktop and on the phone (profile rules are sent to the phone)

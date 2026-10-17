@@ -49,8 +49,11 @@ jobs:
             --file common/src/tls/certpin.rs --file common/src/filter.rs \
             --file common/src/runner.rs \
             -- --lib
-          echo "cargo-mutants exit: $? (2 = some mutants survived; scored below)"
-          exit 0
+          rc=$?
+          echo "cargo-mutants exit: $rc (2 = some mutants survived, 3 = some timed out; scored below)"
+          # 0/2/3 mean the mutants ran; anything else (4 = the unmutated
+          # baseline failed, 1 = bad usage) means nothing was measured.
+          case $rc in 0|2|3) exit 0 ;; *) exit 1 ;; esac
       - name: Score against ci/mutation-thresholds.json
         run: python3 .forgejo/scripts/mutation-score.py cargo desktop/mutants.out/outcomes.json ci/mutation-thresholds.json
       - name: Upload report

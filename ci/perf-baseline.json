@@ -1,12 +1,12 @@
 {
-  "_comment": "Nightly tunnel-deep.sh performance baseline (linux-cross-x86_64 runners). A metric more than PERF_FACTOR (2x) worse fails the nightly. Update deliberately, with the run that justifies it.",
-  "wifi_tls_down_mibps": 40,
-  "wifi_tls_up_mibps": 20,
-  "usb_down_mibps": 20,
-  "usb_up_mibps": 10,
-  "rtt_median_ms": 45,
-  "rtt_p95_ms": 50,
-  "wifi_rtt_median_ms": 45,
-  "wifi_rtt_p95_ms": 50,
-  "connect_median_ms": 5
+  "_comment": "Nightly tunnel-deep.sh performance baseline (linux-cross-x86_64 runners): the slower of two green nightly runs on 0.6.1 (jobs 18194 and 18260; runner speed itself varied 1.5x between them). Throughput below baseline/2 fails; latency above max(2x, baseline + 2 ms) fails. Update deliberately, with the run that justifies it.",
+  "wifi_tls_down_mibps": 60,
+  "wifi_tls_up_mibps": 58,
+  "usb_down_mibps": 93,
+  "usb_up_mibps": 88,
+  "rtt_median_ms": 0.2,
+  "rtt_p95_ms": 0.25,
+  "wifi_rtt_median_ms": 0.2,
+  "wifi_rtt_p95_ms": 0.25,
+  "connect_median_ms": 0.5
 }

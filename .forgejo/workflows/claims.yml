@@ -1,0 +1,20 @@
+name: Claims ledger
+# Every claim in README.md must map to a CI test that proves it
+# (ci/claims.tsv, checked by .forgejo/scripts/check-claims.py). Cheap: runs
+# on every push and pull request.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  claims:
+    name: Every README claim has a test
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check ci/claims.tsv
+        run: python3 .forgejo/scripts/check-claims.py

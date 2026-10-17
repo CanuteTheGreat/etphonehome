@@ -1088,6 +1088,34 @@ mod tests {
         assert!(save_profile_at(&path, "x", "carrier-pigeon", None, None, None, None).is_err());
         assert!(save_profile_at(&path, " ", "usb", None, None, None, None).is_err());
         assert!(!path.exists(), "nothing should have been written");
+        // ...and with the field present they save (a Bluetooth phone may be
+        // named instead of addressed).
+        save_profile_at(
+            &path,
+            "b",
+            "bluetooth",
+            None,
+            None,
+            Some("Galaxy Note20".into()),
+            None,
+        )
+        .expect("bluetooth profile with an address/name saves");
+        save_profile_at(
+            &path,
+            "w",
+            "wifi",
+            Some("192.168.1.9".into()),
+            None,
+            None,
+            None,
+        )
+        .expect("wifi profile with a host saves");
+        let names = load_config_at(&path).unwrap().list_profiles();
+        assert!(
+            names.contains(&"b".to_string()) && names.contains(&"w".to_string()),
+            "{names:?}"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

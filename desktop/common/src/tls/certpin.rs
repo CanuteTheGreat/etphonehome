@@ -570,4 +570,99 @@ mod tests {
         client_tls_config(token).expect("client config should build");
         server_tls_config(token).expect("server config should build");
     }
+
+    #[test]
+    fn a_cert_for_another_token_fails_both_pins() {
+        let (cert, _key) = self_signed_identity("token-a");
+        let err = PinnedServerVerifier::new("token-b")
+            .verify_server_cert(
+                &cert,
+                &[],
+                &ServerName::try_from("etphonehome").unwrap(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("pin mismatch"), "{err}");
+        let err = PinnedClientVerifier::new("token-b")
+            .verify_client_cert(&cert, &[], UnixTime::now())
+            .unwrap_err();
+        assert!(err.to_string().contains("pin mismatch"), "{err}");
+    }
+
+    /// The phone's side of mutual TLS (desktop acting as server in tests and
+    /// the CI stand-in) must demand the peer's certificate: without it there
+    /// is nothing to pin.
+    #[test]
+    fn client_verifier_requires_a_client_certificate() {
+        let v = PinnedClientVerifier::new("t");
+        assert!(v.offer_client_auth());
+        assert!(v.client_auth_mandatory());
+        assert!(v.root_hint_subjects().is_empty());
+    }
+
+    #[test]
+    fn der_lengths_short_and_long_form() {
+        // short form, at the 0x7f boundary
+        let mut short = vec![0x04, 0x7f];
+        short.extend([0xaa; 0x7f]);
+        short.push(0x01);
+        let (tag, body, rest) = der_tlv(&short).unwrap();
+        assert_eq!((tag, body.len(), rest), (0x04, 0x7f, &[0x01u8][..]));
+        // long form: 1 and 2 length bytes (0x81 0x80 = 128, 0x82 0x01 0x2c = 300)
+        let mut one = vec![0x04, 0x81, 0x80];
+        one.extend([0xbb; 128]);
+        assert_eq!(der_tlv(&one).unwrap().1.len(), 128);
+        let mut two = vec![0x04, 0x82, 0x01, 0x2c];
+        two.extend([0xcc; 300]);
+        let (_, body, rest) = der_tlv(&two).unwrap();
+        assert_eq!((body.len(), rest.len()), (300, 0));
+        // 4 length bytes is the most accepted; 5 and indefinite (0x80) are not
+        assert_eq!(der_tlv(&[0x04, 0x84, 0, 0, 0, 1, 0xdd]).unwrap().1, &[0xdd]);
+        assert!(der_tlv(&[0x04, 0x85, 0, 0, 0, 0, 1, 0xdd]).is_none());
+        assert!(der_tlv(&[0x04, 0x80, 0x00, 0x00]).is_none());
+        // length bytes missing, body shorter than its length, high-tag form
+        assert!(der_tlv(&[0x04, 0x82, 0x01]).is_none());
+        assert!(der_tlv(&[0x04, 0x05, 1, 2]).is_none());
+        assert!(der_tlv(&[0x1f, 0x01, 0x00]).is_none());
+        assert!(der_tlv(&[0x3f, 0x01, 0x00]).is_none());
+        // tag 0x1e is an ordinary low tag
+        assert_eq!(der_tlv(&[0x1e, 0x01, 0x07]).unwrap().0, 0x1e);
+    }
+
+    /// One wrong field in the SubjectPublicKeyInfo is enough to refuse the
+    /// key: each check stands on its own.
+    #[test]
+    fn each_spki_field_is_checked_on_its_own() {
+        let (cert, _key) = self_signed_identity("spki-fields");
+        let der = cert.as_ref().to_vec();
+        // AlgorithmIdentifier SEQUENCE { OID } followed by the 33-byte BIT STRING.
+        let mut needle = vec![0x30, 0x05];
+        needle.extend_from_slice(&ED25519_OID);
+        needle.extend_from_slice(&[0x03, 0x21, 0x00]);
+        let at = der
+            .windows(needle.len())
+            .position(|w| w == needle.as_slice())
+            .expect("the SPKI layout of an Ed25519 cert");
+        assert!(extract_ed25519_pubkey(&CertificateDer::from(der.clone())).is_some());
+        for (offset, value, what) in [
+            (0, 0x31u8, "AlgorithmIdentifier tag"),
+            (6, 0x71, "OID last byte"),
+            (7, 0x04, "BIT STRING tag"),
+            (9, 0x01, "unused-bits byte"),
+        ] {
+            let mut bad = der.clone();
+            bad[at + offset] = value;
+            assert_eq!(
+                extract_ed25519_pubkey(&CertificateDer::from(bad)),
+                None,
+                "{what} changed but the key was still accepted"
+            );
+        }
+        // The SubjectPublicKeyInfo SEQUENCE tag itself (just before).
+        let mut bad = der.clone();
+        assert_eq!(bad[at - 2], 0x30);
+        bad[at - 2] = 0x31;
+        assert_eq!(extract_ed25519_pubkey(&CertificateDer::from(bad)), None);
+    }
 }

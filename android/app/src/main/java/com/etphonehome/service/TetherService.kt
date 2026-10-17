@@ -177,7 +177,14 @@ class TetherService : Service() {
         // Loopback only: reached exclusively through `adb forward` over the
         // cable, which is why USB needs no token. Binding to all interfaces
         // would let anyone on the phone's WiFi in without one.
-        val server = ServerSocket(port, 50, InetAddress.getLoopbackAddress())
+        //
+        // IPv4 127.0.0.1, not InetAddress.getLoopbackAddress(): on Android
+        // that is ::1, and adbd before Android 11 connects `adb forward`
+        // streams to 127.0.0.1 only -- on Android 8 (our minSdk) every USB
+        // connection was refused ("adbd: failed to connect to socket
+        // 'tcp:8888': Connection refused", found by the API 26 emulator
+        // test). Newer adbd tries IPv4 first too.
+        val server = ServerSocket(port, 50, InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)))
         serverSocket = server
         Log.i(tag, "USB server listening on loopback port $port")
         waiting("Connect the phone by USB and run on the computer:\n  sudo etphonehome usb")

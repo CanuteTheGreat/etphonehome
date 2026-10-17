@@ -402,6 +402,10 @@ class VpnService : AndroidVpnService() {
         Log.d(tag, "VPN interface established")
         // Filter engine is disabled by default, can be enabled via config update
         filterEngine = FilterEngine(FilterConfig.disabled())
+        // Stats are per session (uptime already was; byte counts carried over
+        // from the previous desktop now that the service serves several).
+        bytesSent = 0
+        bytesReceived = 0
     }
 
     /**

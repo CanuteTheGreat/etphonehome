@@ -286,6 +286,67 @@ pub fn setup_routing(tun_name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Point name resolution at the DNS server the phone announced, for names
+/// resolved through the tunnel. Without this a computer whose only uplink is
+/// the phone keeps asking a DNS server it can no longer reach.
+///
+/// Linux: per-link systemd-resolved settings (`resolvectl dns/domain`), which
+/// disappear with the TUN device; nothing global is touched. Windows: the
+/// TUN adapter's DNS server (`netsh`). Elsewhere, or if that fails, a
+/// warning says what to configure by hand.
+pub fn configure_dns(tun_name: &str, dns: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        let ok = Command::new("resolvectl")
+            .args(["dns", tun_name, dns])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if ok {
+            let _ = Command::new("resolvectl")
+                .args(["domain", tun_name, "~."])
+                .output();
+            info!("DNS on {} set to {} (systemd-resolved)", tun_name, dns);
+        } else {
+            warn!(
+                "Could not set DNS on {} (no systemd-resolved). If this computer has no other \
+                 working DNS server, add `nameserver {}` to /etc/resolv.conf",
+                tun_name, dns
+            );
+        }
+    }
+    #[cfg(windows)]
+    {
+        let name = format!("name={}", tun_name);
+        let ok = Command::new("netsh")
+            .args([
+                "interface",
+                "ipv4",
+                "set",
+                "dnsservers",
+                &name,
+                "static",
+                dns,
+                "primary",
+            ])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if ok {
+            info!("DNS on {} set to {}", tun_name, dns);
+        } else {
+            warn!(
+                "Could not set DNS on {} to {} (netsh failed)",
+                tun_name, dns
+            );
+        }
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        warn!("Set your DNS server to {} by hand on this platform", dns);
+    }
+}
+
 /// Create the TUN device (async, so reads and writes run independently).
 pub fn create_tun(tun_name: &str) -> Result<tun::AsyncDevice> {
     crate::tun_interface::create_async(tun_name, TUN_ADDRESS, TUN_NETMASK).context(format!(
@@ -369,6 +430,12 @@ where
     let tun = create_tun(&plan.tun_name)?;
     if let Err(e) = setup_routing(&plan.tun_name) {
         warn!("Routing setup failed (connection may still work): {:#}", e);
+    }
+    if transport.handshake.dns != 0 {
+        configure_dns(
+            &plan.tun_name,
+            &crate::client::int_to_ip(transport.handshake.dns),
+        );
     }
     info!("Tethering connection established on {}", plan.tun_name);
     if let Target::Tcp { opts, .. } = &plan.target {

@@ -1,36 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ET Phone Home</string>
+    <string name="subtitle">Share this phone\'s internet with your computer. No root, and the phone keeps its own internet.</string>
     <string name="notification_channel_name">Tethering Service</string>
     <string name="notification_channel_description">Shows tethering connection status</string>
-    <string name="notification_title">Tethering Active</string>
-    <string name="notification_text">Connected via %1$s</string>
+    <string name="notification_title">ET Phone Home</string>
 
     <!-- Connection types -->
+    <string name="connection_mode">Connection Mode:</string>
     <string name="connection_usb">USB</string>
     <string name="connection_wifi">WiFi</string>
     <string name="connection_bluetooth">Bluetooth</string>
+    <string name="require_encryption">Require encryption (TLS 1.3) for WiFi</string>
 
     <!-- Main UI -->
-    <string name="status_disconnected">Disconnected</string>
-    <string name="status_connecting">Connecting...</string>
-    <string name="status_connected">Connected</string>
+    <string name="status_not_running">Not running</string>
     <string name="btn_start">Start Tethering</string>
     <string name="btn_stop">Stop Tethering</string>
-
-    <!-- Stats -->
-    <string name="stats_sent">Sent: %1$s</string>
-    <string name="stats_received">Received: %1$s</string>
-    <string name="stats_duration">Duration: %1$s</string>
-
-    <!-- Settings -->
-    <string name="settings_title">Settings</string>
-    <string name="settings_connection_method">Connection Method</string>
-    <string name="settings_auto_start">Auto-start on boot</string>
-    <string name="settings_use_root">Use root (if available)</string>
-
-    <!-- Errors -->
-    <string name="error_vpn_permission">VPN permission required</string>
-    <string name="error_connection_failed">Connection failed: %1$s</string>
-    <string name="error_no_root">Root access not available</string>
+    <string name="statistics">Statistics</string>
+    <string name="no_data">No data</string>
 </resources>

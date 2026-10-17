@@ -14,16 +14,13 @@ android {
     namespace 'com.etphonehome'
     compileSdk 34
 
-    lint {
-        disable 'MissingClass' // UsbConnectionService is a known gap, tracked in revival-progress-log.md
-    }
 
     defaultConfig {
         applicationId "com.etphonehome"
-        minSdk 21
+        minSdk 26
         targetSdk 34
-        versionCode 5
-        versionName "0.5.0"
+        versionCode 6
+        versionName "0.6.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -68,13 +65,18 @@ android {
 
     buildFeatures {
         viewBinding true
+        buildConfig true
+    }
+
+    packaging {
+        resources {
+            // Bouncy Castle jars (TLS) each carry these.
+            excludes += ['META-INF/versions/9/OSGI-INF/MANIFEST.MF', 'META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*']
+        }
     }
 
     testOptions {
         unitTests.all {
-            // Shared Rust/Kotlin wire-format vectors (ProtocolVectorsTest).
-            systemProperty 'etph.protocolVectors',
-                rootProject.file('../protocol/test-vectors.txt').absolutePath
             // Print every test so CI logs prove which tests actually ran.
             testLogging {
                 events "passed", "skipped", "failed"
@@ -95,8 +97,9 @@ dependencies {
     // Coroutines for async operations
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 
-    // For root detection and execution
-    implementation 'com.github.topjohnwu.libsu:core:5.2.2'
+    // Platform-independent core (protocol, session, userspace relay, filter,
+    // TLS): android/core, a composite build also run by the CI stand-in.
+    implementation 'com.etphonehome:core'
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

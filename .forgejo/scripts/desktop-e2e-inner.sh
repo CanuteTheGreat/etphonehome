@@ -1,28 +1,34 @@
 #!/usr/bin/env bash
-# End-to-end scenarios for the desktop client, run as root inside a
-# container that has CAP_NET_ADMIN and /dev/net/tun (see desktop-e2e.sh).
+# End-to-end scenarios, run as root inside the `desktop` container (see
+# desktop-e2e.sh): real release `etphonehome`, real TUN device, and the
+# Android app's networking core (`standin`) as the phone. The desktop's only
+# network is an internal one; everything it reaches beyond the phone has to
+# go through the tunnel and the phone's userspace relay.
 #
-# The Android side is played by `testpeer` (same wire protocol, same
-# cert-pinned TLS, answers ICMP echo). The client under test is the real
-# release `etphonehome` binary with a real TUN device; "proof" in every
-# scenario is traffic actually crossing the tunnel (ping replies coming back
-# from 10.0.0.2), not just a process starting.
-set -euo pipefail
+# Proof in every scenario is real traffic: public HTTPS, DNS, bulk TCP, UDP
+# and ICMP through the tunnel -- not just a process starting.
+set -uo pipefail
 
 BIN=/e2e/bin
-export PATH="$BIN:/e2e/shim:$PATH"
+export PATH="/e2e/shim:$BIN:$PATH"
 export RUST_LOG=info
 LOGS=/e2e/logs
+PEER=/e2e/peerlogs
 mkdir -p "$LOGS"
 PASS=0
 FAIL=0
+: "${PHONE_IP:?}" "${TARGET_IP:?}"
 
 pass() { echo "PASS: $*"; PASS=$((PASS + 1)); }
 fail() { echo "FAIL: $*"; FAIL=$((FAIL + 1)); }
+dump() {
+  echo "----- $1 -----"
+  tail -n 60 "$1" 2>/dev/null || true
+}
 
 wait_for_iface() {
-  for _ in $(seq 1 100); do
-    ip link show "$1" >/dev/null 2>&1 && ip -4 addr show "$1" | grep -q 10.0.0.1 && return 0
+  for _ in $(seq 1 150); do
+    ip -4 addr show "$1" 2>/dev/null | grep 10.0.0.1 >/dev/null && return 0
     sleep 0.1
   done
   return 1
@@ -36,124 +42,196 @@ wait_gone() {
   return 1
 }
 
-stop() { kill -INT "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }
-
-dump() {
-  echo "----- $1 -----"
-  cat "$LOGS/$1" || true
+stop() {
+  kill -INT "$1" 2>/dev/null || true
+  wait "$1" 2>/dev/null || true
+  wait_gone etph0 || true
 }
 
+handshakes() { grep -c "Handshake complete" "$PEER/$1.log" 2>/dev/null || true; }
+
+# Name resolution as systemd-resolved would do it once the client has set
+# DNS for etph0 (asserted below): queries to the phone's DNS server, which
+# only the tunnel can reach.
+echo "nameserver 8.8.8.8" >/etc/resolv.conf
+
 # --- 0. privileged unit tests that `cargo test` skips -------------------
-if /e2e/bin/common-tests --ignored --test-threads=1 tun_interface 2>&1 | tee "$LOGS/tun-tests.log" | grep -q "test result: ok. 2 passed"; then
+if /e2e/bin/common-tests --ignored --test-threads=1 tun_interface 2>&1 | tee "$LOGS/tun-tests.log" | grep "test result: ok. 2 passed" >/dev/null; then
   pass "TUN device unit tests (2, normally #[ignore]d) ran with CAP_NET_ADMIN"
 else
-  dump tun-tests.log; fail "TUN device unit tests"
+  dump "$LOGS/tun-tests.log"
+  fail "TUN device unit tests"
 fi
 
-# --- 1. WiFi, plaintext + token: ping through the tunnel ------------------
-testpeer --listen 127.0.0.1:8888 --token PlainTok123 --keepalive-secs 1 >"$LOGS/peer1.log" 2>&1 &
-PEER=$!
-sleep 0.5
-etphonehome wifi --host 127.0.0.1 --port 8888 --token PlainTok123 --interface etph0 >"$LOGS/client1.log" 2>&1 &
+# --- 1. without the tunnel the desktop has no way out ---------------------
+if curl -sS -m 5 -o /dev/null "http://$TARGET_IP:8080/" 2>/dev/null || curl -sS -m 5 -o /dev/null https://example.com/ 2>/dev/null; then
+  fail "desktop container reaches the network without the tunnel (test would prove nothing)"
+else
+  pass "isolation: before tethering the desktop cannot reach the target or the internet"
+fi
+
+# --- 2. WiFi as shipped (TLS by default): REAL INTERNET through the phone --
+: >/e2e/resolvectl-calls.log
+etphonehome wifi --host "$PHONE_IP" --port 9002 --token TlsTok456 --interface etph0 >"$LOGS/client-internet.log" 2>&1 &
 CLI=$!
-if wait_for_iface etph0 && ping -c 3 -W 2 -I etph0 10.0.0.2 >"$LOGS/ping1.log" 2>&1; then
-  pass "wifi plaintext: 3/3 pings answered through etph0"
-else
-  dump client1.log; dump peer1.log; dump ping1.log; fail "wifi plaintext ping"
-fi
-sleep 1.5 # let a StatsUpdate/Keepalive arrive while connected
-stop $CLI
-if grep -q "client sent Disconnect" "$LOGS/peer1.log"; then
-  pass "Ctrl-C sends Disconnect to the phone"
-else
-  dump peer1.log; fail "Ctrl-C Disconnect"
-fi
-grep -q "answered ICMP echo request #3" "$LOGS/peer1.log" && pass "peer saw 3 echo requests" || fail "peer echo count"
-wait_gone etph0 && pass "TUN interface removed on exit" || fail "etph0 left behind"
-kill $PEER; wait $PEER 2>/dev/null || true
+if wait_for_iface etph0; then
+  pass "wifi (default TLS): tunnel up"
+  sleep 1 # the client logs transport security / DNS right after creating etph0
+  grep -q "ENCRYPTED (cert-pinned TLS 1.3)" "$LOGS/client-internet.log" \
+    && grep -q "TLS handshake complete: TLSv1.3" "$PEER/wifi-tls.log" \
+    && pass "wifi is encrypted by default: TLS 1.3 on both ends without --tls" \
+    || { dump "$LOGS/client-internet.log"; dump "$PEER/wifi-tls.log"; fail "default TLS"; }
+  grep -qx "dns etph0 8.8.8.8" /e2e/resolvectl-calls.log \
+    && pass "client pointed DNS for etph0 at the phone's DNS server (resolvectl dns etph0 8.8.8.8)" \
+    || { cat /e2e/resolvectl-calls.log; fail "DNS setup"; }
+  ip route get 1.1.1.1 | grep "dev etph0" >/dev/null && pass "default route goes through etph0" || { ip route; fail "route"; }
 
-# --- 2. wrong token is rejected with the phone's reason --------------------
-testpeer --listen 127.0.0.1:8888 --token RightTok >"$LOGS/peer2.log" 2>&1 &
-PEER=$!
-sleep 0.5
-if etphonehome wifi --host 127.0.0.1 --port 8888 --token WrongTok --interface etph0 >"$LOGS/client2.log" 2>&1; then
+  ping -c 3 -W 2 -I etph0 10.0.0.2 >"$LOGS/ping-phone.log" 2>&1 \
+    && pass "ICMP: 3/3 pings to the phone (10.0.0.2) answered" || { dump "$LOGS/ping-phone.log"; fail "ping phone"; }
+
+  if getent ahostsv4 example.com >"$LOGS/dns.log" 2>&1 && [ -s "$LOGS/dns.log" ]; then
+    pass "DNS over UDP through the relay: example.com -> $(awk 'NR==1{print $1}' "$LOGS/dns.log")"
+  else
+    dump "$LOGS/dns.log"
+    fail "DNS resolution through the tunnel"
+  fi
+
+  CODE=$(curl -sS -m 30 -o "$LOGS/example.html" -w '%{http_code}' https://example.com/ 2>"$LOGS/curl-https.err")
+  if [ "$CODE" = "200" ] && grep -q "Example Domain" "$LOGS/example.html"; then
+    pass "REAL INTERNET: HTTPS GET https://example.com/ -> 200 'Example Domain' through the phone"
+  else
+    dump "$LOGS/curl-https.err"
+    fail "HTTPS to the public internet (code=$CODE)"
+  fi
+  CODE=$(curl -sS -m 30 -o /dev/null -w '%{http_code}' http://example.com/ 2>"$LOGS/curl-http.err")
+  [ "$CODE" = "200" ] && pass "REAL INTERNET: HTTP GET http://example.com/ -> 200" \
+    || { dump "$LOGS/curl-http.err"; fail "HTTP to the public internet (code=$CODE)"; }
+
+  WANT=$(curl -sS -m 20 "http://$TARGET_IP:8080/blob.sha256")
+  GOT=$(curl -sS -m 120 "http://$TARGET_IP:8080/blob.bin" | sha256sum | cut -d' ' -f1)
+  if [ -n "$WANT" ] && [ "$WANT" = "$GOT" ]; then
+    pass "TCP bulk: 5 MiB download through the relay, sha256 matches"
+  else
+    fail "5 MiB download (want=$WANT got=$GOT)"
+  fi
+
+  head -c 300000 /dev/urandom >/tmp/up.bin
+  ECHO=$(socat -t 10 - "TCP:$TARGET_IP:7000,shut-down" </tmp/up.bin | sha256sum | cut -d' ' -f1)
+  [ "$ECHO" = "$(sha256sum </tmp/up.bin | cut -d' ' -f1)" ] \
+    && pass "TCP both ways: 300 KB echoed back intact (upload + download, half-close)" \
+    || fail "TCP echo"
+
+  UDP=$(echo "udp-through-phone-$$" | socat -t 3 - "UDP:$TARGET_IP:7001")
+  [ "$UDP" = "udp-through-phone-$$" ] && pass "UDP: datagram relayed and the echo came back" \
+    || fail "UDP echo (got '$UDP')"
+
+  ping -c 2 -W 3 "$TARGET_IP" >"$LOGS/ping-target.log" 2>&1 \
+    && pass "ICMP: ping to a host beyond the phone answered through the relay" \
+    || { dump "$LOGS/ping-target.log"; fail "ping beyond the phone"; }
+
+  OK=0
+  for i in $(seq 1 20); do
+    (curl -sS -m 30 -o /dev/null -w '%{http_code}\n' "http://$TARGET_IP:8080/blob.sha256" >"$LOGS/par-$i.out" 2>&1) &
+  done
+  wait_jobs=$(jobs -p | grep -v "^$CLI$")
+  for j in $wait_jobs; do wait "$j" 2>/dev/null; done
+  for i in $(seq 1 20); do grep -qx 200 "$LOGS/par-$i.out" && OK=$((OK + 1)); done
+  [ "$OK" -eq 20 ] && pass "20 parallel TCP connections all succeeded" || fail "parallel connections ($OK/20)"
+
+  sleep 1.5
+  stop $CLI
+  grep -q "Desktop requested disconnect" "$PEER/wifi-tls.log" && pass "Ctrl-C sends Disconnect to the phone" \
+    || { dump "$PEER/wifi-tls.log"; fail "Ctrl-C Disconnect"; }
+  wait_gone etph0 && pass "TUN interface removed on exit" || fail "etph0 left behind"
+else
+  dump "$LOGS/client-internet.log"
+  dump "$PEER/wifi-tls.log"
+  fail "wifi (default TLS) tunnel"
+  stop $CLI
+fi
+
+# --- 3. the shipped app refuses plaintext WiFi with a clear reason ---------
+if etphonehome wifi --host "$PHONE_IP" --port 9002 --token TlsTok456 --no-tls --interface etph0 >"$LOGS/client-plain-refused.log" 2>&1; then
+  fail "plaintext connected to a phone that requires encryption"
+elif grep -q "requires an encrypted connection" "$LOGS/client-plain-refused.log" && ! ip link show etph0 >/dev/null 2>&1; then
+  pass "phone requiring encryption refuses --no-tls with its reason, no TUN created"
+else
+  dump "$LOGS/client-plain-refused.log"
+  fail "plaintext refusal message"
+fi
+
+# --- 4. plaintext where the phone allows it; wrong token rejected ----------
+etphonehome wifi --host "$PHONE_IP" --port 9001 --token PlainTok123 --no-tls --interface etph0 >"$LOGS/client-plain.log" 2>&1 &
+CLI=$!
+if wait_for_iface etph0 && curl -sS -m 20 -o /dev/null "http://$TARGET_IP:8080/blob.sha256" \
+  && grep -q "PLAINTEXT" "$LOGS/client-plain.log"; then
+  pass "wifi --no-tls (phone switch off): relayed HTTP works, reported as PLAINTEXT"
+else
+  dump "$LOGS/client-plain.log"
+  fail "wifi plaintext"
+fi
+stop $CLI
+if etphonehome wifi --host "$PHONE_IP" --port 9001 --token WrongTok --no-tls --interface etph0 >"$LOGS/client-badtok.log" 2>&1; then
   fail "wrong token connected"
-elif grep -q "invalid token" "$LOGS/client2.log" && ! ip link show etph0 >/dev/null 2>&1; then
+elif grep -q "invalid token" "$LOGS/client-badtok.log" && ! ip link show etph0 >/dev/null 2>&1; then
   pass "wrong token refused with 'invalid token', no TUN created"
 else
-  dump client2.log; fail "wrong token error message"
+  dump "$LOGS/client-badtok.log"
+  fail "wrong token error message"
 fi
-kill $PEER; wait $PEER 2>/dev/null || true
 
-# --- 3. cert-pinned TLS: right token pings, wrong token fails closed ------
-testpeer --listen 127.0.0.1:8889 --tls --token TlsTok456 >"$LOGS/peer3.log" 2>&1 &
-PEER=$!
-sleep 0.5
-etphonehome wifi --host 127.0.0.1 --port 8889 --token TlsTok456 --tls --interface etph0 >"$LOGS/client3.log" 2>&1 &
-CLI=$!
-if wait_for_iface etph0 && ping -c 3 -W 2 -I etph0 10.0.0.2 >"$LOGS/ping3.log" 2>&1 \
-  && grep -q "TLS handshake complete: protocol=Some(TLSv1_3)" "$LOGS/peer3.log" \
-  && grep -q "ENCRYPTED" "$LOGS/client3.log"; then
-  pass "wifi TLS 1.3: 3/3 pings answered through the encrypted tunnel"
-else
-  dump client3.log; dump peer3.log; fail "wifi TLS ping"
-fi
-stop $CLI
-wait_gone etph0 || true
-if etphonehome wifi --host 127.0.0.1 --port 8889 --token NotTheTok --tls --interface etph0 >"$LOGS/client3b.log" 2>&1; then
+# --- 5. TLS with the wrong pairing token fails closed -----------------------
+if etphonehome wifi --host "$PHONE_IP" --port 9001 --token NotTheTok --interface etph0 >"$LOGS/client-tls-bad.log" 2>&1; then
   fail "TLS with wrong pairing token connected"
-elif grep -q "TLS handshake failed" "$LOGS/client3b.log"; then
-  pass "TLS with wrong pairing token fails closed"
+elif grep -q "TLS handshake failed" "$LOGS/client-tls-bad.log"; then
+  pass "TLS with the wrong pairing token fails closed (pin mismatch)"
 else
-  dump client3b.log; fail "TLS wrong token message"
+  dump "$LOGS/client-tls-bad.log"
+  fail "TLS wrong token message"
 fi
-kill $PEER; wait $PEER 2>/dev/null || true
 
-# --- 4. USB mode (adb shim) + setup-adb + discover-ip ---------------------
-# The stand-in listens on the "phone's" loopback (127.0.0.2, see the adb shim
-# in desktop-e2e.sh), so the tunnel only comes up if the client forwards
-# computer -> phone (`adb forward`), like the real app's loopback server.
+# --- 6. USB mode (adb shim) + setup-adb + discover-ip ---------------------
 : >/e2e/adb-calls.log
-testpeer --listen 127.0.0.2:8890 >"$LOGS/peer4.log" 2>&1 &
-PEER=$!
-sleep 0.5
-etphonehome usb --port 8890 --interface etph0 >"$LOGS/client4.log" 2>&1 &
+etphonehome usb --port 8890 --interface etph0 >"$LOGS/client-usb.log" 2>&1 &
 CLI=$!
-if wait_for_iface etph0 && ping -c 2 -W 2 -I etph0 10.0.0.2 >/dev/null 2>&1 \
-  && grep -qx "forward tcp:8890 tcp:8890" /e2e/adb-calls.log; then
-  pass "usb: ran 'adb forward tcp:8890 tcp:8890' and pinged the phone stand-in through the tunnel"
+if wait_for_iface etph0 && grep -qx "forward tcp:8890 tcp:8890" /e2e/adb-calls.log \
+  && curl -sS -m 20 -o /dev/null "http://$TARGET_IP:8080/blob.sha256" \
+  && curl -sS -m 30 -o /dev/null https://example.com/; then
+  pass "usb: 'adb forward tcp:8890 tcp:8890', then HTTP and public HTTPS through the phone"
 else
-  dump client4.log; cat /e2e/adb-calls.log; fail "usb mode"
+  dump "$LOGS/client-usb.log"
+  cat /e2e/adb-calls.log
+  fail "usb mode internet"
 fi
 stop $CLI
-wait_gone etph0 || true
-kill $PEER; wait $PEER 2>/dev/null || true
 if etphonehome setup-adb --port 9999 >/dev/null 2>&1 && grep -qx "forward tcp:9999 tcp:9999" /e2e/adb-calls.log; then
   pass "setup-adb runs adb forward with the given port"
 else
   fail "setup-adb"
 fi
-if etphonehome discover-ip 2>&1 | grep -q "Android WiFi IP: 192.168.43.17"; then
+# (Never `cmd | grep -q` under pipefail: grep exits early, cmd gets SIGPIPE
+# and the pipeline fails even on a match.)
+if etphonehome discover-ip >"$LOGS/discover-ip.log" 2>&1 && grep -q "Android WiFi IP: 192.168.43.17" "$LOGS/discover-ip.log"; then
   pass "discover-ip parses the phone's wlan0 address"
 else
   fail "discover-ip"
 fi
 
-# --- 5. profile with a filter rule: ICMP blocked, UDP still forwarded -----
+# --- 7. profile filter: rules sent to the phone and enforced ---------------
 CFG=/e2e/config.toml
-cat >"$CFG" <<'EOF'
+cat >"$CFG" <<EOF
 [default]
 auto_reconnect = false
 interface = "etph0"
 
 [auth]
-wifi_token = "ProfileTok"
+wifi_token = "TlsTok456"
 
 [[profiles]]
 name = "filtered"
 type = "wifi"
-host = "127.0.0.1"
-port = 8891
+host = "$PHONE_IP"
+port = 9002
 
 [profiles.filter]
 enabled = true
@@ -164,80 +242,75 @@ log_blocked = true
 id = "no-ping"
 action = "block"
 protocol = "icmp"
+
+[[profiles.filter.rules]]
+id = "no-echo-port"
+action = "block"
+protocol = "tcp"
+dest_port = "7000"
 EOF
-testpeer --listen 127.0.0.1:8891 --token ProfileTok >"$LOGS/peer5.log" 2>&1 &
-PEER=$!
-sleep 0.5
-etphonehome --config "$CFG" connect filtered >"$LOGS/client5.log" 2>&1 &
+etphonehome --config "$CFG" connect filtered >"$LOGS/client-filter.log" 2>&1 &
 CLI=$!
 if wait_for_iface etph0; then
-  if ping -c 2 -W 1 -I etph0 10.0.0.2 >/dev/null 2>&1; then
-    fail "filter: blocked ICMP got through"
+  sleep 0.5
+  grep -q "Traffic filter from desktop: enabled=true mode=BLACKLIST rules=2" "$PEER/wifi-tls.log" \
+    && pass "filter: the profile's 2 rules were sent to the phone and applied there" \
+    || { dump "$PEER/wifi-tls.log"; fail "filter config on the phone"; }
+  if ping -c 2 -W 1 -I etph0 10.0.0.2 >/dev/null 2>&1; then fail "filter: blocked ICMP got through"; else pass "filter: ICMP blocked"; fi
+  if [ "$(echo x | socat -t 3 - "TCP:$TARGET_IP:7000,connect-timeout=3" 2>/dev/null)" = x ]; then
+    fail "filter: blocked TCP port 7000 got through"
   else
-    pass "filter: ICMP blocked by profile rule"
+    pass "filter: TCP to the blocked port fails"
   fi
-  echo -n "udp-through-filter" >/dev/udp/10.0.0.2/9999 || true
-  sleep 1
-  if grep -q "udp-through-filter" "$LOGS/peer5.log" && ! grep -q "answered ICMP" "$LOGS/peer5.log"; then
-    pass "filter: non-matching UDP still forwarded, no ICMP reached the phone"
-  else
-    dump peer5.log; fail "filter selectivity"
-  fi
+  curl -sS -m 20 -o /dev/null "http://$TARGET_IP:8080/blob.sha256" \
+    && pass "filter: other TCP (port 8080) still relayed" || fail "filter selectivity"
 else
-  dump client5.log; fail "profile connect"
+  dump "$LOGS/client-filter.log"
+  fail "profile connect"
 fi
 stop $CLI
-wait_gone etph0 || true
-kill $PEER; wait $PEER 2>/dev/null || true
 
-# --- 6. auto-reconnect after the phone disconnects ------------------------
-testpeer --listen 127.0.0.1:8892 --token RecTok --disconnect-after 2 >"$LOGS/peer6.log" 2>&1 &
-PEER=$!
-sleep 0.5
-etphonehome wifi --host 127.0.0.1 --port 8892 --token RecTok --interface etph0 --reconnect --max-retries 5 >"$LOGS/client6.log" 2>&1 &
+# --- 8. auto-reconnect after the phone disconnects -------------------------
+BEFORE=$(handshakes hangup)
+etphonehome wifi --host "$PHONE_IP" --port 9003 --token RecTok --interface etph0 --reconnect --max-retries 5 >"$LOGS/client-reconnect.log" 2>&1 &
 CLI=$!
 wait_for_iface etph0 || true
-ping -c 8 -i 0.5 -W 1 10.0.0.2 >"$LOGS/ping6.log" 2>&1 || true
-CONNS=$(grep -c "HandshakeReq" "$LOGS/peer6.log" || true)
-if [ "${CONNS:-0}" -ge 2 ] && grep -q "Reconnecting in" "$LOGS/client6.log"; then
-  pass "auto-reconnect: phone disconnected, client reconnected ($CONNS handshakes)"
+sleep 8
+AFTER=$(handshakes hangup)
+if [ $((AFTER - BEFORE)) -ge 2 ] && grep -q "Reconnecting in" "$LOGS/client-reconnect.log"; then
+  pass "auto-reconnect: phone disconnected, client reconnected ($((AFTER - BEFORE)) handshakes)"
 else
-  dump client6.log; dump peer6.log; fail "auto-reconnect"
+  dump "$LOGS/client-reconnect.log"
+  dump "$PEER/hangup.log"
+  fail "auto-reconnect"
 fi
 stop $CLI
-wait_gone etph0 || true
-kill $PEER; wait $PEER 2>/dev/null || true
 
-# --- 7. no reconnect without --reconnect ----------------------------------
-testpeer --listen 127.0.0.1:8893 --token OnceTok --disconnect-after 1 >"$LOGS/peer7.log" 2>&1 &
-PEER=$!
-sleep 0.5
-etphonehome wifi --host 127.0.0.1 --port 8893 --token OnceTok --interface etph0 >"$LOGS/client7.log" 2>&1 &
+# --- 9. no reconnect without --reconnect ----------------------------------
+BEFORE=$(handshakes hangup)
+etphonehome wifi --host "$PHONE_IP" --port 9003 --token RecTok --interface etph0 >"$LOGS/client-once.log" 2>&1 &
 CLI=$!
 wait_for_iface etph0 || true
-ping -c 3 -i 0.5 -W 1 10.0.0.2 >/dev/null 2>&1 || true
-sleep 2
-if ! kill -0 $CLI 2>/dev/null && [ "$(grep -c HandshakeReq "$LOGS/peer7.log")" -eq 1 ]; then
+sleep 6
+if ! kill -0 $CLI 2>/dev/null && [ $(($(handshakes hangup) - BEFORE)) -eq 1 ]; then
   pass "without --reconnect the client exits after the phone disconnects"
 else
-  dump client7.log; fail "reconnect should be off by default"
+  dump "$LOGS/client-once.log"
+  fail "reconnect should be off by default"
 fi
 stop $CLI
-kill $PEER; wait $PEER 2>/dev/null || true
 
-# --- 8. scripts/quick-start-linux.sh drives a USB session end to end -------
+# --- 10. scripts/quick-start-linux.sh drives a USB session end to end ------
 : >/e2e/adb-calls.log
-testpeer --listen 127.0.0.2:8888 >"$LOGS/peer8.log" 2>&1 &
-PEER=$!
-sleep 0.5
 mkdir -p /e2e/qs/desktop/target/release
 cp /e2e/bin/etphonehome /e2e/qs/desktop/target/release/etphonehome
 (echo "" | bash /e2e/qs/scripts/quick-start-linux.sh >"$LOGS/quickstart.log" 2>&1; echo "exit=$?" >>"$LOGS/quickstart.log") &
 QS=$!
-if wait_for_iface etph0 && ping -c 2 -W 2 -I etph0 10.0.0.2 >/dev/null 2>&1; then
-  pass "quick-start-linux.sh: set up adb forward and brought the tunnel up"
+if wait_for_iface etph0 && curl -sS -m 20 -o /dev/null "http://$TARGET_IP:8080/blob.sha256"; then
+  pass "quick-start-linux.sh: adb forward + tunnel up, HTTP through the phone"
 else
-  dump quickstart.log; fail "quick-start-linux.sh tunnel"
+  dump "$LOGS/quickstart.log"
+  fail "quick-start-linux.sh tunnel"
 fi
 pkill -INT -x etphonehome || true
 wait $QS 2>/dev/null || true
@@ -245,9 +318,10 @@ if grep -qx "forward tcp:8888 tcp:8888" /e2e/adb-calls.log && grep -qx "forward 
   && grep -q "exit=0" "$LOGS/quickstart.log"; then
   pass "quick-start-linux.sh: removed the adb forward on Ctrl-C and exited 0"
 else
-  dump quickstart.log; cat /e2e/adb-calls.log; fail "quick-start-linux.sh cleanup"
+  dump "$LOGS/quickstart.log"
+  cat /e2e/adb-calls.log
+  fail "quick-start-linux.sh cleanup"
 fi
-kill $PEER; wait $PEER 2>/dev/null || true
 
 echo "e2e summary: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

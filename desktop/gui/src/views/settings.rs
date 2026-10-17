@@ -69,7 +69,7 @@ pub fn view(app: &EtPhoneHomeApp) -> Element<'_, Message> {
         row![
             text("Version"),
             text("").width(Length::Fill),
-            text("0.5.0").color(iced::Color::from_rgb(0.5, 0.5, 0.5)),
+            text(env!("CARGO_PKG_VERSION")).color(iced::Color::from_rgb(0.5, 0.5, 0.5)),
         ],
         row![
             text("Protocol"),

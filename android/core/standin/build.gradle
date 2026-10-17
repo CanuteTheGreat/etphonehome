@@ -1,0 +1,17 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm'
+    id 'application'
+}
+
+kotlin {
+    jvmToolchain(17)
+}
+
+dependencies {
+    implementation rootProject
+}
+
+application {
+    mainClass = 'com.etphonehome.standin.MainKt'
+    applicationName = 'standin'
+}

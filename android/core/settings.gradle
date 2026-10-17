@@ -1,0 +1,20 @@
+// Platform-independent core of the Android app: wire protocol, session
+// handling, userspace relay, traffic filter and TLS. A standalone Gradle
+// build (no Android SDK needed) so the CI end-to-end job can build the
+// `standin` -- this same code run as a plain-JVM phone -- and the app
+// pulls it in as a composite build (android/settings.gradle includeBuild).
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'core'
+include ':standin'

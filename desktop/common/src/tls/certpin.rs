@@ -101,7 +101,13 @@ pub fn self_signed_identity(token: &str) -> (CertificateDer<'static>, PrivateKey
     let keypair = keypair_from_seed(&seed);
 
     let mut params = CertificateParams::new(Vec::<String>::new()).expect("empty SAN list is valid");
-    params.distinguished_name = rcgen::DistinguishedName::new();
+    // A non-empty subject/issuer: the Android app's TLS stack (Bouncy
+    // Castle) rejects certificates whose issuer is an empty DN, and the
+    // phone checks this client certificate. Only the key is pinned, so the
+    // name is cosmetic.
+    let mut dn = rcgen::DistinguishedName::new();
+    dn.push(rcgen::DnType::CommonName, "etphonehome");
+    params.distinguished_name = dn;
     let cert = params
         .self_signed(&keypair)
         .expect("self-signed cert generation should not fail");
@@ -366,6 +372,20 @@ pub fn server_tls_config(token: &str) -> Result<rustls::ServerConfig, rustls::Er
 mod tests {
     use super::*;
     use crate::tls::psk::derive_psk;
+
+    /// Cross-language vector: android/core CertPinTest pins the same key for
+    /// the same token, so the phone's TLS server and this client agree.
+    #[test]
+    fn pubkey_matches_the_android_vector() {
+        let hex: String = expected_pubkey("pairing-token")
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
+        assert_eq!(
+            hex,
+            "357bab9a687ac8e8569c1f6bcfa2d336006951b3967f3570b4042a1ca187a414"
+        );
+    }
 
     #[test]
     fn same_token_derives_same_pubkey() {

@@ -305,6 +305,13 @@ where
         SessionEnd::TransportClosed("writer stopped".into())
     });
 
+    // Hand the profile's traffic filter to the phone first, so the phone
+    // enforces the same rules on the flows it opens for us (an empty,
+    // disabled config is sent too: the phone's state is always explicit).
+    let _ = out_tx
+        .send(Message::ConfigUpdate(opts.filter.to_config_update()))
+        .await;
+
     // Uplink: device -> filter -> Android.
     let mut uplink = {
         let out_tx = out_tx.clone();
@@ -676,6 +683,20 @@ pub(crate) mod tests {
         .unwrap();
         write_message(&mut s, &Message::Keepalive).await.unwrap();
 
+        // The phone first gets the (disabled) filter config.
+        match tokio::time::timeout(Duration::from_secs(5), read_message(&mut s))
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            Message::ConfigUpdate(c) => {
+                assert!(c
+                    .config
+                    .contains(&("filter.enabled".into(), "false".into())))
+            }
+            m => panic!("expected ConfigUpdate first, got {:?}", m),
+        }
+
         // Uplink.
         let up = ipv4(6, b"from-desktop");
         dev_in.send(up.clone()).unwrap();
@@ -734,6 +755,21 @@ pub(crate) mod tests {
             ..Default::default()
         };
         let session = tokio::spawn(forward(transport(c), dev, opts, std::future::pending()));
+        // The profile's rules go to the phone before any packet.
+        match tokio::time::timeout(Duration::from_secs(5), read_message(&mut s))
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            Message::ConfigUpdate(c) => {
+                assert!(c.config.contains(&("filter.enabled".into(), "true".into())));
+                assert!(c.config.contains(&("filter.rules".into(), "1".into())));
+                assert!(c
+                    .config
+                    .contains(&("filter.rule.0".into(), "no-icmp|true|block|icmp||||".into())));
+            }
+            m => panic!("expected ConfigUpdate first, got {:?}", m),
+        }
         dev_in.send(ipv4(1, b"ping")).unwrap();
         let udp = ipv4(17, b"dns");
         dev_in.send(udp.clone()).unwrap();

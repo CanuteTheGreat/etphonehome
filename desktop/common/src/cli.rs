@@ -67,11 +67,15 @@ pub enum Commands {
         /// Authentication token shown in the Android app (required by the app)
         #[arg(short = 't', long)]
         token: Option<String>,
-        /// Require cert-pinned TLS keyed to the token; fails closed, never
-        /// falls back to plaintext. The Android app does not serve TLS yet,
-        /// so this only works against TLS-capable peers (e.g. testpeer --tls)
-        #[arg(long)]
+        /// Cert-pinned TLS 1.3 keyed to the token (the default; kept so
+        /// older scripts that pass it still work). Fails closed, never falls
+        /// back to plaintext.
+        #[arg(long, overrides_with = "no_tls")]
         tls: bool,
+        /// Connect without encryption (the app only accepts this when its
+        /// "Require encryption" switch is off)
+        #[arg(long, overrides_with = "tls")]
+        no_tls: bool,
         #[command(flatten)]
         retry: RetryArgs,
     },
@@ -238,8 +242,11 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
             interface,
             token,
             tls,
+            no_tls,
             retry,
         } => {
+            // TLS unless --no-tls was the last word (`--tls` is the default).
+            let tls = tls || !no_tls;
             warn_unprivileged(&platform);
             if token.is_none() {
                 warn!(
@@ -504,6 +511,22 @@ mod tests {
                 assert_eq!(token.as_deref(), Some("tok"));
                 assert!(tls);
             }
+            c => panic!("{:?}", c),
+        }
+    }
+
+    #[test]
+    fn wifi_is_encrypted_unless_no_tls() {
+        match parse(&["wifi", "--host", "h", "-t", "tok"]).command {
+            Commands::Wifi { tls, no_tls, .. } => assert!(tls || !no_tls),
+            c => panic!("{:?}", c),
+        }
+        match parse(&["wifi", "--host", "h", "-t", "tok", "--no-tls"]).command {
+            Commands::Wifi { tls, no_tls, .. } => assert!(!(tls || !no_tls)),
+            c => panic!("{:?}", c),
+        }
+        match parse(&["wifi", "--host", "h", "--no-tls", "--tls"]).command {
+            Commands::Wifi { tls, no_tls, .. } => assert!(tls || !no_tls),
             c => panic!("{:?}", c),
         }
     }

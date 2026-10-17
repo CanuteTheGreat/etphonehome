@@ -34,6 +34,71 @@ impl Default for FilterConfig {
     }
 }
 
+impl FilterConfig {
+    /// The `ConfigUpdate` the desktop sends right after the handshake so the
+    /// phone enforces the same rules (wire format documented in
+    /// android/core/.../filter/FilterConfig.kt `applyUpdate`).
+    pub fn to_config_update(&self) -> crate::protocol::ConfigUpdate {
+        fn clean(s: &str) -> String {
+            s.chars()
+                .map(|c| {
+                    if c == '|' || c == '\n' || c == '\r' {
+                        '_'
+                    } else {
+                        c
+                    }
+                })
+                .collect()
+        }
+        fn opt(s: &Option<String>) -> String {
+            s.as_deref().map(clean).unwrap_or_default()
+        }
+        let mut config = vec![
+            ("filter.enabled".to_string(), self.enabled.to_string()),
+            (
+                "filter.mode".to_string(),
+                match self.mode {
+                    FilterMode::Whitelist => "whitelist",
+                    FilterMode::Blacklist => "blacklist",
+                }
+                .to_string(),
+            ),
+            (
+                "filter.log_blocked".to_string(),
+                self.log_blocked.to_string(),
+            ),
+            ("filter.rules".to_string(), self.rules.len().to_string()),
+        ];
+        for (i, r) in self.rules.iter().enumerate() {
+            let protocol = match r.protocol {
+                None | Some(Protocol::Any) => "any",
+                Some(Protocol::Tcp) => "tcp",
+                Some(Protocol::Udp) => "udp",
+                Some(Protocol::Icmp) => "icmp",
+            };
+            let action = match r.action {
+                FilterAction::Allow => "allow",
+                FilterAction::Block => "block",
+            };
+            config.push((
+                format!("filter.rule.{}", i),
+                format!(
+                    "{}|{}|{}|{}|{}|{}|{}|{}",
+                    clean(&r.id),
+                    r.enabled,
+                    action,
+                    protocol,
+                    opt(&r.dest_ip),
+                    opt(&r.dest_port),
+                    opt(&r.source_ip),
+                    opt(&r.source_port)
+                ),
+            ));
+        }
+        crate::protocol::ConfigUpdate { config }
+    }
+}
+
 /// Filter mode determines default behavior
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -446,6 +511,36 @@ impl FilterEngine {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn config_update_carries_mode_and_every_rule() {
+        let cfg = FilterConfig {
+            enabled: true,
+            mode: FilterMode::Whitelist,
+            log_blocked: false,
+            rules: vec![FilterRule {
+                id: "web|only\nx".into(),
+                enabled: true,
+                action: FilterAction::Allow,
+                protocol: Some(Protocol::Tcp),
+                dest_ip: Some("93.184.0.0/16".into()),
+                dest_port: Some("80,443".into()),
+                source_ip: None,
+                source_port: None,
+                description: None,
+            }],
+        };
+        let m: std::collections::HashMap<_, _> =
+            cfg.to_config_update().config.into_iter().collect();
+        assert_eq!(m["filter.enabled"], "true");
+        assert_eq!(m["filter.mode"], "whitelist");
+        assert_eq!(m["filter.log_blocked"], "false");
+        assert_eq!(m["filter.rules"], "1");
+        assert_eq!(
+            m["filter.rule.0"],
+            "web_only_x|true|allow|tcp|93.184.0.0/16|80,443||"
+        );
+    }
+
     use super::*;
 
     #[test]

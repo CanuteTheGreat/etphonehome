@@ -6,6 +6,8 @@ on:
     paths:
       - 'desktop/**'
       - 'protocol/**'
+      - 'android/core/**'
+      - 'scripts/quick-start-linux.sh'
       - '.forgejo/scripts/desktop-e2e*.sh'
       - '.forgejo/scripts/package.sh'
       - '.forgejo/workflows/rust-ci.yml'
@@ -14,6 +16,8 @@ on:
     paths:
       - 'desktop/**'
       - 'protocol/**'
+      - 'android/core/**'
+      - 'scripts/quick-start-linux.sh'
       - '.forgejo/scripts/desktop-e2e*.sh'
       - '.forgejo/scripts/package.sh'
       - '.forgejo/workflows/rust-ci.yml'
@@ -129,21 +133,28 @@ jobs:
         run: cargo test --all --no-fail-fast
 
   e2e:
-    name: End-to-end (real client + TUN + Android stand-in)
-    # Runs the release `etphonehome` binary against `testpeer` (speaks the
-    # Android app's protocol and TLS) through a real TUN device and pings
-    # across the tunnel: WiFi plaintext/TLS, wrong tokens, USB via an adb
-    # shim, profile filter rules, auto-reconnect, Ctrl-C disconnect. Also
-    # runs the TUN unit tests that need CAP_NET_ADMIN. The job container
-    # can't create TUN devices, so desktop-e2e.sh starts a capped sibling
-    # container (NET_ADMIN + /dev/net/tun only) via the mounted Docker socket.
+    name: End-to-end (real client + TUN + phone core, real internet)
+    # The release `etphonehome` binary on a real TUN device, in a container
+    # whose only way out is the tunnel, against the Android app's own
+    # networking core (android/core, run as the plain-JVM `standin`):
+    # handshake, cert-pinned TLS (default for WiFi), the userspace relay and
+    # the traffic filter. Proves real internet through the phone -- public
+    # HTTPS + HTTP, DNS, 5 MiB TCP, TCP echo, UDP, ICMP, 20 parallel
+    # connections -- plus USB via an adb shim, profile filter rules sent to
+    # and enforced by the phone, wrong tokens, plaintext refusal,
+    # auto-reconnect and Ctrl-C disconnect. See .forgejo/scripts/desktop-e2e.sh.
     needs: [clippy]
     runs-on: linux-cross-x86_64
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -163,17 +174,26 @@ jobs:
           key: ${{ runner.os }}-cargo-e2e-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-cargo-e2e-
-      - name: Build client, Android stand-in and privileged tests
+      - name: Build client and privileged tests
         working-directory: desktop
         run: |
-          cargo build --release -p etphonehome-linux -p etphonehome-testpeer
+          cargo build --release -p etphonehome-linux
           T=$(cargo test -p etphonehome-common --no-run 2>&1 | grep -o 'target/debug/deps/etphonehome_common-[a-z0-9]*' | head -1)
           test -n "$T"
           mkdir -p ../e2e-bin
-          cp target/release/etphonehome target/release/testpeer ../e2e-bin/
+          cp target/release/etphonehome ../e2e-bin/
           cp "$T" ../e2e-bin/common-tests
+      - name: Build the phone stand-in (android/core)
+        working-directory: android/core
+        run: |
+          for attempt in 1 2 3; do
+            ../gradlew --no-daemon --max-workers=2 installDist && break
+            [ "$attempt" -eq 3 ] && exit 1
+            echo "gradle failed (attempt $attempt/3, usually a Maven Central blip), retrying in 20s"; sleep 20
+          done
+          test -x standin/build/install/standin/bin/standin
       - name: Run end-to-end scenarios
-        run: bash .forgejo/scripts/desktop-e2e.sh "$PWD/e2e-bin"
+        run: bash .forgejo/scripts/desktop-e2e.sh "$PWD/e2e-bin" "$PWD/android/core/standin/build/install/standin"
 
   build-linux:
     name: Build Linux

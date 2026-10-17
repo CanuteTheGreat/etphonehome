@@ -1,10 +1,11 @@
 package com.etphonehome
 
-import android.bluetooth.BluetoothAdapter
+import android.Manifest
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
-import android.net.VpnService
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
@@ -13,12 +14,25 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
-import com.etphonehome.service.VpnService as EtVpnService
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.etphonehome.service.StatusText
+import com.etphonehome.service.TetherService
+import com.etphonehome.service.TetherState
+import com.etphonehome.service.TetherStatus
+import com.etphonehome.util.Settings
 import com.etphonehome.util.TokenManager
+import kotlinx.coroutines.launch
 
 /**
- * Main activity for ET Phone Home
+ * Main screen: pick USB / WiFi / Bluetooth, start or stop sharing, and see
+ * whether a desktop is connected and how much it has used.
+ *
+ * Sharing needs no VPN permission and no root: the phone keeps its own
+ * internet while the desktop uses it.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -29,30 +43,25 @@ class MainActivity : AppCompatActivity() {
     private lateinit var connectionModeGroup: RadioGroup
     private lateinit var wifiIpText: TextView
     private lateinit var bluetoothInfoText: TextView
+    private lateinit var requireEncryptionSwitch: SwitchCompat
 
-    private var isVpnRunning = false
-    private var selectedConnectionMode = EtVpnService.CONNECTION_USB
+    private var selectedConnectionMode = TetherService.CONNECTION_USB
 
-    private val vpnPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == RESULT_OK) {
-            startVpnService()
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { results ->
+        if (selectedConnectionMode == TetherService.CONNECTION_BLUETOOTH &&
+            results[Manifest.permission.BLUETOOTH_CONNECT] == false
+        ) {
+            Toast.makeText(this, "Bluetooth permission is needed for Bluetooth mode", Toast.LENGTH_LONG).show()
         } else {
-            Toast.makeText(this, R.string.error_vpn_permission, Toast.LENGTH_LONG).show()
+            startTethering()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
-        initViews()
-        setupListeners()
-        updateUI()
-    }
-
-    private fun initViews() {
         statusText = findViewById(R.id.statusText)
         startButton = findViewById(R.id.startButton)
         stopButton = findViewById(R.id.stopButton)
@@ -60,161 +69,138 @@ class MainActivity : AppCompatActivity() {
         connectionModeGroup = findViewById(R.id.connectionModeGroup)
         wifiIpText = findViewById(R.id.wifiIpText)
         bluetoothInfoText = findViewById(R.id.bluetoothInfoText)
-    }
+        requireEncryptionSwitch = findViewById(R.id.requireEncryptionSwitch)
 
-    private fun setupListeners() {
-        startButton.setOnClickListener {
-            requestVpnPermission()
+        selectedConnectionMode = Settings.connectionMode(this, TetherService.CONNECTION_USB)
+        connectionModeGroup.check(
+            when (selectedConnectionMode) {
+                TetherService.CONNECTION_WIFI -> R.id.radioWifi
+                TetherService.CONNECTION_BLUETOOTH -> R.id.radioBluetooth
+                else -> R.id.radioUsb
+            },
+        )
+        showModeInfo()
+        requireEncryptionSwitch.isChecked = Settings.requireEncryption(this)
+        requireEncryptionSwitch.setOnCheckedChangeListener { _, checked ->
+            Settings.setRequireEncryption(this, checked)
         }
 
+        startButton.setOnClickListener { requestPermissionsAndStart() }
         stopButton.setOnClickListener {
-            stopVpnService()
+            startService(Intent(this, TetherService::class.java).setAction(TetherService.ACTION_STOP))
+        }
+        connectionModeGroup.setOnCheckedChangeListener { _, checkedId ->
+            selectedConnectionMode = when (checkedId) {
+                R.id.radioWifi -> TetherService.CONNECTION_WIFI
+                R.id.radioBluetooth -> TetherService.CONNECTION_BLUETOOTH
+                else -> TetherService.CONNECTION_USB
+            }
+            Settings.setConnectionMode(this, selectedConnectionMode)
+            showModeInfo()
         }
 
-        connectionModeGroup.setOnCheckedChangeListener { _, checkedId ->
-            when (checkedId) {
-                R.id.radioUsb -> {
-                    selectedConnectionMode = EtVpnService.CONNECTION_USB
-                    wifiIpText.visibility = View.GONE
-                    bluetoothInfoText.visibility = View.GONE
-                }
-                R.id.radioWifi -> {
-                    selectedConnectionMode = EtVpnService.CONNECTION_WIFI
-                    bluetoothInfoText.visibility = View.GONE
-                    showWifiIpAddress()
-                }
-                R.id.radioBluetooth -> {
-                    selectedConnectionMode = EtVpnService.CONNECTION_BLUETOOTH
-                    wifiIpText.visibility = View.GONE
-                    showBluetoothInfo()
-                }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                TetherStatus.state.collect { render(it) }
             }
         }
     }
 
-    private fun requestVpnPermission() {
-        val intent = VpnService.prepare(this)
-        if (intent != null) {
-            vpnPermissionLauncher.launch(intent)
-        } else {
-            // Permission already granted
-            startVpnService()
-        }
+    private fun render(state: TetherState) {
+        statusText.text = StatusText.status(state)
+        statsText.text = StatusText.details(state)
+        val running = state !is TetherState.Stopped
+        startButton.isEnabled = !running
+        stopButton.isEnabled = running
+        for (i in 0 until connectionModeGroup.childCount) connectionModeGroup.getChildAt(i).isEnabled = !running
+        requireEncryptionSwitch.isEnabled = !running
     }
 
-    private fun startVpnService() {
-        val intent = Intent(this, EtVpnService::class.java).apply {
-            putExtra(EtVpnService.EXTRA_CONNECTION_TYPE, selectedConnectionMode)
-            putExtra(EtVpnService.EXTRA_HOST, "localhost")
-            putExtra(EtVpnService.EXTRA_PORT, 8888)
+    private fun requestPermissionsAndStart() {
+        val needed = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !granted(Manifest.permission.POST_NOTIFICATIONS)
+        ) {
+            needed += Manifest.permission.POST_NOTIFICATIONS
         }
+        if (selectedConnectionMode == TetherService.CONNECTION_BLUETOOTH &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !granted(Manifest.permission.BLUETOOTH_CONNECT)
+        ) {
+            needed += Manifest.permission.BLUETOOTH_CONNECT
+        }
+        if (needed.isEmpty()) startTethering() else permissionLauncher.launch(needed.toTypedArray())
+    }
 
+    private fun granted(permission: String) =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+    private fun startTethering() {
+        val intent = Intent(this, TetherService::class.java).apply {
+            putExtra(TetherService.EXTRA_CONNECTION_TYPE, selectedConnectionMode)
+            putExtra(TetherService.EXTRA_PORT, TetherService.DEFAULT_PORT)
+        }
         ContextCompat.startForegroundService(this, intent)
-        isVpnRunning = true
-        updateUI()
-
-        val modeText = when (selectedConnectionMode) {
-            EtVpnService.CONNECTION_USB -> "USB"
-            EtVpnService.CONNECTION_WIFI -> "WiFi"
-            EtVpnService.CONNECTION_BLUETOOTH -> "Bluetooth"
-            else -> "Unknown"
-        }
-        Toast.makeText(this, "Tethering started ($modeText mode)", Toast.LENGTH_SHORT).show()
     }
 
-    private fun stopVpnService() {
-        // Not stopService(): with a VPN established the system keeps the
-        // service bound and alive, so the tunnel (and the phone's lost
-        // internet) survived the Stop button. ACTION_STOP tears it down.
-        val intent = Intent(this, EtVpnService::class.java).setAction(EtVpnService.ACTION_STOP)
-        startService(intent)
-        isVpnRunning = false
-        updateUI()
-
-        Toast.makeText(this, "Tethering stopped", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun updateUI() {
-        if (isVpnRunning) {
-            statusText.text = getString(R.string.status_connected)
-            startButton.isEnabled = false
-            stopButton.isEnabled = true
-            connectionModeGroup.isEnabled = false
-        } else {
-            statusText.text = getString(R.string.status_disconnected)
-            startButton.isEnabled = true
-            stopButton.isEnabled = false
-            connectionModeGroup.isEnabled = true
+    private fun showModeInfo() {
+        wifiIpText.visibility = View.GONE
+        bluetoothInfoText.visibility = View.GONE
+        requireEncryptionSwitch.visibility =
+            if (selectedConnectionMode == TetherService.CONNECTION_WIFI) View.VISIBLE else View.GONE
+        when (selectedConnectionMode) {
+            TetherService.CONNECTION_WIFI -> showWifiInfo()
+            TetherService.CONNECTION_BLUETOOTH -> showBluetoothInfo()
         }
     }
 
-    private fun showWifiIpAddress() {
-        val wifiIp = getWifiIpAddress()
-        val wifiToken = TokenManager.getWifiToken(this)
-
-        if (wifiIp != null) {
-            wifiIpText.text = buildString {
-                appendLine("WiFi IP: $wifiIp:8888")
-                appendLine("Auth Token: $wifiToken")
+    private fun showWifiInfo() {
+        val wifiIp = wifiIpAddress()
+        val token = TokenManager.getWifiToken(this)
+        wifiIpText.text = if (wifiIp != null) {
+            buildString {
+                appendLine("WiFi IP: $wifiIp:${TetherService.DEFAULT_PORT}")
+                appendLine("Auth Token: $token")
                 appendLine()
                 appendLine("Desktop connection:")
-                append("  sudo etphonehome wifi --host $wifiIp --token $wifiToken")
+                append("  sudo etphonehome wifi --host $wifiIp --token $token")
             }
-            wifiIpText.visibility = View.VISIBLE
         } else {
-            wifiIpText.text = "WiFi not connected. Please connect to WiFi first."
-            wifiIpText.visibility = View.VISIBLE
+            "WiFi not connected. Please connect to WiFi first."
         }
+        wifiIpText.visibility = View.VISIBLE
     }
 
+    @Suppress("MissingPermission") // BLUETOOTH_CONNECT is checked first (granted())
     private fun showBluetoothInfo() {
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.BLUETOOTH_CONNECT)
-            != android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            bluetoothInfoText.text = "Bluetooth permission not granted."
+        bluetoothInfoText.visibility = View.VISIBLE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !granted(Manifest.permission.BLUETOOTH_CONNECT)) {
+            bluetoothInfoText.text = "Bluetooth permission not granted yet (asked when you start)."
             return
         }
-
-        val bluetoothToken = TokenManager.getBluetoothToken(this)
-        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        val bluetoothAdapter = bluetoothManager.adapter
-
-        if (bluetoothAdapter?.isEnabled == true) {
-            val btAddress = bluetoothAdapter.address
-            val btName = bluetoothAdapter.name
-
-            bluetoothInfoText.text = buildString {
-                appendLine("Bluetooth Address: $btAddress")
-                appendLine("Device Name: $btName")
-                appendLine("Auth Token: $bluetoothToken")
+        val token = TokenManager.getBluetoothToken(this)
+        val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        bluetoothInfoText.text = if (adapter?.isEnabled == true) {
+            buildString {
+                appendLine("Bluetooth Address: ${adapter.address}")
+                appendLine("Device Name: ${adapter.name}")
+                appendLine("Auth Token: $token")
                 appendLine()
-                appendLine("Desktop connection:")
-                append("  sudo etphonehome bluetooth --address $btAddress --token $bluetoothToken")
+                appendLine("Desktop connection (Linux):")
+                append("  sudo etphonehome bluetooth --address ${adapter.address} --token $token")
             }
-            bluetoothInfoText.visibility = View.VISIBLE
         } else {
-            bluetoothInfoText.text = "Bluetooth is disabled. Please enable Bluetooth first."
-            bluetoothInfoText.visibility = View.VISIBLE
+            "Bluetooth is disabled. Please enable Bluetooth first."
         }
     }
 
-    private fun getWifiIpAddress(): String? {
-        try {
-            val networkInterfaces = java.net.NetworkInterface.getNetworkInterfaces()
-            for (networkInterface in networkInterfaces) {
-                // Look for wlan0 interface (WiFi)
-                if (networkInterface.name.startsWith("wlan")) {
-                    val addresses = networkInterface.inetAddresses
-                    for (address in addresses) {
-                        if (!address.isLoopbackAddress && address is java.net.Inet4Address) {
-                            return address.hostAddress
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return null
+    private fun wifiIpAddress(): String? = try {
+        java.net.NetworkInterface.getNetworkInterfaces().asSequence()
+            .filter { it.name.startsWith("wlan") }
+            .flatMap { it.inetAddresses.asSequence() }
+            .firstOrNull { !it.isLoopbackAddress && it is java.net.Inet4Address }
+            ?.hostAddress
+    } catch (e: Exception) {
+        null
     }
 }

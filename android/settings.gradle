@@ -11,9 +11,11 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url 'https://jitpack.io' }
     }
 }
 
 rootProject.name = "ETPhoneHome"
 include ':app'
+
+// Platform-independent core (also built on its own by the CI e2e job).
+includeBuild('core')

@@ -83,7 +83,7 @@ jobs:
           # Retry on transient Maven Central/dl.google.com dependency-resolution
           # flakes (see lint job above and LIVE-STATUS.md 2026-10-10/10-11).
           for attempt in 1 2 3; do
-            ./gradlew test && break
+            ./gradlew test && (cd core && ../gradlew test) && break
             if [ "$attempt" -eq 3 ]; then
               echo "gradlew test failed after 3 attempts"
               exit 1

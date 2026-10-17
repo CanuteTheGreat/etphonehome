@@ -4,12 +4,11 @@ members = [
     "windows",
     "linux",
     "gui",
-    "testpeer",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 authors = ["ET Phone Home Contributors"]
 license = "MIT"

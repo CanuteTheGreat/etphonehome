@@ -63,7 +63,7 @@ Desktop                                    Android
 | 2 bytes  | 4 bytes       | 2 bytes      | N bytes        |
 +----------+---------------+--------------+----------------+
 ```
-Token Length is 0 when no token is sent (USB). WiFi, Bluetooth and root mode
+Token Length is 0 when no token is sent (USB). WiFi and Bluetooth
 require the token shown in the Android app; a wrong or missing token is
 answered with an ERROR message (code 0x03, AUTH_FAILED) and the connection is
 closed.
@@ -163,10 +163,20 @@ Uses Bluetooth RFCOMM sockets with a predefined UUID.
 
 ## Security Considerations
 
-1. **Local Connections**: Primary security is physical device access
-2. **Optional Authentication**: Can add shared secret for WiFi mode
-3. **Encryption**: TLS wrapper can be added for WiFi mode
-4. **Root Mode**: Additional OS-level permissions required
+1. **USB**: the app's port is on the phone's loopback, reachable only via `adb forward`
+2. **Authentication**: WiFi and Bluetooth require the token shown in the app
+3. **Encryption (WiFi)**: the whole byte stream can run inside TLS 1.3. The
+   phone tells TLS from plaintext by the first byte (0x16 = TLS handshake,
+   0x45 = this protocol's magic). Both peers derive an Ed25519 key pair from
+   the pairing token (HKDF-SHA256, salt `ETPhoneHome-TLS-Salt`, info
+   `etphonehome-certpin-identity-v1`), present self-signed certificates for
+   it (mutual TLS) and accept only the peer certificate carrying that key.
+   The app refuses plaintext WiFi unless its "Require encryption" switch is off.
+4. **Traffic filter (CONFIG_UPDATE)**: right after the handshake the desktop
+   sends `filter.enabled`, `filter.mode` (whitelist|blacklist),
+   `filter.log_blocked`, `filter.rules=<n>` and `filter.rule.<i>=
+   id|enabled|action|protocol|dest_ip|dest_port|source_ip|source_port`
+   (empty field = any); the phone enforces it on the connections it relays.
 
 ## Version History
 

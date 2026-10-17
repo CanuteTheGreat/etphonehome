@@ -9,9 +9,6 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
-    <!-- VPN permission: BIND_VPN_SERVICE is system-granted to the service below,
-         not requested by the app, so no uses-permission entry is needed here -->
-
     <!-- WiFi permissions -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
@@ -36,6 +33,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:name=".EtphApplication"
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -58,28 +56,15 @@
             </intent-filter>
         </activity>
 
-        <!-- VPN Service -->
+        <!-- Tethering service: listens for the desktop and relays its
+             traffic through ordinary phone sockets (no VPN, no root). -->
         <service
-            android:name=".service.VpnService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="tethering" />
-        </service>
-
-        <!-- Root Tethering Service (for rooted devices) -->
-        <service
-            android:name=".root.RootTetheringService"
+            android:name=".service.TetherService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="tethering" />
+                android:value="Shares the phone's internet connection with a computer (tethering) over USB, WiFi or Bluetooth" />
         </service>
 
     </application>

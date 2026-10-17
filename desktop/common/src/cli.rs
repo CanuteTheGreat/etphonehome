@@ -68,7 +68,8 @@ pub enum Commands {
         #[arg(short = 't', long)]
         token: Option<String>,
         /// Require cert-pinned TLS keyed to the token; fails closed, never
-        /// falls back to plaintext
+        /// falls back to plaintext. The Android app does not serve TLS yet,
+        /// so this only works against TLS-capable peers (e.g. testpeer --tls)
         #[arg(long)]
         tls: bool,
         #[command(flatten)]

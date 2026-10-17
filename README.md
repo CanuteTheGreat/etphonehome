@@ -42,7 +42,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 - ✅ Root mode for improved performance (Android root tethering — implemented)
 - ✅ Desktop GUI application (implemented; Linux release build, Windows GUI release pending)
-- ✅ Connection encryption for WiFi — `etphonehome wifi --tls` uses TLS 1.3 with a certificate pinned to the pairing token and fails closed (USB and Bluetooth stay plaintext)
+- 🔲 Connection encryption — the desktop client's `wifi --tls` (TLS 1.3, certificate pinned to the pairing token, fails closed) is done, but the Android app has no TLS server yet: against the real app `--tls` is refused and WiFi/USB/Bluetooth traffic is plaintext
 - 🔲 Multi-device support
 - 🔲 Mobile data usage tracking
 - 🔲 Custom DNS servers

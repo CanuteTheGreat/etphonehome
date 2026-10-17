@@ -64,7 +64,11 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: cargo-mutants
-          path: desktop/mutants.out/
+          # Not the per-mutant logs/ directory: ~900 files took the upload
+          # longer than the run's interesting part.
+          path: |
+            desktop/mutants.out/outcomes.json
+            desktop/mutants.out/*.txt
 
   kotlin:
     name: PIT (phone core)

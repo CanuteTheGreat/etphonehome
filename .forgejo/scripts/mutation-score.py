@@ -54,15 +54,19 @@ def from_cargo(path):
         if not isinstance(sc, dict) or "Mutant" not in sc:
             continue  # the baseline build
         mut = sc["Mutant"]
-        mod = rust_module(mut["source_file"] if isinstance(mut.get("source_file"), str) else mut["file"])
+        src = mut.get("source_file") if isinstance(mut.get("source_file"), str) else mut.get("file", "?")
+        mod = rust_module(src)
         summary = o["summary"]
         if summary in ("CaughtMutant", "Timeout"):
             stats[mod][0] += 1
         elif summary == "MissedMutant":
             stats[mod][1] += 1
-            span = mut.get("span", {}).get("start", {})
+            # "function" is null for mutants outside a function (e.g. in a
+            # const or a match guard at module level).
+            span = (mut.get("span") or {}).get("start") or {}
+            func = (mut.get("function") or {}).get("function_name", "")
             survivors[mod].append(
-                f"{mod}:{span.get('line', '?')} {mut.get('function', {}).get('function_name', '')}: "
+                f"{mod}:{span.get('line', '?')} {func}: "
                 f"replace {mut.get('genre', '')} -> {mut.get('replacement', '')}"
             )
     return stats, survivors

@@ -20,7 +20,9 @@ wifi-tls	README.md	WiFi Tethering	.forgejo/scripts/desktop-e2e-inner.sh	TLS with
 wifi-tls	README.md	WiFi Tethering	.forgejo/scripts/desktop-e2e-inner.sh	wrong token refused with 'invalid token', no TUN created
 wifi-tls	README.md	WiFi Tethering	.forgejo/scripts/android-emulator-e2e.sh	WiFi: TLS 1.3 session with the app
 wifi-tls	README.md	WiFi Tethering	android/core/src/test/kotlin/com/etphonehome/tls/CertPinTest.kt	@Test
-bluetooth	README.md	Bluetooth Tethering** (experimental, not yet verified	-	disclaimed: the README says it is unverified; no CI or real-device test exists yet
+bluetooth	README.md	Bluetooth Tethering	desktop/common/src/runner.rs	fn bluetooth_service_uuid_matches_the_app
+bluetooth	README.md	Bluetooth Tethering	desktop/common/src/runner.rs	fn bluetooth_name_picks_the_single_paired_match
+bluetooth	README.md	Bluetooth Tethering	android/app/src/test/java/com/etphonehome/util/BluetoothTextTest.kt	fun commandUsesThePhoneNameNeverTheHiddenAddress
 desktop-platforms	README.md	Cross-Platform desktop	.forgejo/scripts/distro-smoke.sh	WiFi+TLS tunnel, 5 MiB intact, public HTTPS, DNS, Ctrl-C cleanup
 desktop-platforms	README.md	Cross-Platform desktop	.forgejo/scripts/windows-wine-smoke.sh	Windows client: cert-pinned TLS 1.3 + protocol handshake with the phone core
 desktop-platforms	README.md	Cross-Platform desktop	desktop/gui/src/app.rs	fn connect_starts_a_session_and_disconnect_stops_it

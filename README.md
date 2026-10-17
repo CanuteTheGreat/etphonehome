@@ -29,7 +29,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 - ✅ **The phone keeps its internet** - no phone VPN is used, so the phone's own apps are never affected
 - ✅ **USB Tethering** - via `adb forward`, fastest and most reliable
 - ✅ **WiFi Tethering** - token-authenticated and **encrypted by default** (TLS 1.3, certificate pinned to the pairing token, fails closed)
-- 🧪 **Bluetooth Tethering** (experimental, not yet verified on a real phone or in CI) - RFCOMM, Linux (BlueZ) desktop only; the Windows client has no Bluetooth
+- ✅ **Bluetooth Tethering** - RFCOMM, Linux (BlueZ) desktop only; the Windows client has no Bluetooth. Verified with real internet on a real phone (Samsung, Android 13); CI has no Bluetooth radio, so it checks the session code and that app and desktop agree on the service
 - ✅ **Cross-Platform desktop** - Windows and Linux CLI, Linux GUI
 - ✅ **DNS set up for you** - the desktop points DNS for the tunnel at the phone's DNS server (systemd-resolved on Linux, verified in CI; `netsh` on Windows, not yet exercised in CI)
 - ✅ **Live statistics on the phone** - connected desktop, data each way, open connections, uptime; the status only says "connected" once a desktop really is

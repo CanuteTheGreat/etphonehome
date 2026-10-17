@@ -18,7 +18,9 @@ env:
 jobs:
   rust:
     name: cargo-mutants (desktop core)
-    runs-on: linux-cross-x86_64
+    # Heavy scheduled/on-demand work runs on its own low-priority lane (nightly-x86_64, ctg-infrastructure
+    # ci-runners/rw-man-nightly) so it never holds the per-push runners for hours.
+    runs-on: nightly-x86_64
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +74,7 @@ jobs:
 
   kotlin:
     name: PIT (phone core)
-    runs-on: linux-cross-x86_64
+    runs-on: nightly-x86_64
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4

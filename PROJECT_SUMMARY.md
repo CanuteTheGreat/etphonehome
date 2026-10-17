@@ -60,7 +60,7 @@ ET Phone Home is a complete, open-source Android tethering solution designed to 
   - IP address utilities
 
 - **Linux Client** (`linux/`)
-  - USB mode via ADB reverse forwarding
+  - USB mode via ADB port forwarding
   - WiFi mode via direct connection
   - Route configuration
   - Root privilege checking

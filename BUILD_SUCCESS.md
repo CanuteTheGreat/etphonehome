@@ -85,7 +85,7 @@ cd desktop && cargo build --release
 
 # 3. Install and run
 adb install app/build/outputs/apk/debug/app-debug.apk
-adb reverse tcp:8888 tcp:8888
+adb forward tcp:8888 tcp:8888
 sudo desktop/target/release/etphonehome usb
 ```
 

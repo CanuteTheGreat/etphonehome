@@ -71,7 +71,7 @@ object ServerHandshake {
      * Run the handshake.
      *
      * @param tokenVerifier `null` skips authentication (USB, where the port
-     *   is bound to loopback and only reachable through `adb reverse`);
+     *   is bound to loopback and only reachable through `adb forward` from the desktop);
      *   otherwise it must return true for the presented token (which may be
      *   null if the desktop sent none).
      * @return the accepted request.

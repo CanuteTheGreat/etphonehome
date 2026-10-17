@@ -84,10 +84,10 @@ fi
 
 echo "✓ Android device connected"
 
-# Set up ADB reverse forwarding
+# Forward this computer's localhost:8888 to the app's server on the phone
 echo ""
 echo "Setting up ADB port forwarding..."
-adb reverse tcp:8888 tcp:8888
+adb forward tcp:8888 tcp:8888
 echo "✓ Port forwarding configured"
 
 # Check if Android app is installed
@@ -139,5 +139,5 @@ echo ""
 # Cleanup on exit
 echo ""
 echo "Cleaning up..."
-adb reverse --remove tcp:8888
+adb forward --remove tcp:8888
 echo "Done!"

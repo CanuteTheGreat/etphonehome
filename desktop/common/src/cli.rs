@@ -41,7 +41,7 @@ pub struct RetryArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Connect via USB (sets up `adb reverse` automatically)
+    /// Connect via USB (sets up `adb forward` automatically)
     Usb {
         /// Port the Android app listens on
         #[arg(short, long, default_value_t = DEFAULT_PORT)]
@@ -90,7 +90,7 @@ pub enum Commands {
         retry: RetryArgs,
     },
 
-    /// Set up ADB reverse port forwarding
+    /// Set up ADB port forwarding (computer port -> phone port)
     SetupAdb {
         #[arg(short, long, default_value_t = DEFAULT_PORT)]
         port: u16,

@@ -22,7 +22,7 @@ This is the easiest method to get started.
    # Accept the USB debugging prompt on your device
    ```
 
-3. **Set up ADB Reverse Forwarding:**
+3. **Set up ADB Port Forwarding:**
    ```bash
    sudo etphonehome setup-adb
    ```
@@ -44,7 +44,7 @@ This is the easiest method to get started.
 
 ### USB Tethering
 
-USB tethering uses ADB reverse port forwarding to create a connection between your computer and Android device.
+USB tethering uses ADB port forwarding to create a connection between your computer and Android device.
 
 #### Prerequisites
 - USB cable
@@ -451,7 +451,7 @@ Tap "Stop Tethering" in the app
 
 **Problem:** "Failed to connect to Android device"
 - Check that the Android app is running and tethering is started
-- Verify ADB forwarding is set up (for USB): `adb reverse --list`
+- Verify ADB forwarding is set up (for USB): `adb forward --list`
 - Check firewall settings
 
 **Problem:** "Failed to create TUN interface"
@@ -532,7 +532,7 @@ sudo rm /usr/local/bin/etphonehome
 
 ### Cleanup ADB Forwarding
 ```bash
-adb reverse --remove tcp:8888
+adb forward --remove tcp:8888
 ```
 
 ## Roadmap
@@ -604,7 +604,7 @@ Create `/usr/local/bin/start-tethering.sh`:
 #!/bin/bash
 
 # Set up ADB forwarding
-adb reverse tcp:8888 tcp:8888
+adb forward tcp:8888 tcp:8888
 
 # Wait a moment
 sleep 1
@@ -613,7 +613,7 @@ sleep 1
 sudo etphonehome usb
 
 # Cleanup on exit
-adb reverse --remove tcp:8888
+adb forward --remove tcp:8888
 ```
 
 Make it executable:

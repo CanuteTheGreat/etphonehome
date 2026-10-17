@@ -124,8 +124,8 @@ adb install android/app/build/outputs/apk/debug/app-debug.apk
 
 ### 2. Set Up ADB Port Forwarding
 ```bash
-adb reverse tcp:8888 tcp:8888
-adb reverse --list  # Verify
+adb forward tcp:8888 tcp:8888
+adb forward --list  # Verify
 ```
 
 ### 3. Start Android App
@@ -335,7 +335,7 @@ cargo test test_handshake_request_roundtrip
 ### Connection Flow
 ```
 User Apps → Android OS → VPN Interface → VpnService
-    → Protocol Wrapper → TCP Socket → ADB Reverse
+    → Protocol Wrapper → TCP Socket → ADB Forward
     → Desktop TCP Client → TUN Interface → Desktop OS → Internet
 ```
 

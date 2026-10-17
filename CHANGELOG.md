@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **USB tethering never connected:** the desktop client (and `setup-adb`, `quick-start-linux.sh`, and every doc) used `adb reverse`, which maps a phone port to the computer. The app's USB server listens on the phone's loopback, so the client needs `adb forward` (computer port -> phone port); with the app running, `adb reverse` failed with "cannot bind listener: Address already in use". Confirmed against a real phone. The e2e adb stand-in now emulates both directions faithfully, so the wrong one fails the test.
+- **Ctrl-C raced the Disconnect message:** the retry loop could drop the live session before it told the phone it was leaving; it now lets the session finish (up to 3 s) and never reconnects once stopping.
 - **Desktop forwarding stall:** the TUN reader held the device mutex during its blocking read, so packets from the phone were only written to the TUN device when the desktop happened to send something. The forwarding loop now uses the async TUN device with independent read/write halves (shared `session` module).
 - **GUI Connect did nothing:** the button only changed the status label. It now runs a real session (same runner as the CLI) with live state, stats and logs; Disconnect stops it. GUI-created profiles defaulted to port 8765 instead of 8888.
 - **Bluetooth (Linux):** the RFCOMM connection was opened and then abandoned with "integration incomplete"; it now completes the handshake (with `--token` / `auth.bluetooth_token`) and forwards packets.

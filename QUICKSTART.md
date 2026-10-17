@@ -92,10 +92,10 @@ cargo build --release -p etphonehome-windows
 ### 1. Configure ADB Forwarding
 
 ```bash
-adb reverse tcp:8888 tcp:8888
+adb forward tcp:8888 tcp:8888
 
 # Verify
-adb reverse --list
+adb forward --list
 # Should show: tcp:8888 -> tcp:8888
 ```
 
@@ -187,13 +187,13 @@ lsmod | grep tun
 
 2. **Check ADB forwarding:**
    ```bash
-   adb reverse --list
+   adb forward --list
    ```
 
 3. **Restart everything:**
    - Stop desktop client (Ctrl+C)
    - Stop Android app
-   - Run `adb reverse tcp:8888 tcp:8888` again
+   - Run `adb forward tcp:8888 tcp:8888` again
    - Start Android app
    - Start desktop client
 
@@ -252,7 +252,7 @@ lsmod | grep tun
 2. **On Android:** Tap "Stop Tethering"
 3. **Clean up:**
    ```bash
-   adb reverse --remove tcp:8888
+   adb forward --remove tcp:8888
    ```
 
 ## Next Steps
@@ -359,10 +359,10 @@ Enjoy! 🎉
 adb devices
 
 # Set up port forwarding (USB mode)
-adb reverse tcp:8888 tcp:8888
+adb forward tcp:8888 tcp:8888
 
 # Check forwarding
-adb reverse --list
+adb forward --list
 
 # Discover Android WiFi IP (WiFi mode)
 sudo etphonehome discover-ip
@@ -389,7 +389,7 @@ sudo etphonehome wifi --host 192.168.1.100
 ping 8.8.8.8
 
 # Stop forwarding
-adb reverse --remove tcp:8888
+adb forward --remove tcp:8888
 ```
 
 ## Quick Reference Card
@@ -398,7 +398,7 @@ adb reverse --remove tcp:8888
 |------|---------|
 | Enable USB debugging | Settings → Developer Options |
 | Check device connection | `adb devices` |
-| Setup port forwarding (USB) | `adb reverse tcp:8888 tcp:8888` |
+| Setup port forwarding (USB) | `adb forward tcp:8888 tcp:8888` |
 | Discover WiFi IP | `sudo etphonehome discover-ip` |
 | Build Android | `./gradlew assembleDebug` |
 | Build Desktop (Linux) | `cargo build --release` |

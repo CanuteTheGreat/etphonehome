@@ -125,9 +125,9 @@ Desktop/Android                            Android/Desktop
 
 ### USB (Primary Method)
 
-Uses ADB reverse port forwarding:
+Uses ADB port forwarding:
 ```bash
-adb reverse tcp:8888 tcp:8888
+adb forward tcp:8888 tcp:8888
 ```
 
 Android app listens on localhost:8888, desktop connects to localhost:8888 (forwarded through ADB).

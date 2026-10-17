@@ -81,9 +81,9 @@ Yes, for USB tethering. ADB (Android Debug Bridge) is required to set up port fo
 - Windows: Download Android Platform Tools
 - macOS: `brew install android-platform-tools`
 
-### What is "ADB reverse port forwarding"?
+### What is "ADB port forwarding"?
 
-ADB reverse forwarding creates a tunnel that allows your Android device to connect to a service running on your computer as if it were local. This enables USB tethering without complex networking setup.
+`adb forward tcp:8888 tcp:8888` makes connections to port 8888 on your computer travel over the USB cable to port 8888 on the phone, where the app's USB-mode server listens (on the phone's loopback only). The desktop client sets this up for you; it is `adb forward`, not `adb reverse` (which points the other way and conflicts with the app's port).
 
 ### Why do I need VPN permission?
 
@@ -258,7 +258,7 @@ lsmod | grep tun
 **Check these:**
 1. Android app is running and tethering started
 2. VPN permission granted on Android
-3. ADB forwarding is set up: `adb reverse --list`
+3. ADB forwarding is set up: `adb forward --list`
 4. Firewall isn't blocking the connection
 5. Android device is still connected (USB) or reachable (WiFi)
 

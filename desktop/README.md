@@ -85,7 +85,7 @@ etphonehome <COMMAND> [OPTIONS]
 Commands:
   usb         Connect via USB
   wifi        Connect via WiFi
-  setup-adb   Set up ADB reverse forwarding
+  setup-adb   Set up ADB port forwarding
 
 Options:
   -h, --help     Show help
@@ -118,7 +118,7 @@ sudo etphonehome wifi --host 192.168.1.100 --interface etph1
 ### ADB Setup
 
 ```bash
-# Set up reverse port forwarding
+# Set up ADB port forwarding
 sudo etphonehome setup-adb
 
 # Custom port
@@ -263,7 +263,7 @@ Always run with elevated privileges:
 ### "Connection refused"
 
 1. Verify Android app is running
-2. Check ADB forwarding: `adb reverse --list`
+2. Check ADB forwarding: `adb forward --list`
 3. Check firewall settings
 
 ### Debug Logging

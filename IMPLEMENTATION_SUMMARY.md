@@ -289,7 +289,7 @@ Commands::DiscoverIp    // New command with clear purpose
 
 **USB Mode:**
 ```
-Desktop → ADB reverse → Android (server on 127.0.0.1:8888) → VPN → Internet
+Desktop → ADB forward → Android (server on 127.0.0.1:8888) → VPN → Internet
 ```
 
 **WiFi Mode:**

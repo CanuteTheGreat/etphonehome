@@ -43,6 +43,13 @@ docker cp "$HERE/../../scripts/quick-start-linux.sh" "$NAME:/e2e/qs/scripts/quic
 
 # Fake `adb` that records its arguments; `adb shell ip addr show wlan0`
 # returns realistic output so discover-ip can be exercised.
+#
+# Port forwarding is emulated with the real direction semantics. The phone's
+# loopback is played by 127.0.0.2 (the Android stand-in listens there):
+#   adb forward tcp:A tcp:B  -> relay computer 127.0.0.1:A to phone 127.0.0.2:B
+#   adb reverse tcp:A tcp:B  -> relay phone 127.0.0.2:A to computer 127.0.0.1:B,
+#                               failing like real adb if the phone port is taken
+# so a client that sets up the wrong direction cannot reach the stand-in.
 docker exec -i "$NAME" sh -c 'cat > /e2e/shim/adb && chmod +x /e2e/shim/adb' <<'EOF'
 #!/bin/sh
 echo "$*" >> /e2e/adb-calls.log
@@ -56,6 +63,26 @@ case "$*" in
     echo "List of devices attached"
     printf 'R5CT1234567\tdevice\n'
     ;;
+  "forward --remove "*)
+    p=${3#tcp:}
+    [ -f /e2e/fwd-$p.pid ] && kill "$(cat /e2e/fwd-$p.pid)" 2>/dev/null; rm -f /e2e/fwd-$p.pid
+    ;;
+  "forward tcp:"*" tcp:"*)
+    a=${2#tcp:}; b=${3#tcp:}
+    setsid socat TCP-LISTEN:$a,bind=127.0.0.1,fork,reuseaddr TCP:127.0.0.2:$b >/dev/null 2>&1 &
+    echo $! > /e2e/fwd-$a.pid
+    for _ in 1 2 3 4 5 6 7 8 9 10; do ss -ltn | grep -q "127.0.0.1:$a " && break; sleep 0.1; done
+    echo "$a"
+    ;;
+  "reverse tcp:"*" tcp:"*)
+    a=${2#tcp:}; b=${3#tcp:}
+    if ss -ltn | grep -q "127.0.0.2:$a "; then
+      echo "adb: error: cannot bind listener: Address already in use" >&2
+      exit 1
+    fi
+    setsid socat TCP-LISTEN:$a,bind=127.0.0.2,fork,reuseaddr TCP:127.0.0.1:$b >/dev/null 2>&1 &
+    echo "$a"
+    ;;
   "shell pm list packages")
     echo "package:com.etphonehome"
     ;;
@@ -68,12 +95,13 @@ esac
 exit 0
 EOF
 
-# The runner image has no ping/iproute2: install them while the container
+# The runner image has no ping/iproute2/socat (and slim images lack the
+# libdbus runtime the client links): install them while the container
 # still has the default bridge network, then cut it off from every network
 # (scenarios only use loopback and the TUN link, and the client adds a
 # default route via the TUN device).
-if ! docker exec "$NAME" sh -c 'command -v ping >/dev/null && command -v ip >/dev/null'; then
-  docker exec "$NAME" sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 iputils-ping procps >/dev/null'
+if ! docker exec "$NAME" sh -c 'command -v ping && command -v ip && command -v ss && command -v socat && ldconfig -p | grep -q libdbus-1.so.3' >/dev/null; then
+  docker exec "$NAME" sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 iputils-ping procps socat libdbus-1-3 >/dev/null'
 fi
 docker network disconnect bridge "$NAME"
 

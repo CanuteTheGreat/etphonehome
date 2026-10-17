@@ -175,7 +175,7 @@ class VpnService : AndroidVpnService() {
         Log.d(tag, "Starting USB tethering server on port $port")
 
         // Bind explicitly to loopback only. USB tethering is reached exclusively via
-        // `adb forward`/`adb reverse` over the USB cable, and -- unlike the WiFi and
+        // `adb forward` (desktop port -> this loopback port) over the USB cable, and -- unlike the WiFi and
         // Bluetooth connection types -- performHandshake() never verifies a token for
         // CONNECTION_USB, since the USB cable itself is treated as the authentication
         // factor. `ServerSocket(port)` alone binds to ALL interfaces (0.0.0.0), so on a
@@ -497,7 +497,7 @@ class VpnService : AndroidVpnService() {
 
     /**
      * Perform handshake with desktop. WiFi requires the WiFi token; USB does not
-     * (the USB port is bound to loopback and only reachable via adb reverse).
+     * (the USB port is bound to loopback and only reachable via `adb forward` from the desktop).
      */
     private suspend fun performHandshake(stream: MessageStream) = withContext(Dispatchers.IO) {
         Log.d(tag, "Starting handshake")

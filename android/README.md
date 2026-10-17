@@ -4,7 +4,7 @@ Android tethering application that shares your mobile internet connection with d
 
 ## Features
 
-- ✅ **USB Tethering** via ADB reverse forwarding
+- ✅ **USB Tethering** via ADB port forwarding
 - ✅ **No Root Required** - Uses Android VPN API
 - ✅ **Real-time Statistics** - Monitor data usage
 - ✅ **Foreground Service** - Reliable background operation
@@ -233,7 +233,7 @@ Format code:
    ```bash
    # Enable USB debugging on device
    adb devices
-   adb reverse tcp:8888 tcp:8888
+   adb forward tcp:8888 tcp:8888
    # Start app, tap "Start Tethering"
    # Run desktop client
    ```
@@ -319,7 +319,7 @@ echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 
 **Connection fails**
 - Verify desktop client is running
-- Check ADB forwarding: `adb reverse --list`
+- Check ADB forwarding: `adb forward --list`
 - Check firewall settings
 
 ## Performance

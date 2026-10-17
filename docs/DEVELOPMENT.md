@@ -22,7 +22,7 @@ ET Phone Home consists of three main components:
 │  └──────────────────────────────────────────┘  │
 │  ┌──────────────────────────────────────────┐  │
 │  │       Connection Services (USB/WiFi)     │  │
-│  │  - USB: ADB reverse forwarding           │  │
+│  │  - USB: ADB port forwarding           │  │
 │  │  - WiFi: Direct socket connection        │  │
 │  │  - Bluetooth: RFCOMM (planned)           │  │
 │  └──────────────────────────────────────────┘  │
@@ -267,7 +267,7 @@ cd android
 
 3. **Set up ADB forwarding:**
    ```bash
-   adb reverse tcp:8888 tcp:8888
+   adb forward tcp:8888 tcp:8888
    ```
 
 4. **Start Android app** and begin tethering

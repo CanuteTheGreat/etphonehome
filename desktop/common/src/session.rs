@@ -182,7 +182,7 @@ pub async fn connect(opts: &ConnectOptions) -> Result<Transport> {
         .context(format!("timed out connecting to {}", opts.addr))?
         .context(format!(
             "Failed to connect to Android device at {} (is tethering started in the app? \
-             for USB check `adb reverse --list`, for WiFi check the IP and firewall)",
+             for USB check `adb forward --list`, for WiFi check the IP and firewall)",
             opts.addr
         ))?;
     tcp.set_nodelay(true)?;

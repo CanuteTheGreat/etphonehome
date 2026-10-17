@@ -110,23 +110,26 @@ fi
 kill $PEER; wait $PEER 2>/dev/null || true
 
 # --- 4. USB mode (adb shim) + setup-adb + discover-ip ---------------------
+# The stand-in listens on the "phone's" loopback (127.0.0.2, see the adb shim
+# in desktop-e2e.sh), so the tunnel only comes up if the client forwards
+# computer -> phone (`adb forward`), like the real app's loopback server.
 : >/e2e/adb-calls.log
-testpeer --listen 127.0.0.1:8890 >"$LOGS/peer4.log" 2>&1 &
+testpeer --listen 127.0.0.2:8890 >"$LOGS/peer4.log" 2>&1 &
 PEER=$!
 sleep 0.5
 etphonehome usb --port 8890 --interface etph0 >"$LOGS/client4.log" 2>&1 &
 CLI=$!
 if wait_for_iface etph0 && ping -c 2 -W 2 -I etph0 10.0.0.2 >/dev/null 2>&1 \
-  && grep -qx "reverse tcp:8890 tcp:8890" /e2e/adb-calls.log; then
-  pass "usb: ran 'adb reverse tcp:8890 tcp:8890' and pinged through the tunnel"
+  && grep -qx "forward tcp:8890 tcp:8890" /e2e/adb-calls.log; then
+  pass "usb: ran 'adb forward tcp:8890 tcp:8890' and pinged the phone stand-in through the tunnel"
 else
   dump client4.log; cat /e2e/adb-calls.log; fail "usb mode"
 fi
 stop $CLI
 wait_gone etph0 || true
 kill $PEER; wait $PEER 2>/dev/null || true
-if etphonehome setup-adb --port 9999 >/dev/null 2>&1 && grep -qx "reverse tcp:9999 tcp:9999" /e2e/adb-calls.log; then
-  pass "setup-adb runs adb reverse with the given port"
+if etphonehome setup-adb --port 9999 >/dev/null 2>&1 && grep -qx "forward tcp:9999 tcp:9999" /e2e/adb-calls.log; then
+  pass "setup-adb runs adb forward with the given port"
 else
   fail "setup-adb"
 fi
@@ -224,7 +227,7 @@ kill $PEER; wait $PEER 2>/dev/null || true
 
 # --- 8. scripts/quick-start-linux.sh drives a USB session end to end -------
 : >/e2e/adb-calls.log
-testpeer --listen 127.0.0.1:8888 >"$LOGS/peer8.log" 2>&1 &
+testpeer --listen 127.0.0.2:8888 >"$LOGS/peer8.log" 2>&1 &
 PEER=$!
 sleep 0.5
 mkdir -p /e2e/qs/desktop/target/release
@@ -232,13 +235,13 @@ cp /e2e/bin/etphonehome /e2e/qs/desktop/target/release/etphonehome
 (echo "" | bash /e2e/qs/scripts/quick-start-linux.sh >"$LOGS/quickstart.log" 2>&1; echo "exit=$?" >>"$LOGS/quickstart.log") &
 QS=$!
 if wait_for_iface etph0 && ping -c 2 -W 2 -I etph0 10.0.0.2 >/dev/null 2>&1; then
-  pass "quick-start-linux.sh: set up adb reverse and brought the tunnel up"
+  pass "quick-start-linux.sh: set up adb forward and brought the tunnel up"
 else
   dump quickstart.log; fail "quick-start-linux.sh tunnel"
 fi
 pkill -INT -x etphonehome || true
 wait $QS 2>/dev/null || true
-if grep -qx "reverse tcp:8888 tcp:8888" /e2e/adb-calls.log && grep -qx "reverse --remove tcp:8888" /e2e/adb-calls.log \
+if grep -qx "forward tcp:8888 tcp:8888" /e2e/adb-calls.log && grep -qx "forward --remove tcp:8888" /e2e/adb-calls.log \
   && grep -q "exit=0" "$LOGS/quickstart.log"; then
   pass "quick-start-linux.sh: removed the adb forward on Ctrl-C and exited 0"
 else

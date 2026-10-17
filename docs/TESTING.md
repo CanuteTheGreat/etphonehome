@@ -88,7 +88,7 @@ Run instrumented tests (requires connected device):
 
 3. **Setup ADB forwarding:**
    ```bash
-   adb reverse tcp:8888 tcp:8888
+   adb forward tcp:8888 tcp:8888
    ```
 
 4. **Start Android app:**
@@ -130,7 +130,7 @@ cargo run --example protocol_test
 adb devices
 
 # Test port forwarding
-adb reverse --list
+adb forward --list
 
 # Test connection
 sudo etphonehome usb --port 8888
@@ -297,7 +297,7 @@ ls -l /dev/net/tun
 adb shell ps | grep etphonehome
 
 # Verify ADB forwarding
-adb reverse --list
+adb forward --list
 
 # Check firewall
 sudo iptables -L

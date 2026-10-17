@@ -170,7 +170,7 @@ ET Phone Home uses different approaches based on what's available:
 ### Connection Methods
 
 **USB (Recommended - Fastest):**
-- Uses ADB reverse port forwarding: `adb reverse tcp:8888 tcp:8888`
+- Uses ADB port forwarding: `adb forward tcp:8888 tcp:8888`
 - Android app listens on localhost:8888
 - Desktop connects to localhost:8888 (tunneled via ADB)
 - Most reliable and fastest
@@ -336,7 +336,7 @@ See [SETUP.md](docs/SETUP.md) for more usage examples.
 adb devices
 
 # Check ADB forwarding
-adb reverse --list
+adb forward --list
 
 # Check logs
 adb logcat -s ETPhoneHome:V

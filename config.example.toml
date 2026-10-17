@@ -38,7 +38,7 @@ level = "info"
 # ADB path (if not in PATH)
 # adb_path = "/usr/bin/adb"
 
-# Auto-setup ADB reverse forwarding
+# Auto-setup ADB port forwarding
 auto_adb_setup = true
 
 [advanced]

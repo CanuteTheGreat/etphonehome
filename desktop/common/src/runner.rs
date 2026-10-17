@@ -1,6 +1,6 @@
 //! Everything a front end (Linux CLI, Windows CLI, GUI) needs to turn a
 //! profile or command line into a running tethering session: target
-//! resolution, ADB reverse forwarding, TUN + route setup, auto-reconnect,
+//! resolution, ADB port forwarding, TUN + route setup, auto-reconnect,
 //! Bluetooth RFCOMM (Linux), mDNS discovery and the profile commands.
 //!
 //! This used to be copy-pasted into `linux/src/main.rs` and
@@ -34,7 +34,7 @@ pub const MDNS_SERVICE_TYPE: &str = "_etphonehome._tcp.local.";
 /// Where the session's bytes travel.
 #[derive(Debug, Clone)]
 pub enum Target {
-    /// USB (via `adb reverse`, `adb_port` set) or WiFi over TCP.
+    /// USB (via `adb forward`, `adb_port` set) or WiFi over TCP.
     Tcp {
         opts: ConnectOptions,
         adb_port: Option<u16>,
@@ -134,12 +134,19 @@ pub async fn plan_for_profile(
     })
 }
 
-/// `adb reverse tcp:PORT tcp:PORT` so the phone's localhost:PORT reaches us.
+/// `adb forward tcp:PORT tcp:PORT`: connections to this computer's
+/// 127.0.0.1:PORT are carried over USB to the phone's 127.0.0.1:PORT, where
+/// the app's USB-mode server listens (loopback-only on the phone).
+///
+/// This used to run `adb reverse`, which is the opposite direction (phone
+/// port -> computer port): with the app already listening it fails with
+/// "cannot bind listener: Address already in use", and if it ran first the
+/// app could not bind its port. Either way USB tethering never connected.
 pub fn setup_adb_forwarding(port: u16) -> Result<()> {
-    info!("Setting up ADB reverse port forwarding (tcp:{})...", port);
+    info!("Setting up ADB port forwarding (tcp:{})...", port);
     let output = Command::new("adb")
         .args([
-            "reverse",
+            "forward",
             &format!("tcp:{}", port),
             &format!("tcp:{}", port),
         ])
@@ -147,12 +154,12 @@ pub fn setup_adb_forwarding(port: u16) -> Result<()> {
         .context("ADB not found. Please install Android Debug Bridge (adb)")?;
     if !output.status.success() {
         bail!(
-            "ADB reverse forwarding failed: {}",
+            "ADB port forwarding failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
     info!(
-        "ADB reverse forwarding set up: phone port {0} -> this computer port {0}",
+        "ADB port forwarding set up: this computer port {0} -> phone port {0}",
         port
     );
     Ok(())
@@ -290,7 +297,7 @@ pub fn create_tun(tun_name: &str) -> Result<tun::AsyncDevice> {
     ))
 }
 
-/// Open the transport for a plan (runs `adb reverse` first for USB).
+/// Open the transport for a plan (runs `adb forward` first for USB).
 pub async fn open_transport(target: &Target) -> Result<Transport> {
     match target {
         Target::Tcp { opts, adb_port } => {

@@ -227,7 +227,7 @@ sudo etphonehome wifi --host <android-ip> --port 8888
 | Speed | Fast (USB 2.0+) | Depends on WiFi |
 | Range | USB cable length | WiFi range |
 | ADB Required | Yes | Only for IP discovery |
-| Connection Method | ADB reverse forwarding | Direct TCP |
+| Connection Method | ADB port forwarding | Direct TCP |
 | Firewall | Not needed | May need to allow port 8888 |
 | Android Battery | Charging while connected | Drains battery |
 

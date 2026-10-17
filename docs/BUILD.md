@@ -31,8 +31,8 @@ This document provides instructions for building the ET Phone Home tethering sol
    # Ubuntu/Debian
    sudo apt-get install build-essential libssl-dev pkg-config
 
-   # For Bluetooth support (v0.4.0+)
-   sudo apt-get install libdbus-1-dev
+   # Bluetooth (BlueZ D-Bus): libdbus is built from source and linked
+   # statically (libdbus-sys "vendored"), so only the C compiler above is needed
 
    # Fedora/RHEL
    sudo dnf install gcc openssl-devel pkg-config
@@ -172,7 +172,7 @@ ET Phone Home v0.4.0 introduces several new dependencies:
 ### Desktop (Rust)
 - **mdns-sd** (0.11) - mDNS service discovery for automatic device finding
 - **bluer** (0.17, Linux only) - BlueZ D-Bus integration for Bluetooth RFCOMM
-  - Requires `libdbus-1-dev` system package
+  - libdbus is vendored (built from source, linked statically): no `libdbus-1-dev` needed
   - Features: `bluetoothd`, `rfcomm`
 - **toml** - TOML configuration file parsing for connection profiles
 - **dirs** - Cross-platform config directory paths
@@ -184,7 +184,7 @@ ET Phone Home v0.4.0 introduces several new dependencies:
 ### Build Notes
 
 **Bluetooth on Linux:**
-If you don't need Bluetooth support, you can skip the `libdbus-1-dev` requirement. The build will succeed but Bluetooth functionality will not be available.
+libdbus is compiled from source as part of the build and linked statically, so neither building nor running the client needs a system libdbus. Release binaries are built with `.forgejo/scripts/build-linux-release.sh` (cargo-zigbuild, glibc 2.31 baseline) so they run on Debian 11+/Ubuntu 20.04+ and newer distros.
 
 **mDNS Discovery:**
 The `mdns-sd` crate works on all platforms without additional dependencies.
@@ -239,7 +239,7 @@ After building, verify the installation:
 - **Solution:** On Windows, put `wintun.dll` (https://www.wintun.net) next to `etphonehome.exe`
 
 **Problem:** "failed to run custom build command for `libdbus-sys`" (v0.4.0+)
-- **Solution (Linux):** Install D-Bus development libraries:
+- **Solution (Linux):** since 0.6.1 libdbus is built from source: make sure a C compiler (`build-essential` / `gcc`) is installed. Older versions needed the D-Bus development libraries:
   ```bash
   # Ubuntu/Debian
   sudo apt-get install libdbus-1-dev pkg-config

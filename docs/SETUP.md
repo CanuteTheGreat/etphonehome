@@ -243,7 +243,7 @@ Bluetooth tethering provides a wireless connection with lower power consumption 
    sudo etphonehome bluetooth --address AA:BB:CC:DD:EE:FF --token AbC123XyZ4567890
    ```
 
-**Note for Linux:** Requires `libdbus-1-dev` for BlueZ D-Bus integration:
+**Note for Linux:** the client talks to BlueZ over D-Bus with a built-in libdbus (nothing to install). Building versions before 0.6.1 from source needed:
 ```bash
 # Ubuntu/Debian
 sudo apt install libdbus-1-dev pkg-config

@@ -347,8 +347,7 @@ sudo etphonehome wifi --host 192.168.1.100 --token AbC123XyZ4567890
 - Trust device: `bluetoothctl trust AA:BB:CC:DD:EE:FF`
 
 **Problem:** "libdbus-1.so not found"
-- Install D-Bus libraries: `sudo apt-get install libdbus-1-dev`
-- Rebuild desktop client
+- Only clients before 0.6.1 load the system libdbus; from 0.6.1 it is built in. Update the client, or install `libdbus-1-3` for an old one
 
 **Windows:** the Windows client has no Bluetooth support; use USB or WiFi.
 

@@ -21,9 +21,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config
-      - name: Build release
-        working-directory: desktop
-        run: cargo build --release -p etphonehome-linux
+      - name: Build release (glibc 2.31 baseline, static libdbus)
+        run: bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
       - name: Package
         # Same script the per-push Rust CI build job runs, so this path is
         # exercised on every push (it used to strip/tar a nonexistent
@@ -79,9 +78,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config
-      - name: Build release
-        working-directory: desktop
-        run: cargo build --release -p etphonehome-gui
+      - name: Build release (glibc 2.31 baseline)
+        run: bash .forgejo/scripts/build-linux-release.sh etphonehome-gui etphonehome-gui
       - name: Package
         run: bash .forgejo/scripts/package.sh gui "${{ github.ref_name }}"
       - name: Upload artifact

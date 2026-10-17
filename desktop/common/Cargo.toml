@@ -24,6 +24,11 @@ env_logger = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"] }
+# Build libdbus (bluer's D-Bus transport) from source and link it statically:
+# the release binary then needs no libdbus-1.so on the user's machine and
+# can be linked against an old glibc (.forgejo/scripts/build-linux-release.sh)
+# so it runs on every distro we claim, not just ones as new as the CI image.
+libdbus-sys = { version = "0.2", features = ["vendored"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

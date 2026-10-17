@@ -12,6 +12,7 @@ on:
       - '.forgejo/scripts/e2e-lib.sh'
       - '.forgejo/scripts/e2e-target-services.py'
       - '.forgejo/scripts/package.sh'
+      - '.forgejo/scripts/build-linux-release.sh'
       - '.forgejo/workflows/rust-ci.yml'
   pull_request:
     branches: [main]
@@ -24,6 +25,7 @@ on:
       - '.forgejo/scripts/e2e-lib.sh'
       - '.forgejo/scripts/e2e-target-services.py'
       - '.forgejo/scripts/package.sh'
+      - '.forgejo/scripts/build-linux-release.sh'
       - '.forgejo/workflows/rust-ci.yml'
 
 env:
@@ -178,10 +180,10 @@ jobs:
           key: ${{ runner.os }}-cargo-e2e-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-cargo-e2e-
-      - name: Build client and privileged tests
-        working-directory: desktop
+      - name: Build client (exactly as released) and privileged tests
         run: |
-          cargo build --release -p etphonehome-linux
+          bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
+          cd desktop
           T=$(cargo test -p etphonehome-common --no-run 2>&1 | grep -o 'target/debug/deps/etphonehome_common-[a-z0-9]*' | head -1)
           test -n "$T"
           mkdir -p ../e2e-bin
@@ -227,9 +229,8 @@ jobs:
           key: ${{ runner.os }}-cargo-build-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-cargo-build-
-      - name: Build release
-        working-directory: desktop
-        run: cargo build --release -p etphonehome-linux
+      - name: Build release (glibc 2.31 baseline, static libdbus -- as released)
+        run: bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
       - name: Package (same script as release.yml) and smoke-test
         run: bash .forgejo/scripts/package.sh linux "ci-${GITHUB_SHA::8}"
       - name: Upload artifact
@@ -322,9 +323,8 @@ jobs:
           key: ${{ runner.os }}-cargo-build-gui-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-cargo-build-gui-
-      - name: Build release
-        working-directory: desktop
-        run: cargo build --release -p etphonehome-gui
+      - name: Build release (glibc 2.31 baseline -- as released)
+        run: bash .forgejo/scripts/build-linux-release.sh etphonehome-gui etphonehome-gui
       - name: Package (same script as release.yml)
         run: bash .forgejo/scripts/package.sh gui "ci-${GITHUB_SHA::8}"
       - name: Upload artifact

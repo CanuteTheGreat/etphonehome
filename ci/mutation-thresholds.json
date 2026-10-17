@@ -1,0 +1,5 @@
+{
+  "_comment": "Minimum mutation score per core module (.forgejo/workflows/mutation.yml). Only ever raise these: set each to the score a green run reached once the surviving mutants it lists have tests.",
+  "rust": {},
+  "kotlin": {}
+}

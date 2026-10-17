@@ -1,0 +1,12 @@
+{
+  "_comment": "Nightly tunnel-deep.sh performance baseline (linux-cross-x86_64 runners). A metric more than PERF_FACTOR (2x) worse fails the nightly. Update deliberately, with the run that justifies it.",
+  "wifi_tls_down_mibps": 40,
+  "wifi_tls_up_mibps": 20,
+  "usb_down_mibps": 20,
+  "usb_up_mibps": 10,
+  "rtt_median_ms": 45,
+  "rtt_p95_ms": 50,
+  "wifi_rtt_median_ms": 45,
+  "wifi_rtt_p95_ms": 50,
+  "connect_median_ms": 5
+}

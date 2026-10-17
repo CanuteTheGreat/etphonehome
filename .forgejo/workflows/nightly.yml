@@ -1,0 +1,186 @@
+name: Nightly (deep tunnel, platforms, upgrade)
+# Slow layers kept out of the per-push CI (which stays under ~20 min):
+#   deep        tunnel-deep.sh: integrity at scale, failure + recovery
+#               (USB unplug, WiFi drop, app killed, Ctrl-C, crash, lossy
+#               link), throughput/latency against ci/perf-baseline.json, and
+#               upgrade compatibility with the previous release
+#   arm64       the whole per-push tunnel e2e, natively on arm64
+#   distros     the release client on Debian/Ubuntu/Fedora/Arch/openSUSE,
+#               each running a real tunnel with real traffic
+#   windows     the Windows client executed (wine): CLI, config, and a real
+#               TLS + protocol handshake with the phone core
+# Android on emulators: android-emulator.yml. Mutation testing: mutation.yml.
+
+on:
+  schedule:
+    - cron: '23 10 * * *'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  deep:
+    name: Deep tunnel suite (integrity, failure, performance, upgrade)
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libdbus-1-dev pkg-config python3
+      - name: Build client
+        working-directory: desktop
+        run: |
+          cargo build --release -p etphonehome-linux
+          mkdir -p ../deep-bin && cp target/release/etphonehome ../deep-bin/
+      - name: Build the phone stand-in (android/core)
+        working-directory: android/core
+        run: |
+          for attempt in 1 2 3; do
+            ../gradlew --no-daemon --max-workers=2 installDist && break
+            [ "$attempt" -eq 3 ] && exit 1
+            echo "gradle failed (attempt $attempt/3), retrying in 20s"; sleep 20
+          done
+      - name: Previous release (desktop asset + phone core built from its tag)
+        id: prev
+        run: |
+          for attempt in 1 2 3; do
+            bash .forgejo/scripts/prev-release.sh "$PWD/prev" > prev.log 2>&1 && break
+            cat prev.log
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 20
+          done
+          cat prev.log
+          echo "tag=$(tail -1 prev.log)" >> "$GITHUB_OUTPUT"
+      - name: Run the deep suite
+        env:
+          PREV_CONFIG: ${{ github.workspace }}/prev/config.example.toml
+        run: |
+          echo "previous release: ${{ steps.prev.outputs.tag }}"
+          bash .forgejo/scripts/tunnel-deep.sh "$PWD/deep-bin" \
+            "$PWD/android/core/standin/build/install/standin" \
+            "$PWD/prev/bin" "$PWD/prev/standin"
+      - name: Upload results (perf.json, logs)
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: deep-results
+          path: deep-results/
+
+  arm64:
+    name: Tunnel e2e on arm64 (native)
+    runs-on: arm64
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Build client and privileged tests
+        working-directory: desktop
+        run: |
+          uname -m
+          cargo build --release -p etphonehome-linux
+          T=$(cargo test -p etphonehome-common --no-run 2>&1 | grep -o 'target/debug/deps/etphonehome_common-[a-z0-9]*' | head -1)
+          test -n "$T"
+          mkdir -p ../e2e-bin
+          cp target/release/etphonehome ../e2e-bin/
+          cp "$T" ../e2e-bin/common-tests
+          file ../e2e-bin/etphonehome || true
+      - name: Build the phone stand-in
+        working-directory: android/core
+        run: |
+          for attempt in 1 2 3; do
+            ../gradlew --no-daemon --max-workers=2 installDist && break
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 20
+          done
+      - name: Run the tunnel e2e on arm64
+        run: bash .forgejo/scripts/desktop-e2e.sh "$PWD/e2e-bin" "$PWD/android/core/standin/build/install/standin"
+
+  distros:
+    name: Linux distro matrix (real tunnel per distro)
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Build and package the client exactly as released
+        run: |
+          (cd desktop && cargo build --release -p etphonehome-linux)
+          bash .forgejo/scripts/package.sh linux "nightly"
+          mkdir -p distro-bin && tar -C distro-bin -xzf dist/etphonehome-linux-nightly.tar.gz
+          objdump -T distro-bin/etphonehome | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1 | sed 's/^/newest glibc symbol needed: /'
+      - name: Build the phone stand-in
+        working-directory: android/core
+        run: |
+          for attempt in 1 2 3; do
+            ../gradlew --no-daemon --max-workers=2 installDist && break
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 20
+          done
+      - name: Run the distro matrix
+        run: bash .forgejo/scripts/distro-smoke.sh "$PWD/distro-bin" "$PWD/android/core/standin/build/install/standin"
+
+  windows:
+    name: Windows client executed (wine)
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Install mingw-w64 and wine
+        run: |
+          sudo dpkg --add-architecture i386 || true
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 wine64 wine xvfb
+      - name: Build the Windows client
+        working-directory: desktop
+        run: cargo build --release -p etphonehome-windows --target x86_64-pc-windows-gnu
+      - name: Build the phone stand-in
+        working-directory: android/core
+        run: |
+          for attempt in 1 2 3; do
+            ../gradlew --no-daemon --max-workers=2 installDist && break
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 20
+          done
+      - name: Run the Windows client
+        run: bash .forgejo/scripts/windows-wine-smoke.sh desktop/target/x86_64-pc-windows-gnu/release/etphonehome.exe "$PWD/android/core/standin/build/install/standin"

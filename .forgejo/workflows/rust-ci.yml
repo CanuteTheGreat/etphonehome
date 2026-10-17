@@ -9,6 +9,8 @@ on:
       - 'android/core/**'
       - 'scripts/quick-start-linux.sh'
       - '.forgejo/scripts/desktop-e2e*.sh'
+      - '.forgejo/scripts/e2e-lib.sh'
+      - '.forgejo/scripts/e2e-target-services.py'
       - '.forgejo/scripts/package.sh'
       - '.forgejo/workflows/rust-ci.yml'
   pull_request:
@@ -19,6 +21,8 @@ on:
       - 'android/core/**'
       - 'scripts/quick-start-linux.sh'
       - '.forgejo/scripts/desktop-e2e*.sh'
+      - '.forgejo/scripts/e2e-lib.sh'
+      - '.forgejo/scripts/e2e-target-services.py'
       - '.forgejo/scripts/package.sh'
       - '.forgejo/workflows/rust-ci.yml'
 

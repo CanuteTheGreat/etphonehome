@@ -1,0 +1,73 @@
+name: Android emulator (real app, real internet)
+# The real APK on Android emulators (KVM, rw-man-01): UI-started USB and WiFi
+# TLS sessions giving a desktop real internet, app killed / Stop button
+# recovery, the phone keeping its own connectivity, and an in-place upgrade
+# from the previous release. API 26 = the app's minSdk, API 34 = targetSdk.
+# See .forgejo/scripts/android-emulator-e2e.sh.
+
+on:
+  schedule:
+    - cron: '47 11 * * *'
+  workflow_dispatch:
+
+jobs:
+  emulator:
+    name: Real app on emulators (API 26 + 34)
+    runs-on: kvm-x86_64
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep Node.js on PATH for JS-action steps
+        run: |
+          command -v node || (sudo apt-get update -qq && sudo apt-get install -y -qq nodejs)
+          dirname "$(command -v node)" >> "$GITHUB_PATH"
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libdbus-1-dev pkg-config socat iproute2 curl python3 \
+            libpulse0 libnss3 libxcomposite1 libxcursor1 libxi6 libxtst6 libasound2 libgl1 libxkbfile1 || \
+          sudo apt-get install -y build-essential libdbus-1-dev pkg-config socat iproute2 curl python3 \
+            libpulse0 libnss3 libxcomposite1 libxcursor1 libxi6 libxtst6 libasound2t64 libgl1 libxkbfile1
+          ls -l /dev/kvm
+      - name: Set up Android SDK
+        run: .forgejo/scripts/setup-android-sdk.sh
+      - name: Build this release APK and the desktop client
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          (cd android && for attempt in 1 2 3; do ./gradlew --no-daemon --max-workers=2 assembleRelease && break; [ "$attempt" -eq 3 ] && exit 1; sleep 20; done; ./gradlew --stop)
+          (cd desktop && cargo build --release -p etphonehome-linux)
+          ls -l android/app/build/outputs/apk/release/
+      - name: Previous release APK
+        run: |
+          API=${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}
+          curl -fsS "$API/releases?limit=5" -o releases.json
+          URL=$(python3 -c "
+          import json
+          r=[r for r in json.load(open('releases.json')) if not r['draft'] and not r['prerelease']][0]
+          print([a['browser_download_url'] for a in r['assets'] if a['name'].endswith('.apk')][0])")
+          echo "previous APK: $URL"
+          curl -fsSL "$URL" -o prev.apk
+      - name: API 34 (targetSdk) -- with the upgrade from the previous release
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          APK=$(ls android/app/build/outputs/apk/release/app-release*.apk | head -1)
+          bash .forgejo/scripts/android-emulator-e2e.sh 34 google_apis "$APK" desktop/target/release/etphonehome prev.apk
+      - name: API 26 (minSdk, Android 8.0)
+        if: always()
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          APK=$(ls android/app/build/outputs/apk/release/app-release*.apk | head -1)
+          bash .forgejo/scripts/android-emulator-e2e.sh 26 default "$APK" desktop/target/release/etphonehome
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: emulator-results
+          path: emulator-results/

@@ -1,6 +1,9 @@
 plugins {
     id 'org.jetbrains.kotlin.jvm' version '2.0.21'
     id 'java-library'
+    // Mutation testing (weekly CI, .forgejo/workflows/mutation.yml):
+    // ./gradlew pitest -> build/reports/pitest/mutations.xml
+    id 'info.solidsoft.pitest' version '1.19.0'
 }
 
 group = 'com.etphonehome'
@@ -36,4 +39,14 @@ test {
         events "passed", "skipped", "failed"
         exceptionFormat "full"
     }
+}
+
+pitest {
+    targetClasses = ['com.etphonehome.*']
+    threads = 2
+    outputFormats = ['XML', 'HTML']
+    timestampedReports = false
+    exportLineCoverage = true
+    timeoutConstInMillis = 10000
+    jvmArgs = ['-Xmx768m', "-Detph.protocolVectors=${file('../../protocol/test-vectors.txt').absolutePath}".toString()]
 }

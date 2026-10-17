@@ -117,41 +117,95 @@ pub fn self_signed_identity(token: &str) -> (CertificateDer<'static>, PrivateKey
     (cert_der, key_der)
 }
 
-/// Extract the raw 32-byte Ed25519 public key from a DER certificate's
-/// SubjectPublicKeyInfo. Returns `None` if the cert doesn't contain an
-/// Ed25519 key (e.g. a non-Ed25519 or malformed cert) in the expected,
-/// fixed encoding: `OID(Ed25519) || BIT STRING(33 bytes, 0 unused, 32-byte key)`.
-///
-/// The Ed25519 OID also appears (without a following public-key bit string)
-/// in the certificate's two *signature algorithm* fields -- both the
-/// top-level one and the one duplicated inside TBSCertificate -- so this
-/// scans every occurrence of the OID and only accepts the one immediately
-/// followed by a 33-byte BIT STRING (`03 21 00`), which is the SPKI
-/// encoding unique to the public key field itself.
-fn extract_ed25519_pubkey(cert: &CertificateDer<'_>) -> Option<[u8; 32]> {
-    let bytes = cert.as_ref();
-    for oid_pos in bytes
-        .windows(ED25519_OID.len())
-        .enumerate()
-        .filter_map(|(i, w)| (w == ED25519_OID).then_some(i))
-    {
-        let after_oid = oid_pos + ED25519_OID.len();
-        if bytes.len() < after_oid + 3 + 32 {
-            continue;
-        }
-        // Expect: 0x03 (BIT STRING tag), 0x21 (length = 33), 0x00 (0 unused
-        // bits), then the 32 raw public key bytes. The signature-algorithm
-        // occurrences of this OID are followed by other TBSCertificate
-        // fields (Validity, etc.) or nothing matching this pattern, so they
-        // fall through to the next iteration instead of being misread.
-        if bytes[after_oid] == 0x03 && bytes[after_oid + 1] == 0x21 && bytes[after_oid + 2] == 0x00
-        {
-            let mut key = [0u8; 32];
-            key.copy_from_slice(&bytes[after_oid + 3..after_oid + 3 + 32]);
-            return Some(key);
-        }
+/// Split one DER TLV off the front of `input`: returns `(tag, contents, rest)`.
+/// Only what an X.509 certificate needs is supported (single-byte tags,
+/// definite lengths up to 4 length bytes); anything else is `None`.
+fn der_tlv(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
+    let (&tag, after_tag) = input.split_first()?;
+    if tag & 0x1f == 0x1f {
+        return None; // high-tag-number form: never used in the fields we walk
     }
-    None
+    let (&first, mut after_len) = after_tag.split_first()?;
+    let len = if first < 0x80 {
+        first as usize
+    } else {
+        let n = (first & 0x7f) as usize;
+        if n == 0 || n > 4 || after_len.len() < n {
+            return None; // indefinite length is not DER; >4 bytes is absurd here
+        }
+        let mut len = 0usize;
+        for &b in &after_len[..n] {
+            len = (len << 8) | b as usize;
+        }
+        after_len = &after_len[n..];
+        len
+    };
+    if after_len.len() < len {
+        return None;
+    }
+    Some((tag, &after_len[..len], &after_len[len..]))
+}
+
+/// Extract the raw 32-byte Ed25519 public key from a DER certificate's
+/// SubjectPublicKeyInfo. Returns `None` unless the certificate's *own* key
+/// (the SPKI field of TBSCertificate, which is the key the TLS handshake
+/// signature is verified against) is an Ed25519 key in the RFC 8410
+/// encoding: `SEQUENCE { SEQUENCE { OID 1.3.101.112 } BIT STRING (0 unused
+/// bits, 32-byte key) }`.
+///
+/// This walks the DER structure to the SPKI field instead of searching the
+/// raw bytes for the Ed25519 OID. A byte search can be fooled: a peer could
+/// present a certificate for an ECDSA/RSA key it controls and carry the
+/// bytes `OID(Ed25519) || 03 21 00 || <pinned key>` somewhere else in it (a
+/// custom extension, a name attribute). The search would "find" the pinned
+/// key, the pin check would pass, and rustls would then verify the handshake
+/// signature against the peer's real, unpinned key -- a full pin bypass for
+/// anyone who knows the pinned public key, which is not secret (every peer
+/// sends it in its certificate).
+fn extract_ed25519_pubkey(cert: &CertificateDer<'_>) -> Option<[u8; 32]> {
+    // Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signature }
+    let (tag, cert_body, trailing) = der_tlv(cert.as_ref())?;
+    if tag != 0x30 || !trailing.is_empty() {
+        return None;
+    }
+    let (tag, tbs, _) = der_tlv(cert_body)?;
+    if tag != 0x30 {
+        return None;
+    }
+
+    // TBSCertificate ::= SEQUENCE { [0] version OPTIONAL, serialNumber,
+    //   signature, issuer, validity, subject, subjectPublicKeyInfo, ... }
+    let mut rest = tbs;
+    let (tag, _, after) = der_tlv(rest)?;
+    if tag == 0xa0 {
+        rest = after;
+    }
+    // serialNumber INTEGER, then signature/issuer/validity/subject SEQUENCEs.
+    for expected in [0x02u8, 0x30, 0x30, 0x30, 0x30] {
+        let (tag, _, after) = der_tlv(rest)?;
+        if tag != expected {
+            return None;
+        }
+        rest = after;
+    }
+
+    // SubjectPublicKeyInfo ::= SEQUENCE { algorithm AlgorithmIdentifier, subjectPublicKey BIT STRING }
+    let (tag, spki, _) = der_tlv(rest)?;
+    if tag != 0x30 {
+        return None;
+    }
+    let (tag, algorithm, after_alg) = der_tlv(spki)?;
+    // RFC 8410: the Ed25519 AlgorithmIdentifier is exactly the OID, no parameters.
+    if tag != 0x30 || algorithm != ED25519_OID {
+        return None;
+    }
+    let (tag, bits, after_bits) = der_tlv(after_alg)?;
+    if tag != 0x03 || !after_bits.is_empty() || bits.len() != 33 || bits[0] != 0x00 {
+        return None;
+    }
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&bits[1..]);
+    Some(key)
 }
 
 /// Compute the Ed25519 public key this peer expects the other side to
@@ -407,6 +461,97 @@ mod tests {
         let (cert, _key) = self_signed_identity(token);
         let embedded = extract_ed25519_pubkey(&cert).expect("cert should contain Ed25519 key");
         assert_eq!(embedded, expected_pubkey(token));
+    }
+
+    /// The pin must be checked against the key the handshake is actually
+    /// signed with. A certificate for an attacker-held ECDSA key that merely
+    /// *carries* the pinned Ed25519 key's bytes (here in a custom extension,
+    /// laid out exactly like an Ed25519 SPKI) must not pass.
+    #[test]
+    fn pinned_key_bytes_elsewhere_in_a_non_ed25519_cert_do_not_pass_the_pin() {
+        let token = "pin-bypass-test-token";
+        let pinned = expected_pubkey(token);
+
+        let mut decoy = ED25519_OID.to_vec();
+        decoy.extend_from_slice(&[0x03, 0x21, 0x00]);
+        decoy.extend_from_slice(&pinned);
+
+        let attacker_key = KeyPair::generate().expect("P-256 key generation");
+        let mut params =
+            CertificateParams::new(Vec::<String>::new()).expect("empty SAN list is valid");
+        params
+            .custom_extensions
+            .push(rcgen::CustomExtension::from_oid_content(
+                &[1, 3, 6, 1, 4, 1, 55555, 1],
+                decoy.clone(),
+            ));
+        let cert = params
+            .self_signed(&attacker_key)
+            .expect("self-signed cert generation should not fail");
+        let der = cert.der().clone();
+
+        // The decoy really is in the certificate bytes, so a raw byte search
+        // for the Ed25519 OID would find the pinned key in it.
+        assert!(der
+            .as_ref()
+            .windows(decoy.len())
+            .any(|w| w == decoy.as_slice()));
+
+        assert_eq!(extract_ed25519_pubkey(&der), None);
+        let verifier = PinnedServerVerifier::new(token);
+        assert!(verifier
+            .verify_server_cert(
+                &der,
+                &[],
+                &ServerName::try_from("etphonehome").unwrap(),
+                &[],
+                UnixTime::now(),
+            )
+            .is_err());
+        let client_verifier = PinnedClientVerifier::new(token);
+        assert!(client_verifier
+            .verify_client_cert(&der, &[], UnixTime::now())
+            .is_err());
+    }
+
+    #[test]
+    fn genuine_pinned_cert_passes_both_verifiers() {
+        let token = "pin-accept-test-token";
+        let (cert, _key) = self_signed_identity(token);
+        PinnedServerVerifier::new(token)
+            .verify_server_cert(
+                &cert,
+                &[],
+                &ServerName::try_from("etphonehome").unwrap(),
+                &[],
+                UnixTime::now(),
+            )
+            .expect("cert derived from the same token must pass the pin");
+        PinnedClientVerifier::new(token)
+            .verify_client_cert(&cert, &[], UnixTime::now())
+            .expect("cert derived from the same token must pass the pin");
+    }
+
+    #[test]
+    fn truncated_or_garbage_certs_are_rejected_without_panicking() {
+        let (cert, _key) = self_signed_identity("truncation-test-token");
+        let bytes = cert.as_ref();
+        for len in 0..bytes.len() {
+            let truncated = CertificateDer::from(bytes[..len].to_vec());
+            assert_eq!(extract_ed25519_pubkey(&truncated), None, "len {len}");
+        }
+        let mut trailing = bytes.to_vec();
+        trailing.push(0x00);
+        assert_eq!(
+            extract_ed25519_pubkey(&CertificateDer::from(trailing)),
+            None
+        );
+        assert_eq!(
+            extract_ed25519_pubkey(&CertificateDer::from(vec![
+                0x30, 0x84, 0xff, 0xff, 0xff, 0xff
+            ])),
+            None
+        );
     }
 
     #[test]

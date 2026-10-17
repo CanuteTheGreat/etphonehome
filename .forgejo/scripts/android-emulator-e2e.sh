@@ -162,9 +162,12 @@ PY
   fi
   return 0
 }
-service_count() { adb shell dumpsys activity services $PKG 2>/dev/null | grep -c ServiceRecord; }
+# Record headers look like "* ServiceRecord{1a2b u0 com.etphonehome/.service.TetherService}".
+service_count() { adb shell dumpsys activity services $PKG 2>/dev/null | grep -c "ServiceRecord{.* $PKG/"; }
 no_service_within() { # seconds: the service record is gone (it lingers briefly after a stop)
   for _ in $(seq 1 $(($1 * 2))); do [ "$(service_count)" = 0 ] && return 0; sleep 0.5; done
+  echo "--- dumpsys activity services $PKG (still listed):"
+  adb shell dumpsys activity services $PKG 2>/dev/null | grep -A12 "ServiceRecord{" | head -40
   return 1
 }
 

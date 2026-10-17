@@ -18,9 +18,9 @@ env:
 jobs:
   rust:
     name: cargo-mutants (desktop core)
-    # Heavy scheduled/on-demand work runs on its own low-priority lane (nightly-x86_64, ctg-infrastructure
-    # ci-runners/rw-man-nightly) so it never holds the per-push runners for hours.
-    runs-on: nightly-x86_64
+    # colo-only lane (rw-man-01, ctg-infrastructure ci-runners/rw-man-colo): mutation / chaos /
+    # security-tool / network-probing CI never runs on the EC2 hosts rw-man-02..05 (GuardDuty).
+    runs-on: colo-x86_64
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
@@ -74,7 +74,9 @@ jobs:
 
   kotlin:
     name: PIT (phone core)
-    runs-on: nightly-x86_64
+    # colo-only lane (rw-man-01, ctg-infrastructure ci-runners/rw-man-colo): mutation / chaos /
+    # security-tool / network-probing CI never runs on the EC2 hosts rw-man-02..05 (GuardDuty).
+    runs-on: colo-x86_64
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4

@@ -250,9 +250,10 @@ pub fn setup_routing(tun_name: &str) -> Result<()> {
     info!("Setting up routing for {}...", tun_name);
     #[cfg(target_os = "linux")]
     {
-        let _ = Command::new("sysctl")
-            .args(["-w", "net.ipv4.ip_forward=1"])
-            .output();
+        // No `sysctl net.ipv4.ip_forward=1` here: this computer only sends
+        // its own traffic into the TUN device, which needs no forwarding.
+        // Flipping it turned the user's machine into a router for every
+        // network it is on, and it was never turned back off.
         let output = Command::new("ip")
             .args([
                 "route", "add", "default", "via", TUN_PEER, "dev", tun_name, "metric", "100",
@@ -486,6 +487,23 @@ pub fn ctrl_c_shutdown() -> watch::Receiver<bool> {
     rx
 }
 
+/// Errors no retry can fix: the phone speaks another protocol major
+/// version, or rejected our token (or our plaintext connection). Retrying
+/// these forever just hides the reason behind a reconnect loop.
+pub fn is_permanent(e: &anyhow::Error) -> bool {
+    use crate::protocol::{ErrorCode, ProtocolError};
+    e.chain().any(|c| {
+        matches!(
+            c.downcast_ref::<ProtocolError>(),
+            Some(ProtocolError::VersionMismatch { .. })
+                | Some(ProtocolError::PeerError {
+                    code: ErrorCode::ProtocolVersion | ErrorCode::AuthFailed,
+                    ..
+                })
+        )
+    })
+}
+
 /// Run `attempt` with auto-reconnect and exponential backoff (1, 2, 4 ...
 /// capped at 60 s). Stops on shutdown, on a cancelled session, or when the
 /// retry budget is used up (returning the last error, if the last attempt
@@ -500,7 +518,13 @@ where
     A: FnMut(u32) -> Fut,
     Fut: Future<Output = Result<SessionEnd>>,
 {
+    // `n` numbers attempts for the UI; `failed` counts attempts since the
+    // last session that actually came up. The retry budget and the backoff
+    // use `failed`: a laptop whose WiFi blips five times over a day is not
+    // out of retries, and its first reconnect waits 1 s, not 60 s. (Both
+    // used the lifetime attempt count before.)
     let mut n: u32 = 0;
+    let mut failed: u32 = 0;
     loop {
         n += 1;
         let fut = attempt(n);
@@ -523,14 +547,24 @@ where
             && match &result {
                 Ok(end) => {
                     info!("Connection closed: {:?}", end);
+                    failed = 0;
                     end.should_reconnect()
+                }
+                Err(e) if is_permanent(e) => {
+                    error!("Connection failed: {:#}", e);
+                    error!(
+                        "Not retrying: this will not fix itself (update the app or this client so \
+                         both speak the same protocol version, or use the token the app shows)"
+                    );
+                    false
                 }
                 Err(e) => {
                     error!("Connection failed: {:#}", e);
+                    failed += 1;
                     true
                 }
             };
-        let budget_left = policy.max_retries == 0 || n < policy.max_retries;
+        let budget_left = policy.max_retries == 0 || failed < policy.max_retries;
         if !(policy.reconnect && retry && budget_left) {
             if let Some(svc) = &service {
                 svc.set_state(match &result {
@@ -548,11 +582,11 @@ where
                 Err(e) => Err(e),
             };
         }
-        let delay = ConnectionService::calculate_retry_delay(n);
+        let delay = ConnectionService::calculate_retry_delay(failed);
         info!(
             "Reconnecting in {}s (attempt {} of {})...",
             delay.as_secs(),
-            n + 1,
+            failed + 1,
             if policy.max_retries == 0 {
                 "∞".to_string()
             } else {
@@ -981,6 +1015,102 @@ mod tests {
         assert!(err.contains("giving up after 4"), "{}", err);
         // Backoff 1 + 2 + 4 seconds between the four attempts.
         assert_eq!(start.elapsed().as_secs(), 7);
+    }
+
+    /// A version mismatch or a rejected token cannot be fixed by retrying:
+    /// the client must stop with the reason, not loop forever.
+    #[tokio::test(start_paused = true)]
+    async fn permanent_errors_are_not_retried() {
+        use crate::protocol::{ErrorCode, ProtocolError};
+        let errors: Vec<fn() -> anyhow::Error> = vec![
+            || {
+                anyhow::Error::new(ProtocolError::VersionMismatch {
+                    local_major: 1,
+                    peer_major: 2,
+                    peer_version: 0x0200,
+                })
+                .context("handshake with Android device failed")
+            },
+            || {
+                anyhow::Error::new(ProtocolError::PeerError {
+                    code: ErrorCode::AuthFailed,
+                    message: "Authentication failed: invalid token".into(),
+                })
+                .context("handshake with Android device failed")
+            },
+            || {
+                anyhow::Error::new(ProtocolError::PeerError {
+                    code: ErrorCode::ProtocolVersion,
+                    message: "Protocol version mismatch".into(),
+                })
+            },
+        ];
+        for make in errors {
+            let calls = Arc::new(AtomicU32::new(0));
+            let (_tx, rx) = shutdown_channel();
+            let c = Arc::clone(&calls);
+            let r = run_with_retry(
+                RetryPolicy {
+                    reconnect: true,
+                    max_retries: 0,
+                },
+                rx,
+                None,
+                move |_| {
+                    let c = Arc::clone(&c);
+                    async move {
+                        c.fetch_add(1, Ordering::SeqCst);
+                        Err::<SessionEnd, _>(make())
+                    }
+                },
+            )
+            .await;
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            assert!(r.is_err());
+        }
+        // Transient failures stay retryable.
+        assert!(!is_permanent(&anyhow::anyhow!("connection refused")));
+        assert!(!is_permanent(&anyhow::Error::new(
+            ProtocolError::PeerError {
+                code: ErrorCode::InternalError,
+                message: "busy".into(),
+            }
+        )));
+    }
+
+    /// The retry budget counts failures since the last session that came
+    /// up, not attempts over the client's lifetime, and the backoff starts
+    /// again at 1 s after a session.
+    #[tokio::test(start_paused = true)]
+    async fn retry_budget_resets_after_a_session_came_up() {
+        let calls = Arc::new(AtomicU32::new(0));
+        let (_tx, rx) = shutdown_channel();
+        let c = Arc::clone(&calls);
+        let start = tokio::time::Instant::now();
+        let r = run_with_retry(
+            RetryPolicy {
+                reconnect: true,
+                max_retries: 2,
+            },
+            rx,
+            None,
+            move |n| {
+                let c = Arc::clone(&c);
+                async move {
+                    c.fetch_add(1, Ordering::SeqCst);
+                    match n {
+                        // fail, session, fail, session, fail, fail -> give up
+                        2 | 4 => Ok(SessionEnd::TransportClosed("wifi blip".into())),
+                        _ => Err::<SessionEnd, _>(anyhow::anyhow!("refused")),
+                    }
+                }
+            },
+        )
+        .await;
+        assert_eq!(calls.load(Ordering::SeqCst), 6);
+        assert!(r.is_err());
+        // Delays: 1 (fail) + 1 (session) + 1 (fail) + 1 (session) + 1 (fail).
+        assert_eq!(start.elapsed().as_secs(), 5);
     }
 
     #[tokio::test(start_paused = true)]

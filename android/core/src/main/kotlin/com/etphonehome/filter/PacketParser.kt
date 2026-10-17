@@ -163,6 +163,7 @@ object PacketParser {
         0,   // Hop-by-Hop Options
         43,  // Routing
         44,  // Fragment
+        51,  // Authentication Header (RFC 4302; length in 4-byte units)
         60,  // Destination Options
         135, // Mobility
         139, // Host Identity Protocol
@@ -199,27 +200,35 @@ object PacketParser {
 
         var nextHeader = packet[6].toInt() and 0xFF
         var offset = 40
-        var hops = 0
         // Set when a Fragment header with a non-zero offset is seen: such a
         // fragment carries no transport header (see the IPv4 note above).
         var nonFirstFragment = false
 
-        // Walk the extension header chain. Cap the number of hops so a
-        // maliciously/accidentally looping chain can't spin forever; eight
-        // is already far more than any legitimate stack produces.
-        while (nextHeader in IPV6_EXTENSION_HEADERS && hops < 8) {
+        // Walk the whole extension header chain. There is deliberately no
+        // hop cap: every header is at least 8 bytes and must fit inside the
+        // packet (checked below), so the walk always terminates within
+        // packet.size / 8 steps. A cap used to sit here (8 hops), and it
+        // failed open: a packet with 9+ zero-length Destination Options
+        // headers in front of TCP/443 stopped the walk on an extension
+        // header, came out as Protocol.ANY with no ports, and so slipped
+        // past "block tcp 443" -- while the receiving stack, which has no
+        // such cap, still delivered it to port 443.
+        while (nextHeader in IPV6_EXTENSION_HEADERS) {
             // Every recognized extension header here uses the common
             // "Next Header (1 byte) | Hdr Ext Len (1 byte) | ..." layout
             // where the total header length in bytes is (Hdr Ext Len + 1) * 8,
             // EXCEPT the Fragment header, which has no Hdr Ext Len field and
-            // is always exactly 8 bytes.
+            // is always exactly 8 bytes, and the Authentication Header,
+            // whose Payload Len counts 4-byte units minus 2 (RFC 4302 2.2).
+            // Without AH in the chain, TCP behind an AH header parsed as
+            // Protocol.ANY with no ports, dodging protocol/port rules too.
             if (offset + 2 > packet.size) return null // truncated chain
 
             val thisNextHeader = packet[offset].toInt() and 0xFF
-            val extLen = if (nextHeader == 44) {
-                8 // Fragment header: fixed 8 bytes, no length field
-            } else {
-                ((packet[offset + 1].toInt() and 0xFF) + 1) * 8
+            val extLen = when (nextHeader) {
+                44 -> 8 // Fragment header: fixed 8 bytes, no length field
+                51 -> ((packet[offset + 1].toInt() and 0xFF) + 2) * 4
+                else -> ((packet[offset + 1].toInt() and 0xFF) + 1) * 8
             }
 
             if (extLen <= 0 || offset + extLen > packet.size) return null // truncated/invalid
@@ -233,7 +242,6 @@ object PacketParser {
 
             nextHeader = thisNextHeader
             offset += extLen
-            hops++
         }
 
         val protocol = Protocol.fromNumber(nextHeader)

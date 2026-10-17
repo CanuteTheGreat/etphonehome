@@ -1,6 +1,7 @@
 package com.etphonehome.filter
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -166,5 +167,70 @@ class PacketParserTest {
         assertEquals(Protocol.UDP, parsed?.protocol)
         assertNull(parsed?.sourcePort)
         assertNull(parsed?.destPort)
+    }
+
+    /** IPv6 TCP 50000 -> 443 behind [destOpts] zero-length Destination Options headers. */
+    private fun tcp6BehindDestOpts(destOpts: Int): ByteArray {
+        val pkt = ByteArray(40 + 8 * destOpts + 4)
+        pkt[0] = 0x60
+        pkt[6] = if (destOpts == 0) 6 else 60
+        for (i in 0 until destOpts) {
+            val off = 40 + 8 * i
+            pkt[off] = if (i == destOpts - 1) 6 else 60 // next: TCP or another DestOpts
+            pkt[off + 1] = 0 // Hdr Ext Len 0 -> 8 bytes
+        }
+        val t = 40 + 8 * destOpts
+        pkt[t] = 0xc3.toByte(); pkt[t + 1] = 0x50 // src port 50000
+        pkt[t + 2] = 0x01; pkt[t + 3] = 0xbb.toByte() // dst port 443
+        return pkt
+    }
+
+    @Test
+    fun `IPv6 chain longer than eight extension headers still reaches the transport header`() {
+        // The walk used to stop after 8 hops and report Protocol.ANY with
+        // no ports, which let this packet dodge every protocol/port rule.
+        val parsed = PacketParser.parse(tcp6BehindDestOpts(12))
+        assertEquals(Protocol.TCP, parsed?.protocol)
+        assertEquals(50000, parsed?.sourcePort)
+        assertEquals(443, parsed?.destPort)
+        assertEquals(40 + 8 * 12, parsed?.headerLength)
+    }
+
+    @Test
+    fun `block tcp 443 still blocks TCP 443 behind a long extension header chain`() {
+        val rule = parseWireRule("r1|true|block|tcp||443||")!!
+        val engine = FilterEngine(
+            FilterConfig(enabled = true, mode = FilterMode.BLACKLIST, rules = listOf(rule))
+        )
+        for (n in listOf(0, 1, 8, 9, 30)) {
+            assertFalse("$n extension headers", engine.shouldAllow(tcp6BehindDestOpts(n)))
+        }
+    }
+
+    @Test
+    fun `IPv6 Authentication Header is walked with its 4-byte length units`() {
+        // 40 fixed + AH (Payload Len 4 -> (4+2)*4 = 24 bytes, ICV included) + ports.
+        val pkt = ByteArray(40 + 24 + 4)
+        pkt[0] = 0x60
+        pkt[6] = 51 // Next Header: AH
+        pkt[40] = 6 // AH's Next Header: TCP
+        pkt[41] = 4 // Payload Len
+        pkt[64] = 0xc3.toByte(); pkt[65] = 0x50
+        pkt[66] = 0x01; pkt[67] = 0xbb.toByte()
+
+        val parsed = PacketParser.parse(pkt)
+        assertEquals(Protocol.TCP, parsed?.protocol)
+        assertEquals(50000, parsed?.sourcePort)
+        assertEquals(443, parsed?.destPort)
+    }
+
+    @Test
+    fun `IPv6 Authentication Header longer than the packet fails to parse`() {
+        val pkt = ByteArray(40 + 16)
+        pkt[0] = 0x60
+        pkt[6] = 51
+        pkt[40] = 6
+        pkt[41] = 4 // claims 24 bytes, only 16 present
+        assertNull(PacketParser.parse(pkt))
     }
 }

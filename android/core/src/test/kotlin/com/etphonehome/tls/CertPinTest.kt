@@ -1,15 +1,20 @@
 package com.etphonehome.tls
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 
 class CertPinTest {
 
@@ -175,5 +180,35 @@ class CertPinTest {
         assertTrue("valid for years, not days", cert.notAfter.time > now + 365L * 86_400_000L)
         client.getOrThrow().close()
         s.close()
+    }
+
+    /** A factory whose layered createSocket fails like a bad handshake would. */
+    class FailingFactory : SSLSocketFactory() {
+        var seen: Pair<InputStream, Boolean>? = null
+        override fun createSocket(s: Socket, consumed: InputStream, autoClose: Boolean): Socket {
+            seen = consumed to autoClose
+            throw SSLException("handshake refused")
+        }
+        override fun getDefaultCipherSuites(): Array<String> = emptyArray()
+        override fun getSupportedCipherSuites(): Array<String> = emptyArray()
+        override fun createSocket(s: Socket, host: String?, port: Int, autoClose: Boolean): Socket = throw UnsupportedOperationException()
+        override fun createSocket(host: String?, port: Int): Socket = throw UnsupportedOperationException()
+        override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket = throw UnsupportedOperationException()
+        override fun createSocket(host: InetAddress?, port: Int): Socket = throw UnsupportedOperationException()
+        override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket = throw UnsupportedOperationException()
+    }
+
+    @Test
+    fun `layering passes the consumed bytes on and rethrows the handshake's own exception`() {
+        val factory = FailingFactory()
+        val consumed = ByteArrayInputStream(byteArrayOf(0x16))
+        try {
+            CertPin.layerOver(factory, Socket(), consumed)
+            fail("expected the factory's SSLException")
+        } catch (e: SSLException) {
+            assertEquals("handshake refused", e.message)
+        }
+        assertSame(consumed, factory.seen?.first)
+        assertEquals(true, factory.seen?.second)
     }
 }

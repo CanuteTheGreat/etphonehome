@@ -163,6 +163,10 @@ PY
   return 0
 }
 service_count() { adb shell dumpsys activity services $PKG 2>/dev/null | grep -c ServiceRecord; }
+no_service_within() { # seconds: the service record is gone (it lingers briefly after a stop)
+  for _ in $(seq 1 $(($1 * 2))); do [ "$(service_count)" = 0 ] && return 0; sleep 0.5; done
+  return 1
+}
 
 # --- host services the phone reaches as 10.0.2.2 ----------------------------------
 SRV=$(mktemp -d)
@@ -224,7 +228,9 @@ traffic() { # label: the full real-internet check through the phone
 }
 phone_own_http() { # the phone's own traffic works while it relays
   local r
-  r=$(adb shell 'printf "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n" | toybox nc -w 10 example.com 80 | head -1' 2>/dev/null | tr -d '\r')
+  # toybox nc quits as soon as its stdin ends, before the reply arrives:
+  # keep stdin open for a few seconds.
+  r=$(adb shell '(printf "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n"; sleep 5) | toybox nc -w 10 example.com 80 | head -1' 2>/dev/null | tr -d '\r')
   echo "$r" | grep -q " 200" && pass "$1: the phone's own HTTP works during the session ($r)" || fail "$1: phone's own connectivity ($r)"
   if adb shell ip link 2>/dev/null | grep -q "tun0"; then fail "$1: a tun0 (VPN) exists on the phone"; else pass "$1: no VPN/tun0 on the phone"; fi
 }
@@ -298,7 +304,7 @@ if wait_iface 30; then
   adb shell am force-stop $PKG
   wait_iface_gone 15 && pass "app killed: desktop removed the tunnel in $(( ($(now_ms) - T0) / 1000 ))s" || fail "app killed: tunnel still up"
   no_leftovers "app killed"
-  [ "$(service_count)" = 0 ] && pass "app killed: no service left running on the phone" || fail "app killed: service still running"
+  no_service_within 10 && pass "app killed: no service left running on the phone" || fail "app killed: service still running"
   sleep 3
   kill -0 "$CLIENT" 2>/dev/null && pass "app killed: desktop keeps retrying" || fail "app killed: desktop client exited"
   adb logcat -c
@@ -319,10 +325,11 @@ if wait_iface 30; then
   launch
   T0=$(now_ms)
   tap stopButton
-  wait_log "TetherService destroyed" 15 && pass "Stop button: service destroyed" || fail "Stop button: service not destroyed"
+  # (Log.i: the release APK this runs has debug logging off.)
+  wait_log "Stopping tethering" 15 && pass "Stop button: the service stopped tethering" || fail "Stop button: tethering not stopped"
   wait_iface_gone 15 && pass "Stop button: desktop tunnel ended in $(( ($(now_ms) - T0) / 1000 ))s" || fail "Stop: desktop tunnel still up"
   no_leftovers "Stop button"
-  [ "$(service_count)" = 0 ] && pass "Stop button: no service left" || fail "Stop: service still running"
+  no_service_within 10 && pass "Stop button: no service left" || fail "Stop: service still running"
 else
   tail -30 "$LOG/usb.log"
   adb logcat -d -s ETPhoneHome:* | tail -30

@@ -203,7 +203,16 @@ EOF
   if ! docker exec "$DESKTOP" sh -c 'command -v ping && command -v ip && command -v tc && command -v ss && command -v socat && command -v curl && command -v getent && command -v python3 && command -v pgrep && [ -e /etc/ssl/certs/ca-certificates.crt -o -e /etc/pki/tls/certs/ca-bundle.crt -o -e /etc/ssl/ca-bundle.pem ]' >/dev/null 2>&1; then
     docker exec "$DESKTOP" sh -c '
       if command -v apt-get >/dev/null; then
-        apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 iputils-ping procps socat curl python3 ca-certificates >/dev/null
+        PKGS="iproute2 iputils-ping procps socat curl python3 ca-certificates"
+        if ! { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $PKGS >/dev/null; }; then
+          # End-of-life releases (Debian 11 since 2026-08) lose their
+          # deb.debian.org pool: fetch from archive.debian.org instead.
+          . /etc/os-release
+          printf "deb http://archive.debian.org/debian %s main\ndeb http://archive.debian.org/debian-security %s-security main\ndeb http://archive.debian.org/debian %s-updates main\n" \
+            "$VERSION_CODENAME" "$VERSION_CODENAME" "$VERSION_CODENAME" > /etc/apt/sources.list
+          rm -f /etc/apt/sources.list.d/*
+          apt-get -o Acquire::Check-Valid-Until=false update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $PKGS >/dev/null
+        fi
       elif command -v dnf >/dev/null; then
         dnf install -y -q iproute iproute-tc iputils procps-ng socat curl python3 ca-certificates >/dev/null
       elif command -v pacman >/dev/null; then
@@ -212,7 +221,7 @@ EOF
         zypper -n -q install iproute2 iputils procps socat curl python3 ca-certificates ca-certificates-mozilla >/dev/null
       else
         echo "no known package manager" >&2; exit 1
-      fi'
+      fi' || { echo "installing the test tools failed in $DESKTOP" >&2; return 1; }
   fi
   docker network connect "$NET" "$DESKTOP"
   docker network disconnect bridge "$DESKTOP"

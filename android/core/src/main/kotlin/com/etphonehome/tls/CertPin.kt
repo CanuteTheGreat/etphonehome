@@ -10,6 +10,7 @@ import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.io.ByteArrayInputStream
 import java.io.InputStream
+import java.lang.reflect.InvocationTargetException
 import java.math.BigInteger
 import java.net.Socket
 import java.security.KeyFactory
@@ -25,6 +26,7 @@ import javax.crypto.spec.SecretKeySpec
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.X509TrustManager
 
 /**
@@ -137,11 +139,32 @@ object CertPin {
     fun accept(plain: Socket, consumed: ByteArray, token: String): SSLSocket {
         val factory = serverContext(token).socketFactory
         val consumedStream: InputStream = ByteArrayInputStream(consumed)
-        val tls = factory.createSocket(plain, consumedStream, true) as SSLSocket
+        val tls = layerOver(factory, plain, consumedStream)
         tls.enabledProtocols = arrayOf("TLSv1.3")
         tls.needClientAuth = true
         tls.startHandshake()
         return tls
+    }
+
+    /**
+     * `factory.createSocket(plain, consumed, true)`, called on Bouncy Castle's
+     * own factory class. That overload is Java 8 API that Android's
+     * javax.net.ssl.SSLSocketFactory lacks on Android 8/9, so a direct
+     * (virtual) call through the framework type fails to link there with
+     * NoSuchMethodError and crashed the app on the first WiFi TLS connection
+     * (found by the API 26 emulator test). BC's class implements it on every
+     * version; reflection binds to that implementation.
+     */
+    internal fun layerOver(factory: SSLSocketFactory, plain: Socket, consumed: InputStream): SSLSocket {
+        val method = factory.javaClass.getMethod(
+            "createSocket", Socket::class.java, InputStream::class.java, java.lang.Boolean.TYPE,
+        )
+        method.isAccessible = true
+        return try {
+            method.invoke(factory, plain, consumed, true) as SSLSocket
+        } catch (e: InvocationTargetException) {
+            throw e.targetException
+        }
     }
 
     /** Accept only a peer certificate carrying exactly [expected] (constant-time compare). */

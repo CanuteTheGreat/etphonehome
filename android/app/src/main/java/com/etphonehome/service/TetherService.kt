@@ -29,6 +29,7 @@ import com.etphonehome.session.SessionOptions
 import com.etphonehome.session.SessionSnapshot
 import com.etphonehome.session.TcpLink
 import com.etphonehome.session.TetherSession
+import com.etphonehome.util.BluetoothText
 import com.etphonehome.util.NsdAdvertiser
 import com.etphonehome.util.Settings
 import com.etphonehome.util.TokenManager
@@ -82,7 +83,11 @@ class TetherService : Service() {
         const val CONNECTION_BLUETOOTH = "bluetooth"
 
         private const val BLUETOOTH_SERVICE_NAME = "ETPhoneHome"
-        private val BLUETOOTH_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+        // ETPhoneHome's own service UUID (not the generic Serial Port one, which
+        // other apps on the phone may also listen on). The desktop
+        // (runner::BLUETOOTH_SERVICE_UUID) asks BlueZ to find its RFCOMM
+        // channel over SDP: Android assigns channels dynamically.
+        private val BLUETOOTH_UUID: UUID = UUID.fromString("6b1c0f53-4e3a-4d7e-9c5b-455450484f4e")
 
         fun modeLabel(mode: String) = when (mode) {
             CONNECTION_USB -> "USB"
@@ -259,7 +264,7 @@ class TetherService : Service() {
         Log.i(tag, "Bluetooth server listening as ${adapter.name}")
         waiting(
             "Pair the computer with this phone, then run:\n" +
-                "  sudo etphonehome bluetooth --address ${adapter.address} --token $token",
+                "  ${BluetoothText.desktopCommand(adapter.name, token)}",
         )
         val loop = SessionLoop<BluetoothSocket>(
             accept = { server.accept() },

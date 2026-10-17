@@ -23,6 +23,7 @@ import com.etphonehome.service.StatusText
 import com.etphonehome.service.TetherService
 import com.etphonehome.service.TetherState
 import com.etphonehome.service.TetherStatus
+import com.etphonehome.util.BluetoothText
 import com.etphonehome.util.Settings
 import com.etphonehome.util.TokenManager
 import kotlinx.coroutines.launch
@@ -181,14 +182,7 @@ class MainActivity : AppCompatActivity() {
         val token = TokenManager.getBluetoothToken(this)
         val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
         bluetoothInfoText.text = if (adapter?.isEnabled == true) {
-            buildString {
-                appendLine("Bluetooth Address: ${adapter.address}")
-                appendLine("Device Name: ${adapter.name}")
-                appendLine("Auth Token: $token")
-                appendLine()
-                appendLine("Desktop connection (Linux):")
-                append("  sudo etphonehome bluetooth --address ${adapter.address} --token $token")
-            }
+            BluetoothText.info(adapter.name, token)
         } else {
             "Bluetooth is disabled. Please enable Bluetooth first."
         }

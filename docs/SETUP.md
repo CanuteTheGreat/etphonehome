@@ -234,13 +234,13 @@ Bluetooth tethering provides a wireless connection with lower power consumption 
    - Open ET Phone Home
    - Select **"Bluetooth"** mode
    - Ensure Bluetooth is enabled on Android
-   - Note the **Bluetooth Address** and **Auth Token** displayed
+   - Note the **Device Name** and **Auth Token** displayed (Android does not let apps show the phone's Bluetooth address)
    - Tap **"Start Tethering"**
 
 3. **Connect from Linux Desktop:**
    ```bash
-   # Use the Bluetooth address and token from Android app
-   sudo etphonehome bluetooth --address AA:BB:CC:DD:EE:FF --token AbC123XyZ4567890
+   # The phone's name as paired (or its address) and the token from the app
+   sudo etphonehome bluetooth --address "My Phone" --token AbC123XyZ4567890
    ```
 
 **Note for Linux:** the client talks to BlueZ over D-Bus with a built-in libdbus (nothing to install). Building versions before 0.6.1 from source needed:
@@ -252,28 +252,9 @@ sudo apt install libdbus-1-dev pkg-config
 sudo dnf install dbus-devel pkgconf-pkg-config
 ```
 
-#### Windows Setup
+#### Windows
 
-1. **Pair with Android Device (One-Time Setup):**
-   - Open Settings → Devices → Bluetooth & other devices
-   - Click "Add Bluetooth or other device"
-   - Select your Android device
-   - Complete pairing
-
-2. **Start Android App in Bluetooth Mode:**
-   - Open ET Phone Home
-   - Select **"Bluetooth"** mode
-   - Ensure Bluetooth is enabled on Android
-   - Note the **Bluetooth Address** and **Auth Token** displayed
-   - Tap **"Start Tethering"**
-
-3. **Connect from Windows Desktop (as Administrator):**
-   ```cmd
-   # Use the Bluetooth address and token from Android app
-   etphonehome.exe bluetooth --address AA:BB:CC:DD:EE:FF --token AbC123XyZ4567890
-   ```
-
-**Note for Windows:** The Bluetooth implementation provides comprehensive guidance for setup. Some configurations may require manual COM port setup via Windows Bluetooth settings.
+The Windows client has no Bluetooth support yet: use USB or WiFi there.
 
 ### Auto-Reconnect (v0.4.0+)
 

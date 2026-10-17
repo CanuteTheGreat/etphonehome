@@ -82,7 +82,7 @@ pub enum Commands {
 
     /// Connect via Bluetooth RFCOMM (Linux/BlueZ)
     Bluetooth {
-        /// Android device Bluetooth address (MAC)
+        /// The phone's Bluetooth address (MAC) or its name as paired (shown in the app)
         #[arg(short = 'a', long)]
         address: String,
         /// Authentication token shown in the Android app
@@ -138,7 +138,7 @@ pub enum Commands {
         /// Port
         #[arg(short, long)]
         port: Option<u16>,
-        /// Bluetooth address
+        /// Bluetooth address (MAC) or the phone's name as paired
         #[arg(short = 'a', long)]
         address: Option<String>,
         /// Description

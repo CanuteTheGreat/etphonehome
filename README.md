@@ -188,7 +188,7 @@ ET Phone Home uses different approaches based on what's available:
 - Use `discover-wifi` command for automatic discovery
 
 **Bluetooth (Low Power):**
-- RFCOMM (SPP, channel 1) via BlueZ on Linux
+- RFCOMM via BlueZ on Linux (the app's own service UUID; BlueZ finds its channel over SDP)
 - The Windows client does not support Bluetooth yet (use USB or WiFi there)
 - Token authentication for security
 - Lower power consumption than WiFi
@@ -256,7 +256,7 @@ sudo etphonehome wifi --host 192.168.1.100 --token AbC123XyZ4567890
 1. Open ET Phone Home app
 2. Select "Bluetooth" mode
 3. Tap "Start Tethering"
-4. Note the Bluetooth Address and Auth Token displayed
+4. Note the Device Name and Auth Token displayed (Android does not let apps show the phone's Bluetooth address; the name works instead)
 
 **On Desktop (Linux):**
 ```bash
@@ -266,8 +266,8 @@ bluetoothctl
 # > trust XX:XX:XX:XX:XX:XX
 # > exit
 
-# Connect to Bluetooth device
-sudo etphonehome bluetooth --address XX:XX:XX:XX:XX:XX --token AbC123XyZ4567890
+# Connect: --address takes the phone's name as paired, or its address
+sudo etphonehome bluetooth --address "Galaxy Note20 Ultra 5G" --token AbC123XyZ4567890
 ```
 
 **On Desktop (Windows):** Bluetooth is not supported by the Windows client yet; use USB or WiFi.

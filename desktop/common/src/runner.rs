@@ -372,11 +372,112 @@ pub async fn open_transport(target: &Target) -> Result<Transport> {
     }
 }
 
+/// The app's RFCOMM service UUID (`TetherService.BLUETOOTH_UUID` on the
+/// phone). Android hands out RFCOMM channels dynamically (channel 6 on a
+/// Galaxy Note20, not 1), so the desktop must not guess a channel: BlueZ
+/// looks the service up over SDP when we ask it to connect this profile.
+pub const BLUETOOTH_SERVICE_UUID: &str = "6b1c0f53-4e3a-4d7e-9c5b-455450484f4e";
+
+/// Pick the phone among the paired devices whose name matched `wanted`.
+/// `paired` lists every paired device, for the error message.
+pub fn pick_bluetooth_device<A: std::fmt::Display + Copy>(
+    wanted: &str,
+    matches: &[A],
+    paired: &[String],
+) -> Result<A> {
+    match matches {
+        [one] => Ok(*one),
+        [] if paired.is_empty() => bail!(
+            "No paired Bluetooth device is called \"{wanted}\" (no device is paired at all). Pair the \
+             phone first: bluetoothctl, then `scan on`, `pair <address>`, `trust <address>`"
+        ),
+        [] => bail!(
+            "No paired Bluetooth device is called \"{wanted}\". Paired devices: {}. Use one of \
+             these names or addresses",
+            paired.join(", ")
+        ),
+        many => bail!(
+            "Several paired Bluetooth devices are called \"{wanted}\" ({}); use the address instead",
+            many.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", ")
+        ),
+    }
+}
+
+/// `--address` takes the phone's MAC address or its name as paired (the app
+/// can't show its own MAC: Android returns 02:00:00:00:00:00 to apps).
+#[cfg(target_os = "linux")]
+async fn resolve_bluetooth_device(
+    adapter: &bluer::Adapter,
+    wanted: &str,
+) -> Result<bluer::Address> {
+    if let Ok(addr) = wanted.parse::<bluer::Address>() {
+        return Ok(addr);
+    }
+    let mut matches = Vec::new();
+    let mut paired = Vec::new();
+    for addr in adapter.device_addresses().await? {
+        let dev = adapter.device(addr)?;
+        if !dev.is_paired().await.unwrap_or(false) {
+            continue;
+        }
+        let alias = dev.alias().await.unwrap_or_default();
+        let name = dev.name().await.ok().flatten().unwrap_or_default();
+        if alias.trim().eq_ignore_ascii_case(wanted.trim())
+            || name.trim().eq_ignore_ascii_case(wanted.trim())
+        {
+            matches.push(addr);
+        }
+        paired.push(format!("\"{alias}\" ({addr})"));
+    }
+    pick_bluetooth_device(wanted, &matches, &paired)
+}
+
+/// An RFCOMM stream BlueZ connected for our client profile. The profile
+/// registration lives as long as the stream (dropping it unregisters the
+/// profile, and BlueZ would tear the connection down).
+#[cfg(target_os = "linux")]
+struct ProfileStream {
+    stream: bluer::rfcomm::Stream,
+    _profile: Box<bluer::rfcomm::ProfileHandle>,
+}
+
+#[cfg(target_os = "linux")]
+impl tokio::io::AsyncRead for ProfileStream {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().stream).poll_read(cx, buf)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl tokio::io::AsyncWrite for ProfileStream {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.get_mut().stream).poll_write(cx, buf)
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().stream).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().stream).poll_shutdown(cx)
+    }
+}
+
 #[cfg(target_os = "linux")]
 async fn connect_bluetooth(address: &str, token: Option<String>) -> Result<Transport> {
-    let bt_addr: bluer::Address = address
-        .parse()
-        .context("Invalid Bluetooth address format (expected XX:XX:XX:XX:XX:XX)")?;
+    use futures::StreamExt;
     if token.is_none() {
         warn!(
             "No Bluetooth token given (--token or auth.bluetooth_token); the Android app \
@@ -391,17 +492,55 @@ async fn connect_bluetooth(address: &str, token: Option<String>) -> Result<Trans
         .await
         .context("No Bluetooth adapter found")?;
     info!("Using Bluetooth adapter {}", adapter.name());
-    let socket_addr = bluer::rfcomm::SocketAddr::new(bt_addr, 1);
-    let stream = bluer::rfcomm::Stream::connect(socket_addr)
+    let bt_addr = resolve_bluetooth_device(&adapter, address).await?;
+    let uuid: bluer::Uuid = BLUETOOTH_SERVICE_UUID.parse().expect("valid UUID");
+    // BlueZ owns the RFCOMM socket: it finds the app's channel over SDP and
+    // passes us the connected socket (which also works from a container
+    // with its own network namespace, where AF_BLUETOOTH can't be opened).
+    let profile = session
+        .register_profile(bluer::rfcomm::Profile {
+            uuid,
+            name: Some("ETPhoneHome desktop".to_string()),
+            role: Some(bluer::rfcomm::Role::Client),
+            require_authentication: Some(true),
+            require_authorization: Some(false),
+            auto_connect: Some(false),
+            ..Default::default()
+        })
         .await
-        .context(format!(
-            "Failed to connect to Bluetooth device {0}. Pair and trust it first \
-             (bluetoothctl pair {0}; bluetoothctl trust {0}) and start the app in Bluetooth mode",
-            address
-        ))?;
-    info!("Bluetooth RFCOMM connection established");
+        .context("Failed to register the ETPhoneHome Bluetooth profile with BlueZ")?;
+    let mut profile = Box::new(profile);
+    let device = adapter.device(bt_addr)?;
+    let hint = format!(
+        "Pair and trust the phone first (bluetoothctl pair {0}; bluetoothctl trust {0}) and \
+         start the app in Bluetooth mode",
+        bt_addr
+    );
+    let connect = device.connect_profile(&uuid);
+    tokio::pin!(connect);
+    let mut connect_done = false;
+    let stream = tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            tokio::select! {
+                r = &mut connect, if !connect_done => {
+                    r.map_err(|e| anyhow::anyhow!("Failed to connect to Bluetooth device {bt_addr}: {e}. {hint}"))?;
+                    connect_done = true;
+                }
+                req = profile.next() => {
+                    let req = req.context("BlueZ dropped the Bluetooth profile")?;
+                    return req.accept().map_err(anyhow::Error::from);
+                }
+            }
+        }
+    })
+    .await
+    .context(format!("Timed out connecting to Bluetooth device {bt_addr}"))??;
+    info!("Bluetooth RFCOMM connection established with {}", bt_addr);
     session::handshake_stream(
-        stream,
+        ProfileStream {
+            stream,
+            _profile: profile,
+        },
         capabilities::BLUETOOTH,
         token,
         Duration::from_secs(30),
@@ -818,6 +957,57 @@ mod tests {
         ));
         std::fs::create_dir_all(&d).unwrap();
         d.join("sub").join("config.toml")
+    }
+
+    #[test]
+    fn bluetooth_name_picks_the_single_paired_match() {
+        let paired = vec!["\"Galaxy\" (EC:7C:B6:77:D4:8F)".to_string()];
+        assert_eq!(pick_bluetooth_device("Galaxy", &[7u8], &paired).unwrap(), 7);
+    }
+
+    #[test]
+    fn bluetooth_name_without_match_lists_the_paired_devices() {
+        let paired = vec!["\"Pixel\" (AA:BB:CC:DD:EE:FF)".to_string()];
+        let e = pick_bluetooth_device::<u8>("Galaxy", &[], &paired)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("No paired Bluetooth device is called \"Galaxy\""),
+            "{e}"
+        );
+        assert!(
+            e.contains("Pixel") && e.contains("AA:BB:CC:DD:EE:FF"),
+            "{e}"
+        );
+        let e = pick_bluetooth_device::<u8>("Galaxy", &[], &[])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("no device is paired at all") && e.contains("bluetoothctl"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn bluetooth_name_matching_two_devices_asks_for_the_address() {
+        let e = pick_bluetooth_device("Galaxy", &[1u8, 2u8], &[])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("Several paired Bluetooth devices") && e.contains("1, 2"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn bluetooth_service_uuid_matches_the_app() {
+        let kt = include_str!(
+            "../../../android/app/src/main/java/com/etphonehome/service/TetherService.kt"
+        );
+        assert!(
+            kt.contains(&format!("UUID.fromString(\"{BLUETOOTH_SERVICE_UUID}\")")),
+            "the app must listen on the UUID the desktop connects to"
+        );
     }
 
     #[test]

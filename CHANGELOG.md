@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A phone-side filter rule naming one IPv6 host covered its whole /32.** A rule address with no `/prefix` defaulted to /32 for IPv6 as well as IPv4, so blocking `2001:db8::1` blocked all of `2001:db8::/32`, and in whitelist mode allowing it allowed the whole /32. A bare IPv6 address is now /128.
+
 ## [0.6.1] - 2026-10-17
 
 ### Fixed

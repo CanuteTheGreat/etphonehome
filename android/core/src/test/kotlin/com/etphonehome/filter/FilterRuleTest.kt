@@ -46,6 +46,51 @@ class FilterRuleTest {
         assertTrue(range.contains(byteArrayOf(255.toByte(), 255.toByte(), 255.toByte(), 255.toByte())))
     }
 
+    @Test
+    fun `bare IPv6 address is a single host, not a slash-32`() {
+        val range = IpRange.parse("2001:db8::1")
+        assertEquals(128, range.prefixLength)
+        val host = ByteArray(16).also {
+            it[0] = 0x20; it[1] = 0x01; it[2] = 0x0d; it[3] = 0xb8.toByte(); it[15] = 1
+        }
+        assertTrue(range.contains(host))
+        // Same /32, different host: used to match because the default
+        // prefix was 32 for both address families.
+        val neighbour = host.copyOf().also { it[15] = 2 }
+        assertFalse(range.contains(neighbour))
+        val sameSlash32 = host.copyOf().also { it[4] = 0x7f }
+        assertFalse(range.contains(sameSlash32))
+    }
+
+    @Test
+    fun `bare IPv4 address is still a single host`() {
+        val range = IpRange.parse("10.0.0.5")
+        assertEquals(32, range.prefixLength)
+        assertTrue(range.contains(byteArrayOf(10, 0, 0, 5)))
+        assertFalse(range.contains(byteArrayOf(10, 0, 0, 6)))
+    }
+
+    @Test
+    fun `wire rule with a bare IPv6 destination blocks only that host`() {
+        val rule = parseWireRule("r1|true|block|tcp|2001:db8::1|443||")!!
+        val engine = FilterEngine(
+            FilterConfig(enabled = true, mode = FilterMode.BLACKLIST, rules = listOf(rule))
+        )
+        fun tcp6(lastByte: Int): ByteArray {
+            val p = ByteArray(60)
+            p[0] = 0x60
+            p[5] = 20 // payload length
+            p[6] = 6 // TCP
+            p[7] = 64
+            p[24] = 0x20; p[25] = 0x01; p[26] = 0x0d; p[27] = 0xb8.toByte(); p[39] = lastByte.toByte()
+            p[40] = 0xc3.toByte(); p[41] = 0x50 // src port 50000
+            p[42] = 0x01; p[43] = 0xbb.toByte() // dst port 443
+            return p
+        }
+        assertFalse("the named host is blocked", engine.shouldAllow(tcp6(1)))
+        assertTrue("another host in the same /32 is not", engine.shouldAllow(tcp6(2)))
+    }
+
     // PortRange.parse() takes a spec string that ultimately comes from
     // attacker-controllable config (a ConfigUpdate dest_port/source_port
     // string off the wire -- see Protocol.kt). It used to throw an uncaught

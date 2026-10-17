@@ -61,12 +61,21 @@ data class IpRange(
 ) {
     companion object {
         /**
-         * Parse CIDR notation (e.g., "192.168.1.0/24")
+         * Parse CIDR notation (e.g., "192.168.1.0/24"). A bare address
+         * with no "/prefix" is a single host: /32 for IPv4, /128 for IPv6.
+         *
+         * The bare-address default used to be a hard-coded 32 for both
+         * families. For IPv6 that is a /32 -- 2^96 addresses -- so a rule
+         * naming one IPv6 host ("2001:db8::1", which the desktop sends
+         * verbatim in filter.rule.<i>) silently covered the entire
+         * 2001:db8::/32 block: a BLOCK rule cut off a whole provider, and
+         * in WHITELIST mode an ALLOW rule for one host let every address
+         * in that /32 through.
          */
         fun parse(cidr: String): IpRange {
             val parts = cidr.split("/")
             val address = InetAddress.getByName(parts[0])
-            val prefix = if (parts.size > 1) parts[1].toInt() else 32
+            val prefix = if (parts.size > 1) parts[1].toInt() else address.address.size * 8
             return IpRange(address, prefix)
         }
     }

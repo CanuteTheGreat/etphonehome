@@ -60,7 +60,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 - Root/sudo access
 - TUN kernel module (usually built-in)
 - ADB (Android Debug Bridge)
-- The release binary needs glibc 2.35 or newer; it is tested nightly with a real tunnel on Debian 12/13, Ubuntu 22.04/24.04, Fedora, Arch and openSUSE Tumbleweed, on x86_64 and arm64 (older distros: build from source)
+- Any distro with glibc 2.31 or newer (the release binary is linked against glibc 2.31 and carries its own libdbus); tested nightly with a real tunnel on Debian 11/12/13, Ubuntu 20.04/22.04/24.04, Fedora, Arch and openSUSE Tumbleweed (x86_64), plus the full tunnel test on arm64
 
 **Windows:**
 - Administrator privileges

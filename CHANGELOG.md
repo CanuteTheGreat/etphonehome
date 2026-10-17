@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-17
+
+### Fixed
+- **USB tethering on Android 8-10.** The app's USB server listened on `::1`; adbd before Android 11 forwards `adb forward` connections to `127.0.0.1` only, so every USB connection was refused on those versions (found by the new API 26 emulator test). It now listens on 127.0.0.1.
+- **Linux release binary ran only on the newest distros.** It needed glibc 2.39 (the CI image's), so it did not even start on Debian 12 or Ubuntu 22.04. Releases are now linked against glibc 2.31 with libdbus built in (no system libdbus needed); the nightly distro matrix runs a real tunnel on Debian 11-13, Ubuntu 20.04-24.04, Fedora, Arch and openSUSE.
+- **A dropped WiFi link left a dead tunnel behind.** The desktop kept the TUN device and default route for 90 s, and the phone held the dead session until TCP gave up (~15 min), refusing the desktop when it came back. The desktop now sends keepalives and gives up after 30 s; the phone ends a session whose (keepalive-sending) desktop has been silent for 30 s.
+- The desktop client no longer sets `net.ipv4.ip_forward=1` on the computer (it never needed it and never undid it).
+- `--reconnect` no longer retries a protocol-version mismatch or a rejected token forever; it stops with the reason. The retry budget and backoff count failures since the last working session, not over the client's lifetime.
+
+### Added
+- Nightly CI: integrity at scale (256 MiB both ways with digests, 100 parallel TCP + 50 UDP flows), failure and recovery (USB unplug, WiFi drop, app killed, Ctrl-C, crash, lossy link), throughput/latency baseline, upgrade compatibility with the previous release, a Linux distro matrix, arm64, the Windows client under wine, and the real APK on Android 8 and 14 emulators. Weekly mutation testing of the desktop and phone cores.
+
 ## [0.6.0] - 2026-10-17
 
 ### Added
@@ -401,6 +413,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## [Unreleased]
+
+## [0.6.1] - 2026-10-17
+
+### Fixed
+- **USB tethering on Android 8-10.** The app's USB server listened on `::1`; adbd before Android 11 forwards `adb forward` connections to `127.0.0.1` only, so every USB connection was refused on those versions (found by the new API 26 emulator test). It now listens on 127.0.0.1.
+- **Linux release binary ran only on the newest distros.** It needed glibc 2.39 (the CI image's), so it did not even start on Debian 12 or Ubuntu 22.04. Releases are now linked against glibc 2.31 with libdbus built in (no system libdbus needed); the nightly distro matrix runs a real tunnel on Debian 11-13, Ubuntu 20.04-24.04, Fedora, Arch and openSUSE.
+- **A dropped WiFi link left a dead tunnel behind.** The desktop kept the TUN device and default route for 90 s, and the phone held the dead session until TCP gave up (~15 min), refusing the desktop when it came back. The desktop now sends keepalives and gives up after 30 s; the phone ends a session whose (keepalive-sending) desktop has been silent for 30 s.
+- The desktop client no longer sets `net.ipv4.ip_forward=1` on the computer (it never needed it and never undid it).
+- `--reconnect` no longer retries a protocol-version mismatch or a rejected token forever; it stops with the reason. The retry budget and backoff count failures since the last working session, not over the client's lifetime.
+
+### Added
+- Nightly CI: integrity at scale (256 MiB both ways with digests, 100 parallel TCP + 50 UDP flows), failure and recovery (USB unplug, WiFi drop, app killed, Ctrl-C, crash, lossy link), throughput/latency baseline, upgrade compatibility with the previous release, a Linux distro matrix, arm64, the Windows client under wine, and the real APK on Android 8 and 14 emulators. Weekly mutation testing of the desktop and phone cores.
 
 ### Planned for v0.5.0
 - TLS encryption for WiFi/Bluetooth modes

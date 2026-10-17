@@ -93,8 +93,7 @@ Run instrumented tests (requires connected device):
 
 4. **Start Android app:**
    - Open "ET Phone Home" on device
-   - Tap "Start Tethering"
-   - Grant VPN permission
+   - Tap "Start Tethering" (status shows "Waiting for desktop")
 
 5. **Run desktop client:**
    ```bash
@@ -303,10 +302,9 @@ adb forward --list
 sudo iptables -L
 ```
 
-**"VPN permission denied"**
-- Restart Android app
-- Grant VPN permission when prompted
-- Check app permissions in Android settings
+**App stays on "Waiting for desktop"**
+- USB: check `adb forward --list`
+- WiFi: check the token, and that the client uses TLS (default) or the app's "Require encryption" is off
 
 ### Test Data Collection
 

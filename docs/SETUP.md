@@ -29,8 +29,7 @@ This is the easiest method to get started.
 
 4. **Start the Android App:**
    - Open "ET Phone Home" on your Android device
-   - Tap "Start Tethering"
-   - Grant VPN permission when prompted
+   - Tap "Start Tethering" (no VPN permission or root is needed; the phone keeps its own internet)
 
 5. **Connect from Desktop:**
    ```bash
@@ -460,9 +459,9 @@ Tap "Stop Tethering" in the app
 - **Windows:** Put `wintun.dll` (https://www.wintun.net) next to `etphonehome.exe`
 - **Windows:** Run as Administrator
 
-**Problem:** "VPN permission required" on Android
-- Grant VPN permission when prompted
-- If missed, restart the app
+**Problem:** the app shows "Waiting for desktop" but the client can't connect
+- USB: `adb forward --list` must show `tcp:8888 tcp:8888`
+- WiFi: use the token shown in the app; the app requires TLS (the client's default) unless "Require encryption" is off
 
 ### Performance Issues
 
@@ -484,9 +483,9 @@ Tap "Stop Tethering" in the app
 - Ensure default route is through the TUN interface
 
 **Problem:** DNS not working
-- **Linux:** Check `/etc/resolv.conf`
-- **Windows:** Check network adapter DNS settings
-- Android app provides Google DNS (8.8.8.8) by default
+- The client sets DNS for the tunnel to the phone's DNS server (8.8.8.8): `resolvectl` on Linux (systemd-resolved), `netsh` on Windows. Look for "DNS on etph0 set to ..." in its output
+- **Linux without systemd-resolved:** add `nameserver 8.8.8.8` to `/etc/resolv.conf`
+- **Windows:** Check the TUN adapter's DNS settings
 
 ## Advanced Configuration
 
@@ -508,11 +507,9 @@ etphonehome usb --interface mytun
 
 You can run multiple instances with different interface names and ports (though this is rarely needed).
 
-## Root Mode (Advanced)
+## Root Mode
 
-When root is available on Android, ET Phone Home can use more efficient routing via iptables instead of the VPN API.
-
-**Note:** Root mode is not yet fully implemented. The current version uses VPN API which works without root.
+There is no root mode. The app relays the computer's traffic in user space without root; an earlier root mode that could not be started (and whose iptables rules would have redirected the phone's own traffic) was removed in v0.6.0.
 
 ## Uninstalling
 
@@ -537,33 +534,21 @@ adb forward --remove tcp:8888
 
 ## Roadmap
 
-### Completed (v0.4.0)
-- [x] WiFi tethering with automatic IP discovery
-- [x] Multi-threaded async I/O for improved performance
-- [x] Bluetooth tethering (full stack - Android + Desktop)
-- [x] Complete Bluetooth desktop client (Linux BlueZ & Windows)
-- [x] Auto-reconnect on connection drop with exponential backoff
-- [x] WiFi/Bluetooth token authentication
-- [x] mDNS service discovery for automatic device finding
-- [x] Connection profiles with TOML configuration
+### Done (v0.6.0)
+- [x] Real internet for the computer without root (userspace relay); the phone keeps its own internet
+- [x] USB, WiFi (automatic IP discovery, mDNS) and Bluetooth (Android + Linux desktop) tethering
+- [x] WiFi encrypted by default: TLS 1.3 pinned to the pairing token
+- [x] Token authentication, auto-reconnect, connection profiles
+- [x] Traffic filter rules, enforced on the desktop and on the phone
+- [x] Live status and statistics on the phone
+- [x] DNS set up on the desktop
+- [x] Desktop GUI (Linux build)
 
-### Planned for v0.5.0
-- [ ] TLS encryption for WiFi/Bluetooth modes — crypto/PSK code exists on
-      both sides but is not yet wired into the live connection (still
-      plaintext on the wire; top engineering priority)
-- [x] Desktop GUI application (implemented, Linux release build; Windows
-      GUI release build pending)
-- [ ] Traffic statistics and graphs
-- [x] Root mode with iptables routing for better performance (Android)
-- [x] Advanced routing and traffic filtering rules (enforced on Android and
-      desktop)
-
-### Future Versions (v1.0.0+)
-- [ ] Multiple device support
-- [ ] Data usage limits and alerts
-- [ ] Traffic compression for bandwidth optimization
-- [ ] Custom DNS server configuration
-- [ ] Mobile data usage tracking
+### Not done
+- [ ] Root mode (kernel NAT)
+- [ ] Bluetooth in the Windows client; macOS client; Windows GUI build
+- [ ] IPv6 through the tunnel
+- [ ] Multiple devices, data usage limits, custom DNS server option
 
 ## Getting Help
 
@@ -577,15 +562,14 @@ If you encounter issues:
 ## Security Considerations
 
 - **USB Mode:** Secure - traffic is local to your USB connection, no network exposure
-- **WiFi Mode:** Secured with token authentication (v0.4.0+) - random 16-character tokens prevent unauthorized access
+- **WiFi Mode:** token authentication plus TLS 1.3 by default; both sides pin an Ed25519 key derived from the token, so a wrong token fails the handshake and nothing falls back to plaintext
 - **Bluetooth Mode:** Secured with token authentication (v0.4.0+) - paired devices with valid tokens only
 - **Token Authentication:** WiFi and Bluetooth modes require authentication tokens, displayed in the Android app. Tokens are randomly generated and stored securely.
 - **Token Storage:** Tokens can be stored in config files for convenience, but are stored in plain text. For maximum security, provide tokens via command line.
 - **Network Security:** For additional security, consider:
   - Using private WiFi networks only
   - Enabling WiFi encryption (WPA2/WPA3)
-  - Future: TLS encryption (planned for v0.5.0)
-- **VPN Permission:** The Android app requires VPN permission to capture network traffic. This is standard for tethering apps.
+- **No phone VPN:** the app needs no VPN permission and never captures the phone's own traffic
 - **No Telemetry:** ET Phone Home does not collect any usage data or telemetry
 
 ## Tips and Best Practices

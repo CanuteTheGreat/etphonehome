@@ -2,6 +2,8 @@
 
 A modern, open-source tethering solution for Android with companion apps for Windows and Linux - an alternative to PDANet and EasyTether.
 
+Your computer uses the phone's internet over USB, WiFi or Bluetooth. No root, no VPN on the phone, and the phone keeps its own internet the whole time.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](https://git.canutethegreat.com/CanuteTheGreat/etphonehome)
 
@@ -21,38 +23,36 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 ## ✨ Features
 
-### Current Features (v0.5.0)
+### Current Features (v0.6.0)
 
-- ✅ **USB Tethering** - Fast and reliable connection via USB cable
-- ✅ **WiFi Tethering** - Wireless connection over local network
-- ✅ **Bluetooth Tethering** - RFCOMM on Linux (BlueZ); not yet available in the Windows client
-- ✅ **No Root Required** - Uses Android VPN API
-- ✅ **Cross-Platform** - Windows and Linux desktop clients
-- ✅ **Multi-threaded I/O** - Async packet forwarding for better performance
-- ✅ **Open Protocol** - Well-documented binary protocol
-- ✅ **Real-time Statistics** - Monitor connection speed and data usage
-- ✅ **Modern Tech Stack** - Kotlin (Android) + Rust (Desktop)
-- ✅ **Auto-Reconnect** - Exponential backoff retry logic for reliable connections
-- ✅ **Token Authentication** - Secure WiFi and Bluetooth connections with random tokens
-- ✅ **mDNS Discovery** - Automatic device discovery on local network
-- ✅ **Connection Profiles** - Save and reuse connection configurations
-- ✅ **IP Discovery** - Automatic WiFi IP detection via ADB or mDNS
+- ✅ **Real internet for the computer, no root** - the app relays the computer's TCP, UDP (DNS included) and ping traffic through ordinary phone sockets (a userspace relay). Verified in CI against public HTTPS and on a real phone (Samsung, Android 13)
+- ✅ **The phone keeps its internet** - no phone VPN is used, so the phone's own apps are never affected
+- ✅ **USB Tethering** - via `adb forward`, fastest and most reliable
+- ✅ **WiFi Tethering** - token-authenticated and **encrypted by default** (TLS 1.3, certificate pinned to the pairing token, fails closed)
+- ✅ **Bluetooth Tethering** - RFCOMM, Linux (BlueZ) desktop only; the Windows client has no Bluetooth
+- ✅ **Cross-Platform desktop** - Windows and Linux CLI, Linux GUI
+- ✅ **DNS set up for you** - the desktop points DNS for the tunnel at the phone's DNS server (systemd-resolved on Linux, `netsh` on Windows)
+- ✅ **Live statistics on the phone** - connected desktop, data each way, open connections, uptime; the status only says "connected" once a desktop really is
+- ✅ **Traffic filter** - a connection profile's allow/block rules are applied on the computer and sent to the phone, which enforces them on the connections it opens
+- ✅ **Auto-Reconnect** - exponential backoff retry
+- ✅ **mDNS Discovery**, **IP Discovery** (ADB), **Connection Profiles**
+- ✅ **Open Protocol** - documented binary protocol, shared test vectors between the Rust and Kotlin sides
 
 ### Planned Features
 
-- ✅ Root mode for improved performance (Android root tethering — implemented)
-- ✅ Desktop GUI application (implemented; Linux release build, Windows GUI release pending)
-- 🔲 Connection encryption — the desktop client's `wifi --tls` (TLS 1.3, certificate pinned to the pairing token, fails closed) is done, but the Android app has no TLS server yet: against the real app `--tls` is refused and WiFi/USB/Bluetooth traffic is plaintext
+- 🔲 Root mode (kernel NAT on rooted phones). It is **not** in the app: an earlier, unreachable and wrongly designed implementation was removed in v0.6.0
+- 🔲 Bluetooth in the Windows client
+- 🔲 macOS client
+- 🔲 IPv6 through the tunnel (IPv4 only today)
 - 🔲 Multi-device support
 - 🔲 Mobile data usage tracking
-- 🔲 Custom DNS servers
 
 ## 📋 Requirements
 
 ### Android Device
-- Android 5.0+ (API Level 21+)
+- Android 8.0+ (API Level 26+)
 - USB debugging enabled (for USB tethering)
-- VPN permission (granted through the app)
+- No root and no VPN permission needed
 
 ### Desktop Computer
 
@@ -73,10 +73,17 @@ etphonehome/
 ├── android/              # Android application (Kotlin)
 │   └── app/src/main/
 │       ├── java/com/etphonehome/
-│       │   ├── MainActivity.kt           # Main UI
-│       │   ├── protocol/Protocol.kt      # Protocol implementation
-│       │   └── service/VpnService.kt     # VPN service
+│       │   ├── MainActivity.kt           # Main UI (status + live statistics)
+│       │   └── service/TetherService.kt  # Foreground service: USB/WiFi/Bluetooth listeners
 │       └── res/                          # Android resources
+├── android/core/         # Platform-independent core (plain Kotlin/JVM)
+│   ├── src/main/kotlin/com/etphonehome/
+│   │   ├── relay/        # Userspace TCP/UDP/ICMP relay
+│   │   ├── session/      # Handshake + per-desktop session, TLS/plaintext detection
+│   │   ├── tls/          # Cert-pinned TLS 1.3 server (Bouncy Castle)
+│   │   ├── protocol/     # Wire protocol
+│   │   └── filter/       # Traffic filter
+│   └── standin/          # The same core as a JVM program (CI end-to-end test)
 │
 ├── desktop/              # Desktop applications (Rust)
 │   ├── common/           # Shared library
@@ -108,7 +115,7 @@ etphonehome/
 **For Android:**
 - Android Studio (latest)
 - JDK 17+
-- Android SDK API 21-34
+- Android SDK API 26-34
 
 **For Desktop:**
 - Rust (latest stable)
@@ -145,27 +152,22 @@ See [BUILD.md](docs/BUILD.md) for detailed build instructions.
 
 ET Phone Home uses different approaches based on what's available:
 
-### VPN Mode (Default - No Root)
+### Userspace relay (no root, no phone VPN)
 
 ```
-┌─────────────┐                           ┌──────────────┐
-│   Android   │                           │   Desktop    │
-│   Device    │                           │   Computer   │
-│             │                           │              │
-│  ┌────────┐ │                           │  ┌────────┐  │
-│  │ VPN    │ │  ←── Protocol Messages ──→  │  TUN   │  │
-│  │ Service│ │  (via USB/WiFi/Bluetooth)   │  iface │  │
-│  └────────┘ │                           │  └────────┘  │
-│      ↕      │                           │      ↕       │
-│  Mobile     │                           │   Internet   │
-│  Internet   │                           │   Apps       │
-└─────────────┘                           └──────────────┘
+┌───────────────────────┐                          ┌──────────────────┐
+│  Desktop              │                          │  Android phone   │
+│                       │  IP packets in protocol  │                  │
+│  apps → TUN (etph0) ──┼──── messages over ──────→│  relay: one real │──→ phone's
+│        default route  │  USB / WiFi(TLS) / BT    │  socket per flow │    own network
+│                    ←──┼──────────────────────────┼──  (TCP/UDP/ICMP)│←── (mobile/WiFi)
+└───────────────────────┘                          └──────────────────┘
 ```
 
-1. **Android:** VPN service captures all network traffic
-2. **Transport:** Traffic is sent via USB/WiFi/Bluetooth to desktop
-3. **Desktop:** TUN interface receives traffic and routes to internet
-4. **Return:** Response packets follow reverse path
+1. **Desktop:** a TUN interface (`etph0`, 10.0.0.1) becomes a default route; DNS for it points at the DNS server the phone announces
+2. **Transport:** the desktop's IP packets travel to the phone over USB (`adb forward`), WiFi (TLS 1.3) or Bluetooth
+3. **Phone:** the relay terminates each TCP connection and UDP flow itself and opens an ordinary socket to the same destination, exactly like any app would; replies are turned back into IP packets for the desktop
+4. **The phone's own traffic is untouched** - nothing is captured, so the phone keeps its internet
 
 ### Connection Methods
 
@@ -181,7 +183,7 @@ ET Phone Home uses different approaches based on what's available:
 - Desktop connects directly to Android's WiFi IP
 - No cables required
 - Slightly higher latency (+10-25ms)
-- Token authentication for security
+- Token authentication, and TLS 1.3 by default (pinned to the token; the app refuses plaintext unless you switch "Require encryption" off, then use `--no-tls`)
 - Use `discover-wifi` command for automatic discovery
 
 **Bluetooth (Low Power):**
@@ -294,7 +296,8 @@ Profiles live in `~/.config/etphonehome/config.toml`. `sudo etphonehome connect 
 reads the invoking user's file (not root's), so profiles saved without sudo are found.
 Use `--config <file>` or `ETPHONEHOME_CONFIG=<file>` to pick another file. WiFi
 profiles use `auth.wifi_token` and Bluetooth profiles `auth.bluetooth_token` from that
-file; a profile's `[profiles.filter]` rules are applied to outgoing traffic.
+file; a profile's `[profiles.filter]` rules are applied to outgoing traffic on the
+computer and sent to the phone, which enforces them on the connections it relays.
 
 ### Auto-Reconnect
 
@@ -375,11 +378,12 @@ Contributions are welcome! Please see [DEVELOPMENT.md](docs/DEVELOPMENT.md) for:
 
 ## 🔒 Security
 
-- **USB mode:** Traffic is local to USB connection (secure)
-- **VPN API:** Standard Android VPN implementation
+- **USB mode:** the app's port is bound to the phone's loopback, reachable only through `adb forward` over the cable
+- **WiFi mode:** token authentication plus TLS 1.3 by default; both sides derive an Ed25519 key from the pairing token and pin it, so a wrong token fails the handshake and there is no plaintext fallback
+- **Bluetooth mode:** token authentication over a paired (link-encrypted) RFCOMM connection
+- **No phone VPN:** the phone's own traffic is never captured or inspected
 - **Open Source:** All code is auditable under MIT license
 - **No telemetry:** No data collection or tracking
-- **Encryption:** WiFi encryption planned for future release
 
 See [FAQ.md](docs/FAQ.md) for more security information.
 
@@ -392,14 +396,16 @@ See [FAQ.md](docs/FAQ.md) for more security information.
 |No Root|✅|✅|✅|✅|
 |USB|✅|✅|✅|✅|
 |WiFi|✅|✅|✅|✅|
-|Bluetooth|✅|✅|❌|✅|
+|Bluetooth|✅ (Linux desktop)|✅|❌|✅|
+|Encrypted WiFi link|✅ TLS 1.3|❌|❌|WPA|
 |Token Auth|✅|❌|❌|N/A|
 |Auto-Reconnect|✅|Unknown|Unknown|N/A|
 |Connection Profiles|✅|Unknown|Unknown|N/A|
 |mDNS Discovery|✅|❌|❌|N/A|
-|Bypass Carrier|✅|✅|✅|❌|
-|Multi-threaded I/O|✅|Unknown|Unknown|N/A|
-|Desktop GUI|✅|✅|✅|N/A|
+|Traffic leaves from phone app sockets (not the hotspot path)|✅|✅|✅|❌|
+|Phone keeps its own internet|✅|✅|✅|✅|
+|Desktop GUI|✅ (Linux)|✅|✅|N/A|
+|macOS client|❌|✅|✅|✅|
 
 ## 📄 License
 
@@ -420,4 +426,4 @@ You are free to use, modify, and distribute this software for any purpose, inclu
 
 ---
 
-**Note:** Current version is v0.4.0 (Beta). All three tethering modes (USB, WiFi, Bluetooth) are fully functional with token authentication, auto-reconnect, and connection profiles. See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.
+**Note:** Current version is v0.6.0 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.

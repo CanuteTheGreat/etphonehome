@@ -10,7 +10,7 @@ ET Phone Home is an open-source tethering solution that allows you to share your
 
 **Similarities:**
 - USB tethering without root
-- Uses VPN API for packet capture
+- The computer's connections are re-opened by the phone app itself (a userspace relay, like EasyTether's NAT), so no root is needed
 - Cross-platform desktop support
 
 **Differences:**
@@ -21,18 +21,18 @@ ET Phone Home is an open-source tethering solution that allows you to share your
 
 ### Does it require root access?
 
-No! ET Phone Home works without root using Android's VPN API. However, root support is planned for better performance when available.
+No. The app relays the computer's traffic through ordinary app sockets on the phone, which needs no root and no VPN. The phone keeps its own internet while tethering. (An old, non-working root mode was removed in v0.6.0.)
 
 ### What platforms are supported?
 
-**Android:** API Level 21+ (Android 5.0+)
+**Android:** API Level 26+ (Android 8.0+)
 **Desktop:**
 - Linux (tested on Ubuntu, Debian, Fedora)
 - Windows 10/11
 
 ### Is it safe to use?
 
-Yes, the app uses standard Android APIs and doesn't require any dangerous permissions beyond what's necessary for VPN functionality. Being open source, you can review the code yourself.
+Yes. The app needs no root and no VPN permission: it only opens network sockets like any app, and never touches the phone's own traffic. Being open source, you can review the code yourself.
 
 ## Connection Methods
 
@@ -49,7 +49,7 @@ Yes, the app uses standard Android APIs and doesn't require any dangerous permis
 - No cable needed
 - Slightly more latency
 - Uses more battery
-- Token authentication for security (v0.4.0+)
+- Token authentication, and TLS 1.3 encryption by default (v0.6.0+)
 - mDNS auto-discovery (v0.4.0+)
 
 **Bluetooth:**
@@ -57,7 +57,7 @@ Yes, the app uses standard Android APIs and doesn't require any dangerous permis
 - Wireless convenience
 - Slowest speeds (typical Bluetooth limitations)
 - Token authentication for security (v0.4.0+)
-- Full RFCOMM implementation (v0.4.0+)
+- RFCOMM; Linux desktop only (the Windows client has no Bluetooth)
 
 ### Can I use multiple connection methods simultaneously?
 
@@ -66,7 +66,6 @@ Not currently. You can only use one connection method at a time. Future versions
 ### Does USB tethering work on all Android phones?
 
 USB tethering should work on most Android devices with API level 21+. However:
-- Some manufacturers may restrict VPN API usage
 - USB debugging must be enabled
 - Some phones may require specific USB drivers
 
@@ -85,9 +84,9 @@ Yes, for USB tethering. ADB (Android Debug Bridge) is required to set up port fo
 
 `adb forward tcp:8888 tcp:8888` makes connections to port 8888 on your computer travel over the USB cable to port 8888 on the phone, where the app's USB-mode server listens (on the phone's loopback only). The desktop client sets this up for you; it is `adb forward`, not `adb reverse` (which points the other way and conflicts with the app's port).
 
-### Why do I need VPN permission?
+### Does the app need VPN permission?
 
-The VPN permission allows the app to capture all network traffic from your Android device and route it through the tethering connection. This is how non-root tethering works on Android.
+No (since v0.6.0). Earlier versions set up a phone VPN that captured the phone's own traffic, which cut the phone off and never got the computer online. The app now relays the computer's connections through ordinary sockets, so the phone keeps its internet.
 
 ### Do I need admin/root on my computer?
 
@@ -213,13 +212,13 @@ Typical results:
 
 ### Why is it slower than native tethering?
 
-Using the VPN API adds some overhead compared to root-based iptables routing. However, the difference is usually minimal (5-15%).
+Every connection is relayed by the app in user space (the phone's kernel doesn't forward the packets itself), which costs some CPU and latency compared with native tethering.
 
 ### How much battery does it use?
 
 Tethering uses significant battery because:
 - Mobile data is active
-- VPN service is running
+- The relay is running (the app holds a wake lock while tethering)
 - CPU is processing packets
 
 **Tips to reduce battery usage:**
@@ -257,7 +256,7 @@ lsmod | grep tun
 
 **Check these:**
 1. Android app is running and tethering started
-2. VPN permission granted on Android
+2. The app shows "Waiting for desktop" (WiFi: the token is right; the app requires TLS unless you turned "Require encryption" off)
 3. ADB forwarding is set up: `adb forward --list`
 4. Firewall isn't blocking the connection
 5. Android device is still connected (USB) or reachable (WiFi)
@@ -280,18 +279,15 @@ lsmod | grep tun
 
 ### Internet works but DNS doesn't resolve
 
+The client sets DNS for the tunnel to the server the phone announces (8.8.8.8): `resolvectl` on Linux with systemd-resolved, `netsh` on Windows. Without systemd-resolved it prints a warning; then:
+
 **Linux:**
 ```bash
-# Check DNS settings
-cat /etc/resolv.conf
-
-# Manually set DNS
 sudo sh -c 'echo "nameserver 8.8.8.8" > /etc/resolv.conf'
 ```
 
 **Windows:**
-- Check network adapter DNS settings
-- Manually set to 8.8.8.8 (Google DNS)
+- Check the TUN adapter's DNS settings (should be 8.8.8.8)
 
 ### High latency/ping times
 
@@ -354,15 +350,7 @@ sudo etphonehome wifi --host 192.168.1.100 --token AbC123XyZ4567890
 - Install D-Bus libraries: `sudo apt-get install libdbus-1-dev`
 - Rebuild desktop client
 
-**Windows Issues:**
-
-**Problem:** "Bluetooth not available"
-- Enable Bluetooth in Windows Settings
-- Ensure Bluetooth adapter is working
-
-**Problem:** "Device not paired"
-- Pair via Settings → Devices → Bluetooth
-- Ensure device shows as "Paired" not just "Connected"
+**Windows:** the Windows client has no Bluetooth support; use USB or WiFi.
 
 ### Connection profile not found (v0.4.0+)
 
@@ -393,26 +381,13 @@ Press `Ctrl+C` to terminate the client.
 
 ### Can my carrier detect I'm tethering?
 
-The app uses VPN API which may be detectable by carriers who analyze TTL (Time To Live) values or other packet characteristics. However:
-- Most carriers don't actively monitor
-- VPN API makes detection harder than traditional tethering
-- Encryption isn't currently implemented but is planned
+The computer's connections leave the phone from the app's own sockets, so they look like the phone's app traffic (the phone sets TTL and other packet fields), not like hotspot traffic. Carriers can still use other signals (traffic patterns, user-agents); nothing can promise to be undetectable.
 
 ### Is my data encrypted?
 
-**USB:** Data is local to USB connection (secure, no network exposure)
-**WiFi:** Connection is authenticated with tokens (v0.4.0+) but not encrypted. TLS encryption planned for v0.5.0
-**Bluetooth:** Connection is authenticated with tokens (v0.4.0+) but not encrypted. TLS encryption planned for v0.5.0
-
-**Token Authentication vs. Encryption:**
-- **Authentication:** Prevents unauthorized devices from connecting (implemented in v0.4.0)
-- **Encryption:** Protects data in transit from eavesdropping (planned for v0.5.0)
-
-For maximum security over WiFi/Bluetooth:
-- Use only on trusted networks
-- Use HTTPS for all web traffic
-- Wait for TLS encryption in v0.5.0
-- Use USB mode for maximum security
+**USB:** the app's port is on the phone's loopback, reachable only through `adb forward` over the cable.
+**WiFi:** yes, by default (v0.6.0+): TLS 1.3 where both sides derive an Ed25519 key from the pairing token and accept only that key. A wrong token fails the handshake; there is no plaintext fallback. The app refuses unencrypted WiFi connections unless you switch "Require encryption" off (then the desktop needs `--no-tls`).
+**Bluetooth:** token-authenticated over a paired RFCOMM link (Bluetooth link encryption); no extra TLS layer.
 
 ### What data does the app collect?
 
@@ -424,7 +399,7 @@ None. The app:
 
 ### Can I use this on public WiFi?
 
-USB tethering is always safe. WiFi tethering on public networks should be avoided unless encryption is implemented.
+USB is the safest. WiFi mode is encrypted and token-pinned by default, but on untrusted networks keep "Require encryption" on.
 
 ## Development
 
@@ -439,35 +414,26 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for details.
 
 ### What features are planned?
 
-**Completed (v0.5.0):**
-- ✅ Bluetooth tethering (Android + Linux desktop; Windows desktop Bluetooth
-  is not implemented — the client fails with a clear error and points you
-  at WiFi mode instead)
-- ✅ Auto-reconnect with exponential backoff
-- ✅ Token authentication for WiFi/Bluetooth
-- ✅ mDNS service discovery
-- ✅ Connection profiles
-- ✅ Desktop GUI application (Linux release build; Windows GUI release
-  pending verification)
-- ✅ Root mode (Android iptables routing)
-- ✅ Traffic filtering, enforced on both Android and desktop clients
+**Done (v0.6.0):**
+- ✅ Real internet for the computer without root (userspace relay); the phone keeps its own internet
+- ✅ USB, WiFi and Bluetooth tethering (Bluetooth: Android + Linux desktop only)
+- ✅ WiFi encrypted by default (TLS 1.3 pinned to the pairing token)
+- ✅ Live status and statistics on the phone; notification with Stop
+- ✅ Traffic filtering on the desktop and on the phone (profile rules are sent to the phone)
+- ✅ DNS set up on the desktop
+- ✅ Auto-reconnect, token authentication, mDNS discovery, connection profiles
+- ✅ Desktop GUI (Linux build)
 
-**Not yet done:**
-- TLS encryption for WiFi/Bluetooth — the PSK/crypto code exists on both
-  sides but isn't wired into the live connection yet, so traffic is still
-  plaintext on the wire. This is the top engineering priority right now.
-- Traffic statistics and graphs beyond basic bytes sent/received
-
-**Long term (v1.0.0+):**
-- Multi-device support
-- Data usage limits and alerts
-- Traffic compression
-- Custom DNS configuration
-- Mobile data usage tracking
+**Not done:**
+- Root mode (kernel NAT on rooted phones) - removed in v0.6.0 until it is done properly
+- Bluetooth in the Windows client, macOS client, Windows GUI build
+- IPv6 through the tunnel
+- Token regeneration button (clear the app's data for now)
+- Multi-device support, data usage limits, mobile data usage tracking
 
 ### How can I report bugs?
 
-Create an issue on GitHub with:
+Create an issue on the [issue tracker](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/issues) with:
 1. Description of the problem
 2. Steps to reproduce
 3. Your device/OS information
@@ -491,8 +457,7 @@ Check the LICENSE file for details. Generally:
 - Open source
 
 **Advantages of Native:**
-- No VPN permission needed
-- Slightly better performance
+- Kernel forwarding (slightly better performance)
 - No extra software required
 
 ### vs. PDANet
@@ -519,7 +484,7 @@ Check the LICENSE file for details. Generally:
 - Free (no paid version needed)
 - Active development
 - Modern feature set (token auth, auto-reconnect, profiles, mDNS)
-- Bluetooth support (EasyTether doesn't have this)
+- Bluetooth support on Linux (EasyTether doesn't have this)
 - All features in free version
 
 **Advantages of EasyTether:**
@@ -531,7 +496,7 @@ Check the LICENSE file for details. Generally:
 
 ### Can I use custom DNS servers?
 
-Currently, the app uses Google DNS (8.8.8.8). Custom DNS support is planned for a future release.
+The phone announces Google DNS (8.8.8.8) and the desktop client points DNS for the tunnel at it. A custom DNS server option is planned.
 
 ### Can I route only specific traffic?
 
@@ -543,7 +508,7 @@ Not currently. Each tethering session supports one computer. Multi-device suppor
 
 ### Can I monitor bandwidth usage?
 
-The app shows basic statistics (bytes sent/received). More detailed monitoring is planned.
+The phone shows the connected desktop, data each way, open and total connections, uptime and filter state, live. More detailed monitoring is planned.
 
 ### Can I set data limits?
 

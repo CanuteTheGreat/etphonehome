@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-17
+
+### Added
+- **The computer really gets the phone's internet, without root.** The Android app now has a userspace relay (`android/core/.../relay/UserspaceRelay.kt`): it terminates the desktop's TCP connections and UDP flows itself and re-opens them as ordinary phone sockets (with sequence/ACK handling, flow control, retransmission, FIN/RST), answers ping for the phone and relays ping to other hosts. Before this the app only copied raw packets into a phone VPN, which Android never forwards, so no traffic ever reached the internet.
+- **The phone keeps its own internet.** The phone VPN is gone: nothing on the phone is captured, and the app no longer asks for VPN permission.
+- **Encrypted WiFi by default.** The app serves cert-pinned TLS 1.3 (same token-derived Ed25519 pinning as the desktop, via Bouncy Castle) and auto-detects TLS vs. plaintext. `etphonehome wifi` and WiFi profiles use TLS by default (`--no-tls` to opt out); the app refuses plaintext WiFi unless "Require encryption" is switched off.
+- **Live status and statistics on the phone:** "Waiting for desktop" until a desktop has actually completed the handshake, then the desktop's address, encryption, data each way, open/total connections, uptime and filter state; the notification shows the same and has a Stop button.
+- **Traffic filter on the phone:** right after the handshake the desktop sends the profile's filter (mode and every rule) to the phone, which enforces it on the connections it opens and resets connections a new rule blocks.
+- **DNS on the desktop:** the client points DNS for the tunnel at the phone's DNS server (`resolvectl` on Linux, `netsh` on Windows).
+- **Real-internet end-to-end CI:** the e2e job now runs the app's actual networking core (`android/core`, as the JVM `standin`) and checks, from a desktop container whose only way out is the tunnel: public HTTPS and HTTP, DNS, a 5 MiB download, TCP echo both ways, UDP, ICMP, 20 parallel connections, USB, filter rules, wrong tokens, plaintext refusal, reconnects.
+- **Releases are published on Forgejo** (the workflow used a GitHub-only action and never created one) and checked to contain all four packages.
+
+### Removed
+- **Root mode.** It was claimed as implemented, but nothing could start it, and its iptables rules redirected all of the phone's own traffic to the desktop. Removed until a correct kernel-NAT design exists.
+- Dead Android TLS/connection classes that were never wired in.
+
+### Changed
+- Android 8.0+ is now required (was 5.0).
+
+
 ### Fixed
 - **USB tethering never connected:** the desktop client (and `setup-adb`, `quick-start-linux.sh`, and every doc) used `adb reverse`, which maps a phone port to the computer. The app's USB server listens on the phone's loopback, so the client needs `adb forward` (computer port -> phone port); with the app running, `adb reverse` failed with "cannot bind listener: Address already in use". Confirmed against a real phone. The e2e adb stand-in now emulates both directions faithfully, so the wrong one fails the test.
 - **Android: the phone lost its internet after a desktop session, and Stop didn't fix it:** when the desktop disconnected, the VPN stayed established (all phone traffic routed into a dead tunnel), the app never accepted another connection (so desktop auto-reconnect could not work) and kept showing "Connected". The Stop button used `stopService()`, which cannot stop a VpnService whose VPN is up, so only force-stopping the app restored the phone's network. Sessions now run in a loop that tears the VPN down after every session and waits for the next desktop; Stop sends an explicit stop action. The VPN is also only established after a successful handshake, so a client with a wrong token no longer touches the phone's routing. Found on a real phone (Android 13).

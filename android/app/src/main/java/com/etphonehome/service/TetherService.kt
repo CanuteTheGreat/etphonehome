@@ -217,7 +217,9 @@ class TetherService : Service() {
                 runSession(
                     link.stream,
                     SessionOptions(
-                        peer = sock.inetAddress.hostAddress ?: "desktop",
+                        // USB arrives through adb's loopback forward: the
+                        // address (::1) says nothing, so name the transport.
+                        peer = if (token == null) "computer over USB" else sock.inetAddress.hostAddress ?: "desktop",
                         encrypted = link.encrypted,
                         tokenVerifier = verifier,
                         refuseReason = if (requireTls && !link.encrypted) {

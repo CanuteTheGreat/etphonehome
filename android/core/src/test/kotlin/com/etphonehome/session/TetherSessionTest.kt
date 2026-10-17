@@ -324,4 +324,76 @@ class TetherSessionTest {
         assertTrue("uptime ${last.uptimeSeconds}s after ~2.3 s", last.uptimeSeconds in 2..3)
         assertTrue("UI ticks every second", snaps.size >= 2)
     }
+
+    /** What the phone's UI shows comes from the listener: the connect info,
+     *  live snapshots with the real flow/filter numbers, and a final
+     *  snapshot after the relay was closed (no flows left open). */
+    @Test
+    fun `listener gets real session info, live snapshots and a closed relay at the end`() {
+        val echo = DatagramSocket(0, InetAddress.getLoopbackAddress())
+        thread {
+            val buf = ByteArray(1500)
+            val p = DatagramPacket(buf, buf.size)
+            echo.receive(p)
+            echo.send(DatagramPacket(p.data, p.length, p.socketAddress))
+        }
+        val infos = CopyOnWriteArrayList<SessionInfo>()
+        val snaps = CopyOnWriteArrayList<SessionSnapshot>()
+        val listener = object : SessionListener {
+            override fun onConnected(info: SessionInfo) { infos += info }
+            override fun onStats(snapshot: SessionSnapshot) { snaps += snapshot }
+        }
+        val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        val holder = arrayOfNulls<TetherSession>(1)
+        val t = thread {
+            server.accept().use { s ->
+                val link = TcpLink.accept(s, null)
+                val session = TetherSession(
+                    link.stream,
+                    SessionOptions(peer = "laptop", encrypted = true, tokenVerifier = { it == "tok" }, statsIntervalMs = 60_000),
+                    listener,
+                )
+                holder[0] = session
+                runCatching { runBlocking { session.run() } }
+            }
+            server.close()
+        }
+        val sock = Socket(InetAddress.getLoopbackAddress(), server.localPort)
+        val desk = MessageStream(sock.getInputStream(), sock.getOutputStream())
+        desk.write(HandshakeRequest(capabilities = 2, token = "tok"))
+        desk.read() as HandshakeResponse
+        desk.write(
+            ConfigUpdate(
+                mapOf(
+                    "filter.enabled" to "true",
+                    "filter.rules" to "1",
+                    "filter.rule.0" to "r1|true|block|tcp||9||",
+                ),
+            ),
+        )
+        val q = "count-me".toByteArray()
+        desk.write(IpPacket(PacketBuilder.udp(ipFromString("10.0.0.1"), 4001, ipFromString("127.0.0.1"), echo.localPort, q, 0, q.size)))
+        assertTrue("echo relayed", desk.read() is IpPacket)
+        // Wait for a UI tick that saw the open UDP flow.
+        val deadline = System.currentTimeMillis() + 5000
+        while (snaps.none { it.activeUdp == 1 } && System.currentTimeMillis() < deadline) Thread.sleep(50)
+        val live = snaps.first { it.activeUdp == 1 }
+        assertEquals(1L, live.udpFlows)
+        assertEquals(0, live.activeTcp)
+        assertEquals(0L, live.tcpFlows)
+        assertTrue("bytes both ways: $live", live.bytesToDesktop > 0 && live.bytesFromDesktop > 0)
+        assertTrue("filter state shown: $live", live.filterEnabled)
+        assertEquals(1, live.filterRules)
+        assertTrue("session is running", holder[0]!!.relay != null)
+
+        desk.write(Disconnect("bye"))
+        t.join(5000)
+        assertEquals(listOf(SessionInfo("laptop", encrypted = true, authenticated = true)), infos.toList())
+        val last = snaps.last()
+        assertEquals("relay closed: no UDP flow left open", 0, last.activeUdp)
+        assertTrue("final snapshot keeps the totals", last.udpFlows == 1L && last.bytesToDesktop >= live.bytesToDesktop)
+        assertEquals(null, holder[0]!!.relay)
+        sock.close()
+        echo.close()
+    }
 }

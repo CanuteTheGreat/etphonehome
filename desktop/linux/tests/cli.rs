@@ -60,6 +60,7 @@ fn help_lists_every_documented_subcommand() {
     let o = bin().args(["wifi", "--help"]).output().unwrap();
     assert!(o.status.success(), "wifi --help failed: {}", stderr(&o));
     assert!(stdout(&o).contains("--tls"));
+    assert!(stdout(&o).contains("--no-tls"));
     assert!(stdout(&o).contains("--reconnect"));
 }
 
@@ -200,6 +201,8 @@ fn wrong_token_reports_android_rejection() {
             &port.to_string(),
             "--token",
             "wrong-token",
+            // a plaintext stand-in (TLS is the default)
+            "--no-tls",
         ])
         .output()
         .unwrap();
@@ -240,6 +243,7 @@ fn wifi_accepts_hostnames() {
             &port.to_string(),
             "--token",
             "t",
+            "--no-tls",
             "--interface",
             "etphclitest0",
         ])

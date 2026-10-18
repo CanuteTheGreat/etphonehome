@@ -1,7 +1,10 @@
 package com.etphonehome.filter
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -123,5 +126,56 @@ class FilterRuleTest {
     fun `PortRange parse still handles well-formed specs`() {
         val ranges = PortRange.parse("80, 443, 8000-8080")
         assertEquals(listOf(PortRange(80), PortRange(443), PortRange(8000, 8080)), ranges)
+    }
+
+    // IpRange.parse used InetAddress.getByName, which resolves anything that
+    // isn't a valid numeric literal as a hostname. "localhost" became
+    // 127.0.0.1, and an out-of-range IPv4 like "256.1.1.1" (which passes
+    // parseWireRule's digits-and-dots pattern) became a DNS query on the
+    // session's reader thread.
+    @Test
+    fun `IpRange parse never resolves a hostname`() {
+        assertThrows(IllegalArgumentException::class.java) { IpRange.parse("localhost") }
+        assertThrows(IllegalArgumentException::class.java) { IpRange.parse("localhost/8") }
+        assertThrows(IllegalArgumentException::class.java) { IpRange.parse("example.com") }
+    }
+
+    @Test
+    fun `IpRange parse rejects out-of-range IPv4 octets without a lookup`() {
+        for (bad in listOf("256.1.1.1", "10.0.0.300", "999.999.999.999/8", "1.2.3", "1.2.3.4.5", "1..2.3", "-1.2.3.4")) {
+            assertThrows(bad, IllegalArgumentException::class.java) { IpRange.parse(bad) }
+        }
+    }
+
+    @Test
+    fun `wire rule with an out-of-range IPv4 address is dropped`() {
+        assertNull(parseWireRule("r1|true|block|tcp|256.1.1.1|443||"))
+        assertNull(parseWireRule("r1|true|allow||||10.0.0.300/24|"))
+        assertTrue(parseWireRule("r1|true|block|tcp|255.255.255.255|443||") != null)
+    }
+
+    @Test
+    fun `IPv6 literals parse to the right bytes`() {
+        fun words(vararg w: Int) = ByteArray(16).also { b ->
+            w.forEachIndexed { i, x -> b[2 * i] = (x shr 8).toByte(); b[2 * i + 1] = x.toByte() }
+        }
+        assertArrayEquals(words(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1), parseIpLiteral("2001:db8::1"))
+        assertArrayEquals(words(0, 0, 0, 0, 0, 0, 0, 0), parseIpLiteral("::"))
+        assertArrayEquals(words(0, 0, 0, 0, 0, 0, 0, 1), parseIpLiteral("::1"))
+        assertArrayEquals(words(0xfe80, 0, 0, 0, 0, 0, 0, 0), parseIpLiteral("FE80::"))
+        assertArrayEquals(words(1, 2, 3, 4, 5, 6, 7, 8), parseIpLiteral("1:2:3:4:5:6:7:8"))
+        assertArrayEquals(words(0x64, 0xff9b, 0, 0, 0, 0, 0xc000, 0x0221), parseIpLiteral("64:ff9b::192.0.2.33"))
+        assertArrayEquals(words(1, 2, 3, 4, 5, 6, 0x0a00, 0x0005), parseIpLiteral("1:2:3:4:5:6:10.0.0.5"))
+        assertArrayEquals(byteArrayOf(10, 0, 0, 5), parseIpLiteral("10.0.0.5"))
+    }
+
+    @Test
+    fun `malformed IPv6 literals are rejected`() {
+        for (bad in listOf(
+            ":", ":::", "1::2::3", "1:2:3:4:5:6:7:8:9", "1:2:3:4:5:6:7", "1:2:3:4::5:6:7:8",
+            "12345::", "g::1", "fe80::1%eth0", "1:", ":1", "1.2.3.4::", "::1.2.3.256", "",
+        )) {
+            assertNull(bad, parseIpLiteral(bad))
+        }
     }
 }

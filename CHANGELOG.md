@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A phone-side filter rule with an invalid IPv4 address triggered a DNS lookup.** Rule addresses like `256.1.1.1` were handed to the system resolver as hostnames, which blocked the session while the lookup ran, and on networks whose DNS answers every name the rule ended up applying to an unrelated address. Rule addresses are now parsed as numeric IPv4/IPv6 literals only, and anything else drops the rule.
 - **A phone-side filter rule naming one IPv6 host covered its whole /32.** A rule address with no `/prefix` defaulted to /32 for IPv6 as well as IPv4, so blocking `2001:db8::1` blocked all of `2001:db8::/32`, and in whitelist mode allowing it allowed the whole /32. A bare IPv6 address is now /128.
 - **IPv6 packets could slip past the phone's protocol and port rules.** The packet parser stopped walking IPv6 extension headers after 8, and didn't know the Authentication Header, so TCP behind 9+ extension headers or an AH header came out as "any protocol, no ports" and a rule like `block tcp 443` didn't match it. The parser now walks the whole chain (always bounded by the packet length) and understands AH.
 

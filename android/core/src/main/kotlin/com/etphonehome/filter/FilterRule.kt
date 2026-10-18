@@ -74,8 +74,22 @@ data class IpRange(
          */
         fun parse(cidr: String): IpRange {
             val parts = cidr.split("/")
-            val address = InetAddress.getByName(parts[0])
-            val prefix = if (parts.size > 1) parts[1].toInt() else address.address.size * 8
+            require(parts.size <= 2) { "not a CIDR: $cidr" }
+            // Literal addresses only, built with getByAddress (never DNS).
+            // This used to be InetAddress.getByName(parts[0]), which treats
+            // anything that isn't a valid numeric literal as a hostname and
+            // resolves it. The wire-rule check in parseWireRule only
+            // pattern-matches digits and dots, so "256.1.1.1" or
+            // "10.0.0.300" got through to getByName and became a blocking
+            // DNS query on the session's reader thread, sent to whatever
+            // resolver the phone's network uses. A resolver that answers
+            // every name (carrier/captive-portal NXDOMAIN rewriting) turned
+            // the rule into a rule for an unrelated address; otherwise the
+            // rule was dropped only after the lookup timed out.
+            val bytes = parseIpLiteral(parts[0].trim())
+                ?: throw IllegalArgumentException("not an IP address literal: ${parts[0]}")
+            val address = InetAddress.getByAddress(bytes)
+            val prefix = if (parts.size > 1) parts[1].trim().toInt() else address.address.size * 8
             return IpRange(address, prefix)
         }
     }
@@ -122,6 +136,70 @@ data class IpRange(
 
         return true
     }
+}
+
+/**
+ * Parse a numeric IPv4 ("a.b.c.d") or IPv6 (RFC 4291 text form, including
+ * "::" compression and a dotted-quad tail) address literal into its 4 or 16
+ * bytes, or null if [s] is not one. Never consults DNS. Zone IDs
+ * ("fe80::1%eth0") are rejected.
+ */
+fun parseIpLiteral(s: String): ByteArray? =
+    if (s.contains(':')) parseIpv6Literal(s) else parseIpv4Literal(s)
+
+private fun parseIpv4Literal(s: String): ByteArray? {
+    val parts = s.split('.')
+    if (parts.size != 4) return null
+    val out = ByteArray(4)
+    for ((i, p) in parts.withIndex()) {
+        if (p.isEmpty() || p.length > 3 || !p.all { it in '0'..'9' }) return null
+        val v = p.toInt()
+        if (v > 255) return null
+        out[i] = v.toByte()
+    }
+    return out
+}
+
+private fun parseIpv6Literal(s: String): ByteArray? {
+    val halves = s.split("::")
+    if (halves.size > 2) return null
+    val compressed = halves.size == 2
+    val head = ipv6Words(halves[0], dottedTailAllowed = !compressed) ?: return null
+    val tail = if (compressed) ipv6Words(halves[1], dottedTailAllowed = true) ?: return null else emptyList()
+    val words = if (compressed) {
+        // "::" stands for at least one zero group.
+        val fill = 8 - head.size - tail.size
+        if (fill < 1) return null
+        head + List(fill) { 0 } + tail
+    } else {
+        head
+    }
+    if (words.size != 8) return null
+    val out = ByteArray(16)
+    for ((i, w) in words.withIndex()) {
+        out[2 * i] = (w shr 8).toByte()
+        out[2 * i + 1] = w.toByte()
+    }
+    return out
+}
+
+/** 16-bit words of a colon-separated run of IPv6 groups ("" = none). */
+private fun ipv6Words(part: String, dottedTailAllowed: Boolean): List<Int>? {
+    if (part.isEmpty()) return emptyList()
+    val groups = part.split(':')
+    val words = ArrayList<Int>(8)
+    for ((i, g) in groups.withIndex()) {
+        if (dottedTailAllowed && i == groups.lastIndex && g.contains('.')) {
+            val v4 = parseIpv4Literal(g) ?: return null
+            words += ((v4[0].toInt() and 0xFF) shl 8) or (v4[1].toInt() and 0xFF)
+            words += ((v4[2].toInt() and 0xFF) shl 8) or (v4[3].toInt() and 0xFF)
+        } else {
+            if (g.isEmpty() || g.length > 4) return null
+            if (!g.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) return null
+            words += g.toInt(16)
+        }
+    }
+    return words
 }
 
 /**

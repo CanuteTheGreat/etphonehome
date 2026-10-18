@@ -350,4 +350,47 @@ class UserspaceRelayTest {
         assertTrue("no loopback datagram was sent",
             runCatching { udpServer.receive(DatagramPacket(ByteArray(64), 64)) }.exceptionOrNull() is java.net.SocketTimeoutException)
     }
+
+    /** The guard above must only cover 127/8 and 0/8: with the app's config
+     *  every other destination still gets a socket. A preparer records the
+     *  destinations that reach socket setup, then fails it, so nothing is
+     *  ever connected or sent off this host (TCP answers RST, UDP host
+     *  unreachable). The addresses sit on both sides of each blocked /8. */
+    @Test
+    fun `with the app's config every destination outside 127 and 0 slash 8 still reaches a socket`() {
+        val outs = LinkedBlockingQueue<ByteArray>()
+        val prepared = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        val failing = object : SocketPreparer {
+            override fun prepareTcp(socket: java.net.Socket) {
+                prepared += "tcp"
+                throw java.io.IOException("test: no real connection")
+            }
+
+            override fun prepareUdp(socket: DatagramSocket) {
+                prepared += "udp"
+                throw java.io.IOException("test: no real connection")
+            }
+        }
+        val appRelay = UserspaceRelay({ outs.put(it) }, RelayConfig(socketPreparer = failing)).also { it.start(); closeables += it }
+
+        for (addr in listOf("1.0.0.0", "126.255.255.255", "128.0.0.0", "192.0.2.1")) {
+            val dst = ipFromString(addr)
+            prepared.clear()
+            appRelay.handlePacket(PacketBuilder.tcp(desktop, 41000, dst, 443, 7000, 0, TcpFlags.SYN, 65535, mss = 1460))
+            val rst = TcpSegment.parse(Ipv4Packet.parse(outs.poll(3, TimeUnit.SECONDS)!!)!!)!!
+            assertTrue("SYN to $addr is answered", rst.has(TcpFlags.RST))
+            assertEquals("SYN to $addr reached socket setup", listOf("tcp"), prepared.toList())
+
+            prepared.clear()
+            val q = "q".toByteArray()
+            appRelay.handlePacket(PacketBuilder.udp(desktop, 5000, dst, 53, q, 0, q.size))
+            val icmp = Ipv4Packet.parse(outs.poll(3, TimeUnit.SECONDS)!!)!!
+            assertEquals(IpProto.ICMP, icmp.protocol)
+            assertEquals("destination unreachable", 3, icmp.data.u8(20))
+            assertEquals("host unreachable (socket setup failed), not prohibited", 1, icmp.data.u8(21))
+            assertEquals("datagram to $addr reached socket setup", listOf("udp"), prepared.toList())
+        }
+        assertEquals(0, appRelay.stats.activeTcp.get())
+        assertEquals(0, appRelay.stats.activeUdp.get())
+    }
 }

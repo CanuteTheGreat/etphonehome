@@ -46,6 +46,9 @@ pitest {
     // classes changed since the last green run as -PpitChangedClasses=a.B,a.B$*,...; unset = all.
     def pitChanged = project.findProperty('pitChangedClasses')?.toString()?.split(',')?.findAll { it }
     targetClasses = pitChanged ?: ['com.etphonehome.*']
+    // explicit: the plugin's default targetTests = targetClasses, which for an incremental run is
+    // just the changed classes (no *Test class matches, so every mutant was NO_COVERAGE)
+    targetTests = ['com.etphonehome.*']
     failWhenNoMutations = !pitChanged
     threads = 2
     outputFormats = ['XML', 'HTML']

@@ -1,75 +1,61 @@
-# ET Phone Home Configuration Example
-# Copy this file to config.toml and customize for your setup
+# ET Phone Home - Configuration File
+# This file contains connection profiles for quick access
 
-[connection]
-# Connection type: "usb", "wifi", or "bluetooth"
-type = "usb"
-
-# Port for USB/WiFi connection
-port = 8888
-
-# WiFi-specific settings
-# host = "192.168.1.100"  # Android device IP for WiFi mode
-
-[network]
+# Default connection settings
+[default]
+# Auto-reconnect on disconnect (true/false)
+auto_reconnect = true
+# Maximum retry attempts (0 = infinite)
+max_retries = 0
 # TUN interface name
 interface = "etph0"
 
-# TUN interface IP address
-address = "10.0.0.1"
+# Desktop GUI preferences (the GUI saves these itself; auto_reconnect above is shared)
+[gui]
+dark_mode = false
 
-# Network mask
-netmask = "255.255.255.0"
+# Connection profiles
+# You can define multiple profiles and use them with: etphonehome connect <profile-name>
 
-# MTU size
-mtu = 1500
+[[profiles]]
+name = "usb"
+type = "usb"
+port = 8888
+description = "USB connection via ADB"
 
-# DNS server to use
-dns = "8.8.8.8"
+[[profiles]]
+name = "home-wifi"
+type = "wifi"
+host = "192.168.1.100"
+port = 8888
+description = "Home WiFi network"
 
-[logging]
-# Log level: "error", "warn", "info", "debug", "trace"
-level = "info"
+[[profiles]]
+name = "work-wifi"
+type = "wifi"
+host = "192.168.0.50"
+port = 8888
+description = "Work WiFi network"
 
-# Log to file
-# log_file = "/var/log/etphonehome.log"
+[[profiles]]
+name = "my-phone-bt"
+type = "bluetooth"
+address = "AA:BB:CC:DD:EE:FF"
+description = "My phone via Bluetooth"
 
-[android]
-# ADB path (if not in PATH)
-# adb_path = "/usr/bin/adb"
+# Authentication tokens (optional)
+# If set, these will be used for WiFi/Bluetooth connections
+[auth]
+# Token for WiFi connections (leave empty for no auth)
+wifi_token = ""
+# Token for Bluetooth connections (leave empty for no auth)
+bluetooth_token = ""
 
-# Auto-setup ADB port forwarding
-auto_adb_setup = true
-
+# Advanced settings
 [advanced]
+# Enable debug logging (true/false)
+debug = false
 # Connection timeout in seconds
 timeout = 30
-
-# Keepalive interval in seconds
-keepalive_interval = 30
-
-# Statistics update interval in seconds
-stats_interval = 5
-
-# Reconnect automatically on disconnect
-# auto_reconnect = true
-
-# Maximum reconnect attempts
-# max_reconnect_attempts = 5
-
-[performance]
-# Enable multi-threaded packet forwarding (experimental)
-# multithreaded = false
-
-# Packet queue size
-# queue_size = 1000
-
-# Read buffer size in bytes
-# buffer_size = 65536
-
-[security]
-# Enable encryption for WiFi mode (future feature)
-# encrypt_wifi = false
-
-# Shared secret for WiFi encryption
-# wifi_secret = "your-secret-key-here"
+# Packet buffer size
+buffer_size = 100

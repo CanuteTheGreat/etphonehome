@@ -50,6 +50,13 @@ pub enum Message {
     // Async task results
     ProfilesLoaded(Vec<Profile>),
     ProfileSaved(Result<(), String>),
+    /// Saved GUI preferences read from config.toml at startup.
+    SettingsLoaded {
+        auto_reconnect: bool,
+        dark_mode: bool,
+    },
+    /// Result of writing the GUI preferences back to config.toml.
+    SettingsSaved(Result<(), String>),
     ProfileDeleted(Result<(), String>),
     ConnectionResult(Result<(), String>),
 

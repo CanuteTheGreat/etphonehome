@@ -15,6 +15,17 @@ pub struct Config {
     pub auth: AuthSettings,
     #[serde(default)]
     pub advanced: AdvancedSettings,
+    /// Desktop GUI preferences (the CLI ignores them). `default.auto_reconnect` is shared:
+    /// the GUI's auto-reconnect toggle reads and writes that one.
+    #[serde(default)]
+    pub gui: GuiSettings,
+}
+
+/// Desktop GUI preferences, kept in the same config.toml as the profiles.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct GuiSettings {
+    #[serde(default)]
+    pub dark_mode: bool,
 }
 
 /// Default connection settings
@@ -364,6 +375,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gui_settings_default_off_for_old_configs_and_round_trip() {
+        // A config.toml written before [gui] existed still loads, with dark mode off.
+        let old: Config = toml::from_str("[default]\nauto_reconnect = false\n").unwrap();
+        assert_eq!(old.gui, GuiSettings::default());
+        assert!(!old.default.auto_reconnect);
+
+        let mut c = Config::default();
+        c.gui.dark_mode = true;
+        let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
+        assert!(back.gui.dark_mode);
+    }
+
+    #[test]
     #[cfg(unix)]
     fn sudo_user_home_is_found_in_passwd() {
         let passwd = "root:x:0:0:root:/root:/bin/bash\n\
@@ -394,9 +418,13 @@ mod tests {
                 ConnectionType::Usb => {}
             }
         }
-        let root: Config = toml::from_str(include_str!("../../../config.example.toml"))
-            .expect("config.example.toml must parse");
-        let _ = root;
+        // The repo-root copy used to describe sections the client never read
+        // ([connection], [network], [security] "future" encryption...): keep it identical.
+        assert_eq!(
+            include_str!("../../../config.example.toml"),
+            text,
+            "config.example.toml must be a copy of desktop/config.example.toml"
+        );
     }
 
     #[test]

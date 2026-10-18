@@ -10,6 +10,10 @@ max_retries = 0
 # TUN interface name
 interface = "etph0"
 
+# Desktop GUI preferences (the GUI saves these itself; auto_reconnect above is shared)
+[gui]
+dark_mode = false
+
 # Connection profiles
 # You can define multiple profiles and use them with: etphonehome connect <profile-name>
 

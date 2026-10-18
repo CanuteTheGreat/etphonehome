@@ -135,13 +135,20 @@ impl EtPhoneHomeApp {
             log_rx,
         };
 
-        // Load profiles on startup
+        // Load profiles and the saved GUI preferences on startup
         let load_profiles = Task::perform(
             async { load_profiles_from_config().await },
             Message::ProfilesLoaded,
         );
+        let load_settings = Task::perform(
+            async { load_gui_settings_from_config().await },
+            |(auto_reconnect, dark_mode)| Message::SettingsLoaded {
+                auto_reconnect,
+                dark_mode,
+            },
+        );
 
-        (app, load_profiles)
+        (app, Task::batch([load_profiles, load_settings]))
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -212,7 +219,7 @@ impl EtPhoneHomeApp {
                 self.auto_reconnect = !self.auto_reconnect;
                 self.connection_service
                     .set_auto_reconnect(self.auto_reconnect);
-                Task::none()
+                self.persist_settings()
             }
 
             // Profile selection
@@ -351,6 +358,23 @@ impl EtPhoneHomeApp {
             // Settings
             Message::ToggleDarkMode => {
                 self.dark_mode = !self.dark_mode;
+                self.persist_settings()
+            }
+
+            Message::SettingsLoaded {
+                auto_reconnect,
+                dark_mode,
+            } => {
+                self.auto_reconnect = auto_reconnect;
+                self.connection_service.set_auto_reconnect(auto_reconnect);
+                self.dark_mode = dark_mode;
+                Task::none()
+            }
+
+            Message::SettingsSaved(result) => {
+                if let Err(e) = result {
+                    log::error!("Failed to save settings to config file: {}", e);
+                }
                 Task::none()
             }
 
@@ -449,6 +473,22 @@ impl EtPhoneHomeApp {
     pub fn subscription(&self) -> Subscription<Message> {
         // Tick every second for stats updates
         iced::time::every(Duration::from_secs(1)).map(|_| Message::Tick)
+    }
+
+    /// Writes the current toggles to config.toml so they survive a restart.
+    fn persist_settings(&self) -> Task<Message> {
+        let (auto, dark) = (self.auto_reconnect, self.dark_mode);
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let path = Config::default_path().map_err(|e| e.to_string())?;
+                    store_gui_settings(&path, auto, dark)
+                })
+                .await
+                .map_err(|e| e.to_string())?
+            },
+            Message::SettingsSaved,
+        )
     }
 
     pub fn theme(&self) -> Theme {
@@ -599,6 +639,42 @@ async fn delete_profile_from_config(name: String) -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Saved (auto-reconnect, dark mode); defaults when there is no readable config.
+async fn load_gui_settings_from_config() -> (bool, bool) {
+    tokio::task::spawn_blocking(|| match Config::load_or_default() {
+        Ok(config) => (config.default.auto_reconnect, config.gui.dark_mode),
+        Err(e) => {
+            log::warn!("Failed to load config: {}", e);
+            let d = Config::default();
+            (d.default.auto_reconnect, d.gui.dark_mode)
+        }
+    })
+    .await
+    .unwrap_or((true, false))
+}
+
+/// Update only the GUI preferences in the config file at `path`, keeping profiles,
+/// tokens and every other setting as they are (creates the file if missing).
+fn store_gui_settings(
+    path: &std::path::Path,
+    auto_reconnect: bool,
+    dark_mode: bool,
+) -> Result<(), String> {
+    let mut config = if path.exists() {
+        Config::load(path).map_err(|e| format!("{:#}", e))?
+    } else {
+        Config::default()
+    };
+    config.default.auto_reconnect = auto_reconnect;
+    config.gui.dark_mode = dark_mode;
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
+    config.save(path).map_err(|e| format!("{:#}", e))
 }
 
 /// Load profiles from config file
@@ -758,5 +834,42 @@ mod tests {
         let _ = app.update(Message::NavigateTo(View::Logs));
         let _ = app.update(Message::ClearLogs);
         assert!(app.logs().is_empty());
+    }
+
+    #[test]
+    fn saved_settings_are_applied_at_startup() {
+        let mut app = app_with(vec![]);
+        let _ = app.update(Message::SettingsLoaded {
+            auto_reconnect: false,
+            dark_mode: true,
+        });
+        assert!(!app.auto_reconnect());
+        assert!(app.dark_mode());
+        assert!(matches!(app.theme(), Theme::Dark));
+    }
+
+    #[test]
+    fn gui_settings_round_trip_through_config_toml_without_touching_profiles() {
+        let dir = std::env::temp_dir().join(format!("etph-gui-settings-{}", std::process::id()));
+        let path = dir.join("nested").join("config.toml");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // No file yet: created with just the preferences.
+        store_gui_settings(&path, false, true).unwrap();
+        let c = Config::load(&path).unwrap();
+        assert!(!c.default.auto_reconnect);
+        assert!(c.gui.dark_mode);
+
+        // An existing profile survives a later preference change.
+        let mut c = Config::load(&path).unwrap();
+        c.upsert_profile(wifi("home"));
+        c.save(&path).unwrap();
+        store_gui_settings(&path, true, false).unwrap();
+        let c = Config::load(&path).unwrap();
+        assert!(c.default.auto_reconnect);
+        assert!(!c.gui.dark_mode);
+        assert_eq!(c.list_profiles(), vec!["home".to_string()]);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

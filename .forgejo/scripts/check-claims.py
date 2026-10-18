@@ -51,8 +51,9 @@ def is_executed(path):
         return "cargo test --all" in ALL_WF
     if path.endswith(".kt") and "/src/test/" in path:
         if path.startswith("android/core/"):
-            return "cd core && ../gradlew test" in ALL_WF
-        return "./gradlew test" in ALL_WF
+            return re.search(r"cd core && \.\./gradlew(?: --?[\w.=-]+)* test\b", ALL_WF) is not None
+        # Gradle options (e.g. --max-workers=2) may sit between gradlew and the task.
+        return re.search(r"\./gradlew(?: --?[\w.=-]+)* test\b", ALL_WF) is not None
     return False
 
 

@@ -50,3 +50,8 @@ rustls = { version = "0.23", features = ["ring"] }
 tokio-rustls = "0.26"
 ring = "0.17"
 rcgen = { version = "0.13", features = ["pem"] }
+
+# Debug info: line tables only (backtraces keep file:line, no full DWARF).
+# Smaller objects and test binaries, so CI links use less memory and disk.
+[profile.dev]
+debug = "line-tables-only"

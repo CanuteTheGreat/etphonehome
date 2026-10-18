@@ -15,6 +15,7 @@ on:
       - '.forgejo/scripts/package.sh'
       - '.forgejo/scripts/build-linux-release.sh'
       - '.forgejo/workflows/rust-ci.yml'
+      - '.forgejo/scripts/ci-rust-env.sh'
   pull_request:
     branches: [main]
     paths:
@@ -29,9 +30,12 @@ on:
       - '.forgejo/scripts/package.sh'
       - '.forgejo/scripts/build-linux-release.sh'
       - '.forgejo/workflows/rust-ci.yml'
+      - '.forgejo/scripts/ci-rust-env.sh'
 
 env:
   CARGO_TERM_COLOR: always
+  # Incremental state is never reused in CI; it only costs memory and disk.
+  CARGO_INCREMENTAL: 0
 
 # Concurrency (2026-10-17, ctg-infrastructure ollivanders/forgejo/ci-supersede-sweeper):
 # other branches and PRs: a new push cancels the older run. main: runs queue behind each
@@ -75,6 +79,11 @@ jobs:
           sudo apt-get install -y build-essential libdbus-1-dev pkg-config
       - name: Ensure Node.js is present (self-heal)
         run: command -v node || sudo apt-get install -y nodejs
+      - name: Build env (mold linker, no incremental)
+        # .forgejo/scripts/ci-rust-env.sh: pinned, sha256-checked mold as the
+        # linker for the following steps (no sccache: no persistent cache
+        # volume in a job container). Not used where cargo-zigbuild links.
+        run: CI_NO_SCCACHE=1 CI_RUST_ENV_EXPORT=1 . .forgejo/scripts/ci-rust-env.sh
       - name: Compute cache key
         id: cachekey
         run: echo "hash=$(find desktop -name Cargo.toml | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -132,6 +141,11 @@ jobs:
           sudo apt-get install -y build-essential libdbus-1-dev pkg-config
       - name: Ensure Node.js is present (self-heal)
         run: command -v node || sudo apt-get install -y nodejs
+      - name: Build env (mold linker, no incremental)
+        # .forgejo/scripts/ci-rust-env.sh: pinned, sha256-checked mold as the
+        # linker for the following steps (no sccache: no persistent cache
+        # volume in a job container). Not used where cargo-zigbuild links.
+        run: CI_NO_SCCACHE=1 CI_RUST_ENV_EXPORT=1 . .forgejo/scripts/ci-rust-env.sh
       - name: Compute cache key
         id: cachekey
         run: echo "hash=$(find desktop -name Cargo.toml | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"

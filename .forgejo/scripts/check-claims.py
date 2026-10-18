@@ -101,5 +101,30 @@ for feat in re.findall(r"^- ✅ \*\*(.+?)\*\*", readme, re.M):
         print(f"FAIL README feature {feat!r} has no row in ci/claims.tsv")
         bad += 1
 
+# "Current version" statements in the docs must name the version that ships
+# (desktop/Cargo.toml == Android versionName); they went stale at 0.6.0 once.
+cargo = re.search(r'^version = "([^"]+)"', open("desktop/Cargo.toml", encoding="utf-8").read(), re.M).group(1)
+apk = re.search(r'versionName "([^"]+)"', open("android/app/build.gradle", encoding="utf-8").read()).group(1)
+if cargo != apk:
+    print(f"FAIL desktop version {cargo} != Android versionName {apk}")
+    bad += 1
+VERSION_CLAIMS = [
+    ("README.md", r"Current Features \(v([0-9.]+)\)"),
+    ("README.md", r"Current version is v([0-9.]+)"),
+    ("docs/index.html", r"Current Features \(v([0-9.]+)\)"),
+    ("STATUS.md", r"\*\*Version:\*\* ([0-9.]+)"),
+]
+for path, pat in VERSION_CLAIMS:
+    found = re.findall(pat, open(path, encoding="utf-8").read())
+    if not found:
+        print(f"FAIL {path}: version statement {pat!r} not found")
+        bad += 1
+    for v in found:
+        if v != cargo:
+            print(f"FAIL {path} says current version {v}, shipping version is {cargo}")
+            bad += 1
+        else:
+            print(f"ok   {path}: current version {v}")
+
 print(f"\nclaims ledger: {len(rows)} rows, {bad} problem(s)")
 sys.exit(1 if bad else 0)

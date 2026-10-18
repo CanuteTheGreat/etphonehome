@@ -427,4 +427,4 @@ You are free to use, modify, and distribute this software for any purpose, inclu
 
 ---
 
-**Note:** Current version is v0.6.0 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.
+**Note:** Current version is v0.6.1 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.

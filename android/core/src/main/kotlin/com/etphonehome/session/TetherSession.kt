@@ -11,6 +11,7 @@ import com.etphonehome.protocol.IpPacket
 import com.etphonehome.protocol.Keepalive
 import com.etphonehome.protocol.MessageStream
 import com.etphonehome.protocol.Protocol
+import com.etphonehome.protocol.ProtocolException
 import com.etphonehome.protocol.ServerHandshake
 import com.etphonehome.protocol.StatsUpdate
 import com.etphonehome.relay.RelayConfig
@@ -23,6 +24,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.EOFException
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * One desktop session on the phone, transport-independent (USB, WiFi,
@@ -59,15 +61,51 @@ class TetherSession(
     /** Run until the desktop leaves. Returns the handshake request. */
     suspend fun run(): HandshakeRequest = withContext(Dispatchers.IO) {
         Log.d(tag, "Starting handshake")
-        val request = ServerHandshake.perform(
-            stream,
-            capabilities = options.capabilities,
-            ipAddress = options.relayConfig.localAddress,
-            dns = options.dns,
-            tokenVerifier = options.tokenVerifier,
-            refuseReason = options.refuseReason,
-            version = options.protocolVersion,
-        )
+        // The phone serves one desktop at a time, and nothing below the
+        // handshake has a read timeout: TcpLink lifts its first-byte timeout
+        // as soon as one byte arrives, and the idle watchdog only starts once
+        // the session is up. So a connection that sent one byte (or a TLS
+        // ClientHello) and then went quiet held the session slot forever,
+        // before any token check -- anyone on the WiFi network, or any app on
+        // the phone for the USB loopback port, could lock real desktops out.
+        // A deadline for the whole handshake (not a per-read timeout, which a
+        // byte-at-a-time sender could keep resetting) frees the slot.
+        // PENDING -> DONE (handshake won) or PENDING -> TIMED_OUT (deadline
+        // won): exactly one side wins, so a handshake that finishes just as
+        // the deadline fires is never aborted after the fact.
+        val handshake = AtomicInteger(HS_PENDING)
+        val request = try {
+            coroutineScope {
+                val deadline = launch {
+                    delay(options.handshakeTimeoutMs)
+                    if (!handshake.compareAndSet(HS_PENDING, HS_TIMED_OUT)) return@launch
+                    Log.i(tag, "No handshake from ${options.peer} within ${options.handshakeTimeoutMs / 1000}s: dropping it")
+                    options.abortLink()
+                }
+                try {
+                    ServerHandshake.perform(
+                        stream,
+                        capabilities = options.capabilities,
+                        ipAddress = options.relayConfig.localAddress,
+                        dns = options.dns,
+                        tokenVerifier = options.tokenVerifier,
+                        refuseReason = options.refuseReason,
+                        version = options.protocolVersion,
+                    ).also {
+                        if (!handshake.compareAndSet(HS_PENDING, HS_DONE)) {
+                            throw ProtocolException("handshake finished after the deadline")
+                        }
+                    }
+                } finally {
+                    deadline.cancel()
+                }
+            }
+        } catch (e: Exception) {
+            if (handshake.get() == HS_TIMED_OUT && e !is CancellationException) {
+                throw ProtocolException("no handshake within ${options.handshakeTimeoutMs} ms")
+            }
+            throw e
+        }
         Log.i(tag, "Handshake complete (${options.peer}, ${if (options.encrypted) "TLS 1.3" else "plaintext"})")
 
         val started = System.currentTimeMillis()
@@ -222,6 +260,9 @@ class TetherSession(
 
     private companion object {
         const val UI_TICK_MS = 1000L
+        const val HS_PENDING = 0
+        const val HS_DONE = 1
+        const val HS_TIMED_OUT = 2
     }
 }
 
@@ -244,6 +285,9 @@ data class SessionOptions(
     /** Test hook (CI stand-in): send Disconnect after this long. */
     val disconnectAfterMs: Long? = null,
     val onForcedDisconnect: () -> Unit = {},
+    /** Drop a connection that hasn't completed the handshake this long
+     *  after the transport came up (needs [abortLink] to unblock the read). */
+    val handshakeTimeoutMs: Long = 15_000,
     /** End the session once a keepalive-sending desktop is silent this long. */
     val desktopIdleTimeoutMs: Long = 30_000,
     /** Tear the transport down hard (the desktop is gone; nothing to say to

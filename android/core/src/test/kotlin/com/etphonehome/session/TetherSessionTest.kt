@@ -88,7 +88,7 @@ class TetherSessionTest {
 
     /** Runs a session whose desktop end the test controls; returns the
      *  desktop socket, the session (once started) and the server thread. */
-    private fun serveAbortable(idleMs: Long): Triple<Socket, Array<TetherSession?>, Thread> {
+    private fun serveAbortable(idleMs: Long, handshakeMs: Long = 15_000): Triple<Socket, Array<TetherSession?>, Thread> {
         val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
         val holder = arrayOfNulls<TetherSession>(1)
         val t = thread {
@@ -103,6 +103,7 @@ class TetherSessionTest {
                         keepaliveIntervalMs = 60_000,
                         statsIntervalMs = 60_000,
                         desktopIdleTimeoutMs = idleMs,
+                        handshakeTimeoutMs = handshakeMs,
                         abortLink = { link.abort() },
                         relayConfig = loopbackNet,
                     ),
@@ -113,6 +114,52 @@ class TetherSessionTest {
             server.close()
         }
         return Triple(Socket(InetAddress.getLoopbackAddress(), server.localPort), holder, t)
+    }
+
+    /** One byte, then silence: TcpLink's first-byte timeout is already
+     *  lifted, so without the handshake deadline this connection held the
+     *  phone's only session slot forever, before any token check. */
+    @Test
+    fun `a connection that stalls mid-handshake is dropped at the deadline`() {
+        val (sock, holder, t) = serveAbortable(idleMs = 60_000, handshakeMs = 400)
+        val t0 = System.currentTimeMillis()
+        sock.getOutputStream().write(0x45) // first byte of the magic, then nothing
+        t.join(5000)
+        val took = System.currentTimeMillis() - t0
+        assertTrue("session must end; still running after ${took} ms", !t.isAlive)
+        assertTrue("ended at the ~400 ms deadline, took $took ms", took in 300..4000)
+        assertEquals("the relay never started", null, holder[0]?.relay)
+        sock.soTimeout = 2000
+        assertEquals("the phone closed the connection", -1, runCatching { sock.getInputStream().read() }.getOrDefault(-1))
+        sock.close()
+    }
+
+    /** A per-read timeout would be reset by every byte; the deadline covers
+     *  the whole handshake, so a sender trickling a valid request one byte at
+     *  a time is still cut off and never gets a HandshakeResponse. */
+    @Test
+    fun `a byte-at-a-time handshake is cut at the deadline`() {
+        val (sock, _, t) = serveAbortable(idleMs = 60_000, handshakeMs = 500)
+        val req = java.io.ByteArrayOutputStream().also {
+            MessageStream(java.io.ByteArrayInputStream(ByteArray(0)), it).write(HandshakeRequest(capabilities = 2, token = "tok"))
+        }.toByteArray()
+        val t0 = System.currentTimeMillis()
+        val out = sock.getOutputStream()
+        // 16+ bytes at 150 ms each: the request would only be complete after
+        // ~2.4 s, far past the deadline.
+        for (b in req) {
+            if (runCatching { out.write(b.toInt()); out.flush() }.isFailure) break
+            Thread.sleep(150)
+            if (!t.isAlive) break
+        }
+        t.join(5000)
+        val took = System.currentTimeMillis() - t0
+        assertTrue("session must end", !t.isAlive)
+        assertTrue("cut before the request was complete (${req.size} bytes x 150 ms), took $took ms", took < req.size * 150L)
+        sock.soTimeout = 2000
+        val got = runCatching { MessageStream(sock.getInputStream(), sock.getOutputStream()).read() }
+        assertTrue("no HandshakeResponse for a request that missed the deadline: $got", got.getOrNull() !is HandshakeResponse)
+        sock.close()
     }
 
     /** WiFi drop / lid closed: the desktop stops talking without closing the

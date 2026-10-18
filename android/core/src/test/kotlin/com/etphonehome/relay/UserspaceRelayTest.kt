@@ -26,7 +26,7 @@ class UserspaceRelayTest {
     private val phone = ipFromString("10.0.0.2")
     private val loopback = ipFromString("127.0.0.1")
     private val out = LinkedBlockingQueue<ByteArray>()
-    private val relay = UserspaceRelay({ out.put(it) }).also { it.start() }
+    private val relay = UserspaceRelay({ out.put(it) }, RelayConfig(allowLoopback = true)).also { it.start() }
     private val closeables = mutableListOf<AutoCloseable>()
 
     @After
@@ -275,5 +275,43 @@ class UserspaceRelayTest {
         assertTrue(rst.has(TcpFlags.RST))
         Thread.sleep(100)
         assertEquals(0, relay.stats.activeTcp.get())
+    }
+
+    /** In the app the relay never reaches the phone's own loopback: a
+     *  hand-crafted packet to 127.x or 0.x would otherwise open the phone's
+     *  localhost-only services (other apps' servers, the token-less USB
+     *  listener) to the desktop. Real services listen there to prove that
+     *  nothing gets through. */
+    @Test
+    fun `the phone's own loopback is not reachable through the relay`() {
+        val outs = LinkedBlockingQueue<ByteArray>()
+        val appRelay = UserspaceRelay({ outs.put(it) }).also { it.start(); closeables += it }
+        val tcpServer = ServerSocket(0, 5, InetAddress.getLoopbackAddress()).also { closeables += it }
+        tcpServer.soTimeout = 1000
+        val udpServer = DatagramSocket(0, InetAddress.getLoopbackAddress()).also { closeables += it }
+        udpServer.soTimeout = 1000
+
+        for (dst in listOf(loopback, ipFromString("127.8.9.10"), ipFromString("0.0.0.0"))) {
+            appRelay.handlePacket(
+                PacketBuilder.tcp(desktop, 41000, dst, tcpServer.localPort, 7000, 0, TcpFlags.SYN, 65535, mss = 1460),
+            )
+            val rst = TcpSegment.parse(Ipv4Packet.parse(outs.poll(3, TimeUnit.SECONDS)!!)!!)!!
+            assertTrue("SYN to ${ipToString(dst)} is reset", rst.has(TcpFlags.RST) && !rst.has(TcpFlags.SYN))
+            assertEquals(7001, rst.ack)
+
+            val q = "secret?".toByteArray()
+            appRelay.handlePacket(PacketBuilder.udp(desktop, 5000, dst, udpServer.localPort, q, 0, q.size))
+            val icmp = Ipv4Packet.parse(outs.poll(3, TimeUnit.SECONDS)!!)!!
+            assertEquals(IpProto.ICMP, icmp.protocol)
+            assertEquals("destination unreachable", 3, icmp.data.u8(20))
+            assertEquals("administratively prohibited", 13, icmp.data.u8(21))
+            assertEquals(desktop, icmp.dst)
+        }
+        assertEquals(0, appRelay.stats.activeTcp.get())
+        assertEquals(0, appRelay.stats.activeUdp.get())
+        assertTrue("no loopback TCP connection was made",
+            runCatching { tcpServer.accept().close() }.exceptionOrNull() is java.net.SocketTimeoutException)
+        assertTrue("no loopback datagram was sent",
+            runCatching { udpServer.receive(DatagramPacket(ByteArray(64), 64)) }.exceptionOrNull() is java.net.SocketTimeoutException)
     }
 }

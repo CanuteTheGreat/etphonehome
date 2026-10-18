@@ -238,6 +238,20 @@ class UserspaceRelay(
         }
     }
 
+    /**
+     * 127.0.0.0/8 and 0.0.0.0/8 name the phone itself (a socket connected to
+     * 0.0.0.0 lands on loopback too). The desktop's own kernel never routes
+     * those into the tunnel, so a packet carrying one was hand-crafted, and
+     * relaying it would hand the desktop every service the phone keeps
+     * loopback-only: other apps' localhost servers, and this app's own USB
+     * listener, which skips the token check because it trusts loopback.
+     */
+    private fun isPhoneLoopback(ip: Int): Boolean {
+        if (config.allowLoopback) return false
+        val first = (ip ushr 24) and 0xFF
+        return first == 127 || first == 0
+    }
+
     // ------------------------------------------------------------------
     // TCP
     // ------------------------------------------------------------------
@@ -304,7 +318,7 @@ class UserspaceRelay(
     }
 
     private fun openTcp(key: FlowKey, seg: TcpSegment, raw: ByteArray) {
-        if (key.dstIp == config.localAddress || tcpFlows.size >= MAX_TCP_FLOWS) {
+        if (key.dstIp == config.localAddress || isPhoneLoopback(key.dstIp) || tcpFlows.size >= MAX_TCP_FLOWS) {
             rstFor(seg)
             return
         }
@@ -630,6 +644,10 @@ class UserspaceRelay(
             send(PacketBuilder.icmpUnreachable(config.localAddress, ip, 3)) // port unreachable
             return
         }
+        if (isPhoneLoopback(dst)) {
+            send(PacketBuilder.icmpUnreachable(config.localAddress, ip, 13)) // administratively prohibited
+            return
+        }
         val firstOctet = (dst ushr 24) and 0xFF
         if (dst == -1 || firstOctet in 224..239) return // broadcast / multicast: not relayable
         val key = FlowKey(ip.src, srcPort, dst, dstPort)
@@ -734,6 +752,9 @@ data class RelayConfig(
     val connectTimeoutMs: Long = 20_000,
     val tcpIdleTimeoutMs: Long = 2 * 60 * 60 * 1000L,
     val udpIdleTimeoutMs: Long = 120_000,
+    /** Relay to the phone's own loopback (127/8, 0/8). Off in the app;
+     *  unit tests turn it on because their stand-in internet is loopback. */
+    val allowLoopback: Boolean = false,
 )
 
 /** Hook to adjust relay sockets before use (e.g. bind them to a network). */

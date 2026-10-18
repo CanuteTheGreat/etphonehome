@@ -10,6 +10,7 @@ import com.etphonehome.protocol.MessageStream
 import com.etphonehome.protocol.StatsUpdate
 import com.etphonehome.relay.Ipv4Packet
 import com.etphonehome.relay.PacketBuilder
+import com.etphonehome.relay.RelayConfig
 import com.etphonehome.relay.ipFromString
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -25,13 +26,15 @@ import kotlin.concurrent.thread
 
 /** A whole phone session over a real socket, as the desktop sees it. */
 class TetherSessionTest {
+    /** These tests' stand-in internet is this machine's loopback. */
+    private val loopbackNet = RelayConfig(allowLoopback = true)
 
     private fun serve(options: SessionOptions, listener: SessionListener = SessionListener.NONE): Pair<Socket, Thread> {
         val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
         val t = thread {
             server.accept().use { s ->
                 val link = TcpLink.accept(s, "tok")
-                runCatching { runBlocking { TetherSession(link.stream, options.copy(encrypted = link.encrypted), listener).run() } }
+                runCatching { runBlocking { TetherSession(link.stream, options.copy(encrypted = link.encrypted, relayConfig = loopbackNet), listener).run() } }
             }
             server.close()
         }
@@ -101,6 +104,7 @@ class TetherSessionTest {
                         statsIntervalMs = 60_000,
                         desktopIdleTimeoutMs = idleMs,
                         abortLink = { link.abort() },
+                        relayConfig = loopbackNet,
                     ),
                 )
                 holder[0] = session
@@ -350,7 +354,7 @@ class TetherSessionTest {
                 val link = TcpLink.accept(s, null)
                 val session = TetherSession(
                     link.stream,
-                    SessionOptions(peer = "laptop", encrypted = true, tokenVerifier = { it == "tok" }, statsIntervalMs = 60_000),
+                    SessionOptions(peer = "laptop", encrypted = true, tokenVerifier = { it == "tok" }, statsIntervalMs = 60_000, relayConfig = loopbackNet),
                     listener,
                 )
                 holder[0] = session

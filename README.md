@@ -4,6 +4,8 @@ A modern, open-source tethering solution for Android with companion apps for Win
 
 Your computer uses the phone's internet over USB, WiFi or Bluetooth. No root, no VPN on the phone, and the phone keeps its own internet the whole time.
 
+Website and downloads: https://errant.solutions/etphonehome/ (latest release files: [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases)).
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](https://git.canutethegreat.com/CanuteTheGreat/etphonehome)
 

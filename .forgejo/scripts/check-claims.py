@@ -111,7 +111,6 @@ if cargo != apk:
 VERSION_CLAIMS = [
     ("README.md", r"Current Features \(v([0-9.]+)\)"),
     ("README.md", r"Current version is v([0-9.]+)"),
-    ("docs/index.html", r"Current Features \(v([0-9.]+)\)"),
     ("STATUS.md", r"\*\*Version:\*\* ([0-9.]+)"),
 ]
 for path, pat in VERSION_CLAIMS:

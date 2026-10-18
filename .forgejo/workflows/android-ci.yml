@@ -63,7 +63,7 @@ jobs:
           # "Could not GET '.../repo.maven.apache.org/...'" with no code change
           # involved and the identical dep set succeeding moments earlier/later).
           for attempt in 1 2 3; do
-            ./gradlew lint && break
+            ./gradlew --max-workers=2 lint && break
             if [ "$attempt" -eq 3 ]; then
               echo "gradlew lint failed after 3 attempts"
               exit 1
@@ -93,7 +93,7 @@ jobs:
           # Retry on transient Maven Central/dl.google.com dependency-resolution
           # flakes (see lint job above and LIVE-STATUS.md 2026-10-10/10-11).
           for attempt in 1 2 3; do
-            ./gradlew test && (cd core && ../gradlew test) && break
+            ./gradlew --max-workers=2 test && (cd core && ../gradlew --max-workers=2 test) && break
             if [ "$attempt" -eq 3 ]; then
               echo "gradlew test failed after 3 attempts"
               exit 1
@@ -136,7 +136,7 @@ jobs:
           for attempt in 1 2 3; do
             # assembleRelease too, so the release.yml packaging path (and
             # its APK naming) is exercised on every push, not only on tags.
-            ./gradlew assembleDebug assembleRelease && break
+            ./gradlew --max-workers=2 assembleDebug assembleRelease && break
             if [ "$attempt" -eq 3 ]; then
               echo "gradlew assemble failed after 3 attempts"
               exit 1

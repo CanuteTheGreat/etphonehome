@@ -26,6 +26,9 @@
 #          [<prev desktop bin dir> <prev standin dir>]
 # SUITES (default "integrity failure performance upgrade") picks sections.
 set -uo pipefail
+# Failure injection (USB/WiFi drops, crashes, lossy links) + public-internet downloads:
+# colo lane only (rw-man-01), refused on the EC2 hosts rw-man-02..05 (GuardDuty).
+sh "$(dirname "$0")/ec2-guard.sh" "deep tunnel suite (failure injection)" || exit 1
 BIN_DIR=$1
 STANDIN_DIR=$2
 PREV_BIN_DIR=${3:-}

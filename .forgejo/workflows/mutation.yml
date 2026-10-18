@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
+      - name: Refuse on EC2 (colo lane only)
+        run: sh .forgejo/scripts/ec2-guard.sh "cargo-mutants"
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
       - name: Install dependencies
@@ -80,6 +82,8 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      - name: Refuse on EC2 (colo lane only)
+        run: sh .forgejo/scripts/ec2-guard.sh "PIT mutation testing"
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:

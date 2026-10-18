@@ -50,3 +50,24 @@ pitest {
     timeoutConstInMillis = 10000
     jvmArgs = ['-Xmx768m', "-Detph.protocolVectors=${file('../../protocol/test-vectors.txt').absolutePath}".toString()]
 }
+
+// Mutation testing runs only on the colo host (rw-man-01): rw-man-02..05 are EC2 instances under
+// GuardDuty, which flags mutated code as malware. Same check as .forgejo/scripts/ec2-guard.sh, so a
+// hand-run `./gradlew pitest` on an EC2 box refuses too (DMI is visible inside containers).
+tasks.named('pitest') {
+    doFirst {
+        def dmi = { String n -> def f = new File("/sys/class/dmi/id/" + n); f.canRead() ? f.text.trim() : '' }
+        boolean ec2 = dmi('sys_vendor') == 'Amazon EC2' || dmi('board_vendor') == 'Amazon EC2' || dmi('bios_version').contains('amazon')
+        if (!ec2) {
+            try {
+                def c = (HttpURLConnection) new URL('http://169.254.169.254/latest/meta-data/').openConnection()
+                c.connectTimeout = 2000
+                c.readTimeout = 2000
+                ec2 = c.responseCode in [200, 401]
+            } catch (Exception ignored) { }
+        }
+        if (ec2) {
+            throw new GradleException('PIT mutation testing refused: this is an EC2 host; run it on the colo lane (rw-man-01, colo-x86_64)')
+        }
+    }
+}

@@ -31,8 +31,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: never
-  # --jobs 2 mutants x 2 test threads = the colo slot's 4 CPUs (libtest would start 8)
-  RUST_TEST_THREADS: 2
 
 jobs:
   rust:
@@ -161,7 +159,7 @@ jobs:
         run: python3 .forgejo/scripts/mutation-score.py pit android/core/build/reports/pitest/mutations.xml ci/mutation-thresholds.json
       - name: New survivors in the changed classes / record the baseline
         if: env.MUT_MODE != 'skip'
-        run: python3 .forgejo/scripts/mutation-incremental.py gate --id kotlin --kind pit --mode "$MUT_MODE" --allow-empty -- android/core/build/reports/pitest
+        run: python3 .forgejo/scripts/mutation-incremental.py gate --id kotlin --kind pit --mode "$MUT_MODE" --allow-empty --diff "$MUT_DIFF" -- android/core/build/reports/pitest
       - name: Upload report
         if: always() && env.MUT_MODE != 'skip'
         uses: actions/upload-artifact@v3

@@ -1,5 +1,6 @@
 {
-  "_comment": "Nightly tunnel-deep.sh performance baseline (linux-cross-x86_64 runners): the slower of two green nightly runs on 0.6.1 (jobs 18194 and 18260; runner speed itself varied 1.5x between them). Throughput below baseline/2 fails; latency above max(2x, baseline + 2 ms) fails. Update deliberately, with the run that justifies it.",
+  "_comment": "Nightly tunnel-deep.sh performance baseline (linux-cross-x86_64 runners): the slower of two green nightly runs on 0.6.1 (jobs 18194 and 18260; runner speed itself varied 1.5x between them). Throughput below baseline/2 fails; latency above max(2x, baseline + 2 ms) fails. Update deliberately, with the run that justifies it. direct_down_mibps is that baseline run's own runner speed (job 18194, the plain 256 MiB fetch without the tunnel); perf-compare.py scales the throughput limits by today's runner speed against it, so a loaded runner (colo-x86_64) isn't read as a relay regression.",
+  "direct_down_mibps": 1790.21,
   "wifi_tls_down_mibps": 60,
   "wifi_tls_up_mibps": 58,
   "usb_down_mibps": 93,

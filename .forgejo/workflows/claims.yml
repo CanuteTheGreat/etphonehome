@@ -22,7 +22,7 @@ concurrency:
 jobs:
   claims:
     name: Every README claim has a test
-    runs-on: linux-cross-x86_64
+    runs-on: linux-any  # arch-independent: arm64 or x86 slot, whichever is free (ctg-infrastructure ci-runners)
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

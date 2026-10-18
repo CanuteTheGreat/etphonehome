@@ -13,8 +13,15 @@ name: Nightly (deep tunnel, platforms, upgrade)
 
 on:
   schedule:
-    - cron: '23 10 * * *'
+    # 18:10 UTC, staggered across the colo lane's day (deep runs there; ctg-infrastructure ci-runners/rw-man-colo)
+    - cron: '10 18 * * *'
   workflow_dispatch:
+
+# A newer queued run replaces an older one that has not started (ci-supersede-sweeper,
+# replace: groups); a started run is never cancelled.
+concurrency:
+  group: "replace:${{ github.workflow }}@${{ github.ref }}"
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always

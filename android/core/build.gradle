@@ -42,7 +42,11 @@ test {
 }
 
 pitest {
-    targetClasses = ['com.etphonehome.*']
+    // Incremental nightly runs (mutation.yml, ci/mutation-incremental.py plan --kind pit) pass the
+    // classes changed since the last green run as -PpitChangedClasses=a.B,a.B$*,...; unset = all.
+    def pitChanged = project.findProperty('pitChangedClasses')?.toString()?.split(',')?.findAll { it }
+    targetClasses = pitChanged ?: ['com.etphonehome.*']
+    failWhenNoMutations = !pitChanged
     threads = 2
     outputFormats = ['XML', 'HTML']
     timestampedReports = false

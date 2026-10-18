@@ -44,3 +44,4 @@ config.local.*
 # CI packaging / e2e staging
 dist/
 e2e-bin/
+.mutation-baseline/

@@ -64,8 +64,10 @@ pitest {
 tasks.named('pitest') {
     doFirst {
         def dmi = { String n -> def f = new File("/sys/class/dmi/id/" + n); f.canRead() ? f.text.trim() : '' }
-        boolean ec2 = dmi('sys_vendor') == 'Amazon EC2' || dmi('board_vendor') == 'Amazon EC2' || dmi('bios_version').contains('amazon')
-        if (!ec2) {
+        // Opt-in since 2026-10-18 (all rw-man hosts may run mutation again): only with CI_COLO_ONLY=1.
+        boolean coloOnly = System.getenv('CI_COLO_ONLY') == '1'
+        boolean ec2 = coloOnly && (dmi('sys_vendor') == 'Amazon EC2' || dmi('board_vendor') == 'Amazon EC2' || dmi('bios_version').contains('amazon'))
+        if (coloOnly && !ec2) {
             try {
                 def c = (HttpURLConnection) new URL('http://169.254.169.254/latest/meta-data/').openConnection()
                 c.connectTimeout = 2000

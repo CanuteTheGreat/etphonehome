@@ -29,9 +29,9 @@ env:
 jobs:
   deep:
     name: Deep tunnel suite (integrity, failure, performance, upgrade)
-    # colo-only lane (rw-man-01, ctg-infrastructure ci-runners/rw-man-colo): mutation / chaos /
-    # security-tool / network-probing CI never runs on the EC2 hosts rw-man-02..05 (GuardDuty).
-    runs-on: colo-x86_64
+    # shared mutation/chaos lane (x86 slots on rw-man-01..05 since 2026-10-18,
+    # ctg-infrastructure ci-runners/README.md); jobs that must stay on colo set CI_COLO_ONLY=1.
+    runs-on: mutation-x86_64
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4

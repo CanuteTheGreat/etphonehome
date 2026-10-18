@@ -269,6 +269,7 @@ class UserspaceRelay(
             return
         }
         flow.lastActivity = System.currentTimeMillis()
+        flow.probes = 0
         when (flow.state) {
             TcpState.CONNECTING -> return // SYN retransmit while we connect
             TcpState.SYN_RCVD -> {
@@ -476,6 +477,8 @@ class UserspaceRelay(
         ) {
             if (++flow.dupAcks == 3) retransmit(flow)
         }
+        // Window reopened: drop the zero-window probe backoff.
+        if (flow.desktopWindow == 0 && seg.window > 0) flow.rto = INITIAL_RTO_MS
         flow.desktopWindow = seg.window
     }
 
@@ -526,6 +529,21 @@ class UserspaceRelay(
                     }
                     flow.rto = minOf(flow.rto * 2, MAX_RTO_MS)
                     retransmit(flow)
+                } else if (!outstanding && flow.desktopWindow == 0 && !flow.finSent) {
+                    // Persist timer (RFC 1122 4.2.2.17). The desktop closed its
+                    // window and we stopped reading the remote socket. The ACK
+                    // that reopens it carries no data, so nothing retransmits
+                    // it: if the desktop's TUN queue dropped it, the flow would
+                    // sit at zero window until the idle timeout (2 h). Probe.
+                    if (now - flow.lastSend > flow.rto) {
+                        if (++flow.probes > MAX_RETRIES) {
+                            Log.d(tag, "Desktop stopped answering window probes on ${flow.key}; resetting")
+                            resetFlow(flow)
+                            return
+                        }
+                        flow.rto = minOf(flow.rto * 2, MAX_RTO_MS)
+                        sendWindowProbe(flow)
+                    }
                 } else {
                     val closing = flow.desktopFin || flow.finSent
                     val idleLimit = if (closing) CLOSING_IDLE_MS else config.tcpIdleTimeoutMs
@@ -556,6 +574,23 @@ class UserspaceRelay(
                 TcpFlags.ACK, advertisedWindow(flow),
             ),
         )
+    }
+
+    /**
+     * Zero-window probe: an ACK one below [TcpFlow.sndUna], outside the
+     * desktop's receive window, so its kernel must answer with an ACK that
+     * carries its current window (the same probe Linux sends).
+     */
+    private fun sendWindowProbe(flow: TcpFlow) {
+        val k = flow.key
+        stats.tcpWindowProbes.incrementAndGet()
+        send(
+            PacketBuilder.tcp(
+                k.dstIp, k.dstPort, k.srcIp, k.srcPort, flow.sndUna - 1, flow.rcvNxt,
+                TcpFlags.ACK, advertisedWindow(flow),
+            ),
+        )
+        flow.lastSend = System.currentTimeMillis()
     }
 
     private fun sendFin(flow: TcpFlow) {
@@ -791,6 +826,7 @@ class RelayStats {
     val tcpFlowsOpened = AtomicLong()
     val udpFlowsOpened = AtomicLong()
     val tcpRetransmits = AtomicLong()
+    val tcpWindowProbes = AtomicLong()
     val activeTcp = AtomicInteger()
     val activeUdp = AtomicInteger()
 }
@@ -824,6 +860,8 @@ internal class TcpFlow(
     var rto = 400L
     var retries = 0
     var dupAcks = 0
+    /** Zero-window probes sent since the desktop last sent anything. */
+    var probes = 0
 
     /** Desktop bytes waiting to be written to the real socket. */
     val toRemote = ByteQueue()

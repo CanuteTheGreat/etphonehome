@@ -208,6 +208,42 @@ class UserspaceRelayTest {
     }
 
     @Test
+    fun `a zero window whose reopening ACK was lost is probed and resumes`() {
+        val server = ServerSocket(0, 5, InetAddress.getLoopbackAddress()).also { closeables += it }
+        thread {
+            server.accept().use { s ->
+                s.getOutputStream().write("abc".toByteArray())
+                s.getOutputStream().flush()
+                Thread.sleep(500)
+                s.getOutputStream().write("def".toByteArray())
+                Thread.sleep(5000)
+            }
+        }
+        val c = DesktopTcp(server.localPort)
+        c.connect()
+        val first = nextTcp()
+        assertEquals("abc", String(first.ip.data, first.dataOffset, first.dataLength))
+        c.ack += first.dataLength
+        // The desktop's app stops reading: ACK with a zero window. The ACK
+        // that would reopen it is "lost" (never sent).
+        c.send(TcpFlags.ACK, window = 0)
+
+        val probe = nextTcp(3000)
+        assertEquals("a probe carries no data", 0, probe.dataLength)
+        assertTrue(probe.has(TcpFlags.ACK) && !probe.has(TcpFlags.SYN) && !probe.has(TcpFlags.FIN))
+        assertEquals("probe sits one below the next byte", c.ack - 1, probe.seq)
+        assertEquals(c.seq, probe.ack)
+        assertTrue(relay.stats.tcpWindowProbes.get() >= 1)
+
+        // The desktop's answer to the probe carries its reopened window.
+        c.send(TcpFlags.ACK)
+        var seg = nextTcp(3000)
+        while (seg.dataLength == 0) seg = nextTcp(3000) // a further probe may already be in flight
+        assertEquals(c.ack, seg.seq)
+        assertEquals("def", String(seg.ip.data, seg.dataOffset, seg.dataLength))
+    }
+
+    @Test
     fun `connection to a closed port is reset`() {
         val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
         val c = DesktopTcp(port)

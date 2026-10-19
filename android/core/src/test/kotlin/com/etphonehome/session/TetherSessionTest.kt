@@ -7,6 +7,7 @@ import com.etphonehome.protocol.HandshakeRequest
 import com.etphonehome.protocol.HandshakeResponse
 import com.etphonehome.protocol.IpPacket
 import com.etphonehome.protocol.MessageStream
+import com.etphonehome.protocol.ProtocolException
 import com.etphonehome.protocol.StatsUpdate
 import com.etphonehome.relay.Ipv4Packet
 import com.etphonehome.relay.PacketBuilder
@@ -88,7 +89,11 @@ class TetherSessionTest {
 
     /** Runs a session whose desktop end the test controls; returns the
      *  desktop socket, the session (once started) and the server thread. */
-    private fun serveAbortable(idleMs: Long, handshakeMs: Long = 15_000): Triple<Socket, Array<TetherSession?>, Thread> {
+    private fun serveAbortable(
+        idleMs: Long,
+        handshakeMs: Long = 15_000,
+        error: Array<Throwable?> = arrayOfNulls(1),
+    ): Triple<Socket, Array<TetherSession?>, Thread> {
         val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
         val holder = arrayOfNulls<TetherSession>(1)
         val t = thread {
@@ -109,7 +114,7 @@ class TetherSessionTest {
                     ),
                 )
                 holder[0] = session
-                runCatching { runBlocking { session.run() } }
+                error[0] = runCatching { runBlocking { session.run() } }.exceptionOrNull()
             }
             server.close()
         }
@@ -132,6 +137,40 @@ class TetherSessionTest {
         sock.soTimeout = 2000
         assertEquals("the phone closed the connection", -1, runCatching { sock.getInputStream().read() }.getOrDefault(-1))
         sock.close()
+    }
+
+    /** The deadline closes the link under the handshake, so the read fails
+     *  with a socket error; the session must report why it really ended (the
+     *  service logs and shows this), not the side effect of its own abort. */
+    @Test
+    fun `a handshake that misses the deadline fails as a timeout`() {
+        val error = arrayOfNulls<Throwable>(1)
+        val (sock, _, t) = serveAbortable(idleMs = 60_000, handshakeMs = 400, error = error)
+        sock.getOutputStream().write(0x45)
+        t.join(5000)
+        assertTrue("session must end", !t.isAlive)
+        val e = error[0]
+        assertTrue("a ProtocolException, got $e", e is ProtocolException)
+        assertEquals("no handshake within 400 ms", e!!.message)
+        sock.close()
+    }
+
+    /** A desktop that hangs up mid-handshake, well before the deadline, is
+     *  not a timeout: its real error is passed through unchanged. */
+    @Test
+    fun `a desktop hanging up before the deadline is not reported as a timeout`() {
+        val error = arrayOfNulls<Throwable>(1)
+        val (sock, _, t) = serveAbortable(idleMs = 60_000, handshakeMs = 10_000, error = error)
+        val t0 = System.currentTimeMillis()
+        sock.getOutputStream().apply { write(0x45); flush() }
+        sock.close()
+        t.join(5000)
+        val took = System.currentTimeMillis() - t0
+        assertTrue("session must end on EOF", !t.isAlive)
+        assertTrue("ended on the EOF, not the 10 s deadline (took $took ms)", took < 5000)
+        val e = error[0]
+        assertTrue("the session failed", e != null)
+        assertTrue("EOF reported as a timeout: $e", e!!.message?.contains("no handshake within") != true)
     }
 
     /** A per-read timeout would be reset by every byte; the deadline covers

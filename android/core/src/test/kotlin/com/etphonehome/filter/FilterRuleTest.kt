@@ -178,4 +178,44 @@ class FilterRuleTest {
             assertNull(bad, parseIpLiteral(bad))
         }
     }
+
+    // PIT survivors (nightly run 4601): nothing parsed a hex group with 'a' or
+    // 'A' in it, a "::" that stands for exactly one zero group, or an IPv4
+    // octet at the 0/9/3-digit edges, so tightening any of those checks went
+    // unnoticed. A real rule like "2001:db8:aaaa::/48" or "fe80:a::1" would
+    // then have been dropped (no DNS fallback: parse() returns null).
+    @Test
+    fun `IPv6 hex digits at every range edge parse`() {
+        fun words(vararg w: Int) = ByteArray(16).also { b ->
+            w.forEachIndexed { i, x -> b[2 * i] = (x shr 8).toByte(); b[2 * i + 1] = x.toByte() }
+        }
+        assertArrayEquals(
+            words(0xabcd, 0xabcd, 0xaaff, 0, 9, 0xa, 0xa, 0xf),
+            parseIpLiteral("abcd:ABCD:aAfF:0:9:a:A:f"),
+        )
+        assertArrayEquals(words(0x9a0f, 0xa09f, 0, 0, 0, 0, 0, 0xaa), parseIpLiteral("9a0f:A09F::aA"))
+        for (bad in listOf("`::1", "@::1", "G::1", "1::/", "/::1", "::1.2.3./")) {
+            assertNull(bad, parseIpLiteral(bad))
+        }
+    }
+
+    @Test
+    fun `a double colon may stand for a single zero group`() {
+        fun words(vararg w: Int) = ByteArray(16).also { b ->
+            w.forEachIndexed { i, x -> b[2 * i] = (x shr 8).toByte(); b[2 * i + 1] = x.toByte() }
+        }
+        assertArrayEquals(words(1, 2, 3, 4, 5, 6, 7, 0), parseIpLiteral("1:2:3:4:5:6:7::"))
+        assertArrayEquals(words(0, 2, 3, 4, 5, 6, 7, 8), parseIpLiteral("::2:3:4:5:6:7:8"))
+        assertArrayEquals(words(1, 0, 3, 4, 5, 6, 7, 8), parseIpLiteral("1::3:4:5:6:7:8"))
+        assertArrayEquals(words(1, 2, 3, 4, 5, 0, 0x0a00, 0x0005), parseIpLiteral("1:2:3:4:5::10.0.0.5"))
+    }
+
+    @Test
+    fun `IPv4 octets at the digit and length edges parse`() {
+        assertArrayEquals(byteArrayOf(0, 9, 99, 199.toByte()), parseIpLiteral("0.9.99.199"))
+        assertArrayEquals(byteArrayOf(-1, -1, -1, -1), parseIpLiteral("255.255.255.255"))
+        for (bad in listOf("1.2.3./", "1.2.3.0255", "/.0.0.0", "1.2.3.-1", "1.2.3.a")) {
+            assertNull(bad, parseIpLiteral(bad))
+        }
+    }
 }

@@ -1,24 +1,40 @@
 package com.etphonehome.util
 
-import kotlin.math.log10
-import kotlin.math.pow
-
 /**
  * Utility functions for formatting data
  */
 object FormatUtils {
 
+    private val BYTE_UNITS = arrayOf("B", "KB", "MB", "GB", "TB", "PB", "EB")
+
     /**
      * Format bytes to human-readable format (KB, MB, GB, etc.)
+     *
+     * The unit used to be picked with `log10(bytes) / log10(1024)`, then the
+     * value printed with `%.2f`. That had two bugs:
+     * - Just under a unit boundary the value rounds up to 1024, so 1 MiB minus
+     *   one byte showed as "1024.00 KB" instead of "1.00 MB" (same at every
+     *   boundary).
+     * - The unit table stopped at TB, so from about 1 PiB up it indexed past the end of
+     *   it and threw ArrayIndexOutOfBoundsException from the status screen and
+     *   notification.
+     * Now the value is divided down unit by unit (up to EB, which covers all of
+     * Long), and moves to the next unit when it would print as 1024.00.
      */
     fun formatBytes(bytes: Long): String {
         if (bytes < 1024) return "$bytes B"
 
-        val units = arrayOf("B", "KB", "MB", "GB", "TB")
-        val digitGroups = (log10(bytes.toDouble()) / log10(1024.0)).toInt()
-
-        val value = bytes / 1024.0.pow(digitGroups.toDouble())
-        return String.format("%.2f %s", value, units[digitGroups])
+        var unit = 0
+        var value = bytes.toDouble()
+        while (value >= 1024.0 && unit < BYTE_UNITS.lastIndex) {
+            value /= 1024.0
+            unit++
+        }
+        if (Math.round(value * 100.0) >= 1024L * 100 && unit < BYTE_UNITS.lastIndex) {
+            value /= 1024.0
+            unit++
+        }
+        return String.format("%.2f %s", value, BYTE_UNITS[unit])
     }
 
     /**

@@ -21,8 +21,10 @@ async function main() {
     const kind = classify(edit.status, edit.json);
     const msg = (edit.json.error && edit.json.error.message) || JSON.stringify(edit.json);
     if (kind === 'missing') {
-      console.log(`Play app ${pkg}: NOT CREATED YET (HTTP ${edit.status}: ${msg})`);
-      console.log('Create it in Play Console (All apps > Create app); nothing can be uploaded until then.');
+      console.log(`Play app ${pkg}: NOT FOUND (HTTP ${edit.status}: ${msg})`);
+      console.log('Either the app is not created yet, or it was created but has no bundle yet: a new Play app gets');
+      console.log('its package name with the FIRST bundle, uploaded by hand in Play Console (Test and release >');
+      console.log('Internal testing > Create new release). The API can upload only after that.');
       process.exit(flag === '--allow-missing' ? 0 : 3);
     }
     if (kind === 'denied') {

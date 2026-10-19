@@ -14,7 +14,7 @@ async function publish(auth, pkg, aab, track, notes, status) {
   const edit = await call(auth, 'POST', `${API}/${pkg}/edits`);
   if (!edit.ok) {
     const kind = classify(edit.status, edit.json);
-    if (kind === 'missing') throw new Error(`Play app ${pkg} does not exist yet: create it in Play Console first (nothing uploaded)`);
+    if (kind === 'missing') throw new Error(`Play app ${pkg} not found: create it and upload its FIRST bundle by hand in Play Console (nothing uploaded)`);
     if (kind === 'denied') throw new Error(`${auth.email} has no permission on ${pkg} (Play Console > Users and permissions)`);
     throw new Error(`Could not create edit: ${JSON.stringify(edit.json)}`);
   }

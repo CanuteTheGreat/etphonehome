@@ -75,8 +75,9 @@ pitest {
     // - Log calls: the facade only prints (com.etphonehome.log is excluded from the score
     //   floors for the same reason); like PIT's default slf4j/log4j entries, this drops every
     //   mutant on a line that calls it, which here is just the message text.
-    // - src/pitFilters (FETPHCOROUTINE): the coroutine state machine kotlinc generates --
-    //   removed ResultKt.throwOnFailure resume checks, null for a Unit coroutine result.
+    // - src/pitFilters (FETPHKOTLIN): code kotlinc generates -- the Intrinsics null checks on
+    //   platform types/parameters, and in coroutine state machines the ResultKt.throwOnFailure
+    //   resume checks and null for a Unit coroutine result.
     avoidCallsTo = ['java.util.logging', 'org.apache.log4j', 'org.slf4j', 'org.apache.commons.logging',
                     'com.etphonehome.log']
     outputFormats = ['XML', 'HTML']

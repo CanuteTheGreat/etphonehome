@@ -45,3 +45,7 @@ config.local.*
 dist/
 e2e-bin/
 .mutation-baseline/
+
+# Python bytecode (CI helper scripts under .forgejo/scripts)
+__pycache__/
+*.py[cod]

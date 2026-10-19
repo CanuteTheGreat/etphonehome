@@ -287,6 +287,8 @@ if [ -n "$PREV_APK" ]; then
     else
       cat "$LOG/install-up.log"
       fail "this build does not install over the previous release (users could not upgrade)"
+      # Test THIS build from here on, not the previous one left installed.
+      adb uninstall "$PKG" >/dev/null 2>&1
       adb install "$APK" >/dev/null 2>&1
     fi
   elif grep -qx "package:$LEGACY_PKG" <<<"$PREV_PKGS"; then

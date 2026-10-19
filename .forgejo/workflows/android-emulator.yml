@@ -55,6 +55,26 @@ jobs:
           print([a['browser_download_url'] for a in r['assets'] if a['name'].endswith('.apk')][0])")
           echo "previous APK: $URL"
           curl -fsSL "$URL" -o prev.apk
+          # Releases since 0.7.0 are signed with the ETPH release key, which never reaches this
+          # runner (only etphonehome-release-signer has it; sign-apk.sh enforces the cert there),
+          # while this run's build carries the committed CI key. Android refuses an upgrade across
+          # keys, so re-sign the previous release with the CI key: the upgrade check then tests
+          # what it is for (same app id, newer versionCode, data and pairing token kept).
+          export ANDROID_HOME="$HOME/android-sdk"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          python3 - prev.apk prev-unsigned.apk <<'PY'
+          import re, sys, zipfile
+          src, dst = zipfile.ZipFile(sys.argv[1]), zipfile.ZipFile(sys.argv[2], "w")
+          for i in src.infolist():
+              if re.fullmatch(r"META-INF/([^/]+\.(SF|RSA|DSA|EC)|MANIFEST\.MF)", i.filename):
+                  continue
+              dst.writestr(i, src.read(i.filename))
+          dst.close()
+          PY
+          "$BT/zipalign" -p -f 4 prev-unsigned.apk prev-aligned.apk
+          "$BT/apksigner" sign --ks android/app/debug.keystore --ks-pass pass:android --key-pass pass:android \
+            --ks-key-alias androiddebugkey --out prev.apk prev-aligned.apk
+          "$BT/apksigner" verify --print-certs prev.apk | grep -m1 'SHA-256'
       - name: API 36 (targetSdk, Android 16) -- with the upgrade from the previous release
         run: |
           export ANDROID_HOME="$HOME/android-sdk"

@@ -63,6 +63,9 @@ grep -E '^Verifies|Verified using v[123]|certificate SHA-256' "$W/verify.txt"
 grep -q '^Verifies' "$W/verify.txt" || { echo "apksigner verify failed" >&2; exit 1; }
 GOT_FP=$(sed -nE 's/.*certificate SHA-256 digest: *([0-9a-f]+).*/\1/p' "$W/verify.txt" | sed -n 1p | tr a-f A-F | sed 's/../&:/g; s/:$//')
 [ "$GOT_FP" = "$WANT_FP" ] || { echo "signer cert $GOT_FP is not the registered ETPH key $WANT_FP" >&2; exit 1; }
-unzip -l "$OUT" > "$W/list.txt"
-grep -q AndroidManifest.xml "$W/list.txt" && grep -qE 'classes[0-9]*\.dex' "$W/list.txt"
+python3 - "$OUT" <<'EOF'
+import re, sys, zipfile
+names = zipfile.ZipFile(sys.argv[1]).namelist()
+assert "AndroidManifest.xml" in names and any(re.fullmatch(r"classes\d*\.dex", n) for n in names), "not an APK"
+EOF
 echo "signed + verified: $(sha256sum "$OUT" | awk '{print $1}')  cert SHA-256 $GOT_FP"

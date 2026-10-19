@@ -23,6 +23,7 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 /** A whole phone session over a real socket, as the desktop sees it. */
@@ -93,6 +94,8 @@ class TetherSessionTest {
         idleMs: Long,
         handshakeMs: Long = 15_000,
         error: Array<Throwable?> = arrayOfNulls(1),
+        tokenOk: Boolean = true,
+        aborts: AtomicInteger = AtomicInteger(),
     ): Triple<Socket, Array<TetherSession?>, Thread> {
         val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
         val holder = arrayOfNulls<TetherSession>(1)
@@ -104,12 +107,12 @@ class TetherSessionTest {
                     SessionOptions(
                         peer = "d",
                         encrypted = link.encrypted,
-                        tokenVerifier = { true },
+                        tokenVerifier = { tokenOk },
                         keepaliveIntervalMs = 60_000,
                         statsIntervalMs = 60_000,
                         desktopIdleTimeoutMs = idleMs,
                         handshakeTimeoutMs = handshakeMs,
-                        abortLink = { link.abort() },
+                        abortLink = { aborts.incrementAndGet(); link.abort() },
                         relayConfig = loopbackNet,
                     ),
                 )
@@ -171,6 +174,27 @@ class TetherSessionTest {
         val e = error[0]
         assertTrue("the session failed", e != null)
         assertTrue("EOF reported as a timeout: $e", e!!.message?.contains("no handshake within") != true)
+    }
+
+    /** A handshake refused before the deadline (wrong token) keeps its own
+     *  error, and its deadline is cancelled: it never aborts the link later. */
+    @Test
+    fun `a refused handshake keeps its error and the cancelled deadline never fires`() {
+        val error = arrayOfNulls<Throwable>(1)
+        val aborts = AtomicInteger()
+        val (sock, holder, t) = serveAbortable(idleMs = 60_000, handshakeMs = 300, error = error, tokenOk = false, aborts = aborts)
+        val desk = MessageStream(sock.getInputStream(), sock.getOutputStream())
+        desk.write(HandshakeRequest(capabilities = 2, token = "wrong"))
+        val err = desk.read() as ErrorMessage
+        assertEquals("Authentication failed: invalid token", err.message)
+        t.join(5000)
+        assertTrue("session must end", !t.isAlive)
+        val e = error[0]
+        assertTrue("the token refusal surfaces as itself, got $e", e is SecurityException && e.message == "Authentication failed")
+        assertEquals("the relay never started", null, holder[0]?.relay)
+        Thread.sleep(600) // well past the 300 ms deadline
+        assertEquals("the cancelled deadline never aborted the link", 0, aborts.get())
+        sock.close()
     }
 
     /** A per-read timeout would be reset by every byte; the deadline covers

@@ -333,6 +333,232 @@ class UserspaceRelayTest {
         assertTrue("a reopened window resets the probe backoff (next after ${p3 - p2} ms)", p3 - p2 < 1300)
     }
 
+    /** The desktop answers each probe, but its window stays closed: that is
+     *  no reopening, so the probe backoff keeps doubling instead of starting
+     *  over at the initial RTO (which would probe a stuck desktop every
+     *  400 ms for as long as it stays alive). */
+    @Test
+    fun `a probe answered with a still-zero window keeps the backoff`() {
+        val c = DesktopTcp(accepting("abc").localPort)
+        c.connect()
+        val (first, _) = nextData()
+        c.ack += first.dataLength
+        c.send(TcpFlags.ACK, window = 0)
+
+        fun nextProbe(): Long {
+            val seg = nextTcp(5000)
+            assertEquals("a probe carries no data", 0, seg.dataLength)
+            assertEquals("a probe sits one below the next byte", c.ack - 1, seg.seq)
+            return System.nanoTime() / 1_000_000
+        }
+        val p1 = nextProbe()
+        c.send(TcpFlags.ACK, window = 0)
+        val p2 = nextProbe()
+        assertTrue("a zero-window answer keeps the doubled RTO (next probe after ${p2 - p1} ms)", p2 - p1 >= 700)
+        c.send(TcpFlags.ACK, window = 0)
+        val p3 = nextProbe()
+        assertTrue("...and the next one doubles again (${p3 - p2} ms)", p3 - p2 >= 1500)
+    }
+
+    /** At the flow limit a new SYN is refused with RST; the flows already
+     *  open stay, and the ones below the limit were accepted. The listener
+     *  never accepts: the kernel completes the connects into its backlog. */
+    @Test
+    fun `a SYN beyond the tcp flow limit is reset`() {
+        val two = UserspaceRelay({ out.put(it) }, RelayConfig(allowLoopback = true, maxTcpFlows = 2))
+            .also { it.start(); closeables += it }
+        val server = ServerSocket(0, 10, InetAddress.getLoopbackAddress()).also { closeables += it }
+        DesktopTcp(server.localPort, srcPort = 41001, via = two).connect()
+        assertEquals("one flow open, below the limit of 2", 1, two.stats.activeTcp.get())
+        DesktopTcp(server.localPort, srcPort = 41002, via = two).connect()
+        assertEquals("the second flow reaches the limit and is still accepted", 2, two.stats.activeTcp.get())
+
+        val third = DesktopTcp(server.localPort, srcPort = 41003, via = two)
+        third.send(TcpFlags.SYN)
+        val rst = nextTcp()
+        assertTrue("the third SYN is reset, not answered (flags ${rst.flags})", rst.has(TcpFlags.RST) && !rst.has(TcpFlags.SYN))
+        assertEquals(41003, rst.dstPort)
+        assertEquals(third.seq, rst.ack)
+        assertEquals("the refused flow was never opened", 2, two.stats.activeTcp.get())
+        assertEquals(2L, two.stats.tcpFlowsOpened.get().toLong())
+    }
+
+    /** A relay whose flow timers read [clock] (ms), writing to [out]. */
+    private fun clockedRelay(clock: java.util.concurrent.atomic.AtomicLong, cfg: RelayConfig = RelayConfig(allowLoopback = true)) =
+        UserspaceRelay({ out.put(it) }, cfg.copy(clock = { clock.get() })).also { it.start(); closeables += it }
+
+    /** Waits until [via] has handled every desktop packet sent so far (it
+     *  reads the clock for each), so the test may move the clock. */
+    private fun settled(via: UserspaceRelay, sent: Long) {
+        val until = System.currentTimeMillis() + 3000
+        while (via.stats.packetsFromDesktop.get() < sent && System.currentTimeMillis() < until) Thread.sleep(5)
+        Thread.sleep(150)
+    }
+
+    /** Nothing reaches the desktop for 4 timer ticks. */
+    private fun quiet(what: String) = assertNull(what, next(450))
+
+    /** The persist timer, on a clock the test drives: a probe goes out once
+     *  MORE than the RTO has passed since the last send, not at it, and the
+     *  next one waits the doubled RTO from that probe. Real time only paces
+     *  the relay's 100 ms timer ticks. */
+    @Test
+    fun `a window probe waits strictly longer than the RTO on the relay clock`() {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000)
+        val timed = clockedRelay(clock)
+        val c = DesktopTcp(accepting("abc").localPort, via = timed)
+        c.connect()
+        val (first, _) = nextData()
+        c.ack += first.dataLength
+        c.send(TcpFlags.ACK, window = 0) // last send: 1_000_000, RTO 400 ms
+        settled(timed, 3)
+
+        fun probeAt(t: Long) {
+            clock.set(t)
+            val seg = nextTcp(2000)
+            assertEquals("a probe carries no data", 0, seg.dataLength)
+            assertEquals("a probe sits one below the next byte", c.ack - 1, seg.seq)
+        }
+        clock.set(1_000_400); quiet("no probe exactly one RTO after the last send")
+        probeAt(1_000_401)
+        clock.set(1_001_201); quiet("the next probe waits the doubled RTO from the last probe")
+        probeAt(1_001_202)
+    }
+
+    /** The retransmit timer runs from the newest send: data the remote sends
+     *  later restarts it, and so does an ACK of part of the data in flight. */
+    @Test
+    fun `the retransmit timer restarts at each new send and at each ACK of new data`() {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000)
+        val timed = clockedRelay(clock)
+        val more = CountDownLatch(1)
+        val c = DesktopTcp(accepting("one", more, "two").localPort, via = timed)
+        c.connect()
+        val (one, _) = nextData() // sent at 1_000_000, never ACKed
+        clock.set(1_000_300)
+        more.countDown()
+        val (two, _) = nextData() // sent at 1_000_300
+        assertEquals("two", String(two.ip.data, two.dataOffset, two.dataLength))
+        clock.set(1_000_401); quiet("the RTO runs from the newest send (1_000_300), not the first")
+        clock.set(1_000_701)
+        val (again, _) = nextData()
+        assertEquals("the oldest unacknowledged byte is resent", one.seq, again.seq)
+
+        // RTO is 800 now, from 1_000_701. An ACK of "one" at 1_001_000 resets it
+        // to 400 from the ACK; "two" is still in flight.
+        while (next(300) != null) { } // the rest of that retransmission
+        clock.set(1_001_000)
+        c.ack = one.seq + one.dataLength
+        c.send(TcpFlags.ACK)
+        settled(timed, 3)
+        clock.set(1_001_400); quiet("an ACK of new data restarts the timer from the ACK")
+        clock.set(1_001_401)
+        val (resent, _) = nextData()
+        assertEquals("then the rest is resent", two.seq, resent.seq)
+    }
+
+    /** An unanswered SYN-ACK is retried with its backoff measured from the
+     *  previous SYN-ACK, not from the desktop's SYN. */
+    @Test
+    fun `SYN-ACK retries wait the doubled RTO from the previous SYN-ACK`() {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000)
+        val timed = clockedRelay(clock)
+        val c = DesktopTcp(accepting("x").localPort, via = timed)
+        c.send(TcpFlags.SYN) // ...and never the ACK
+        val first = nextTcp()
+        assertTrue("SYN-ACK", first.has(TcpFlags.SYN) && first.has(TcpFlags.ACK))
+        clock.set(1_000_400); quiet("no retry at exactly one RTO")
+        clock.set(1_000_401)
+        assertTrue("first retry", nextTcp(2000).has(TcpFlags.SYN))
+        clock.set(1_001_201); quiet("the second retry waits 800 ms from the first retry")
+        clock.set(1_001_202)
+        assertTrue("second retry", nextTcp(2000).has(TcpFlags.SYN))
+    }
+
+    /** When the remote closes, the FIN to the desktop starts its own
+     *  retransmit timer. */
+    @Test
+    fun `an unacknowledged FIN is resent one RTO after it was sent`() {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000)
+        val timed = clockedRelay(clock)
+        val server = ServerSocket(0, 5, InetAddress.getLoopbackAddress()).also { closeables += it }
+        val close = CountDownLatch(1)
+        thread {
+            server.accept().use { s ->
+                s.getOutputStream().write("abc".toByteArray())
+                s.getOutputStream().flush()
+                close.await(15, TimeUnit.SECONDS)
+            }
+        }
+        val c = DesktopTcp(server.localPort, via = timed)
+        c.connect()
+        val (data, _) = nextData()
+        c.ack += data.dataLength
+        c.send(TcpFlags.ACK) // everything ACKed at 1_000_000
+        settled(timed, 3)
+        clock.set(1_001_000)
+        close.countDown()
+        val fin = nextTcp(3000)
+        assertTrue("the remote's close reaches the desktop as FIN", fin.has(TcpFlags.FIN))
+        clock.set(1_001_400); quiet("no FIN retransmit before one RTO from the FIN")
+        clock.set(1_001_401)
+        val again = nextTcp(2000)
+        assertTrue("FIN resent", again.has(TcpFlags.FIN))
+        assertEquals(fin.seq, again.seq)
+    }
+
+    /** Any desktop segment restarts the TCP idle timeout. */
+    @Test
+    fun `a desktop segment restarts the tcp idle timeout`() {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000)
+        val timed = clockedRelay(clock, RelayConfig(allowLoopback = true, tcpIdleTimeoutMs = 10_000))
+        val c = DesktopTcp(accepting("abc").localPort, via = timed)
+        c.connect()
+        val (data, _) = nextData()
+        c.ack += data.dataLength
+        c.send(TcpFlags.ACK)
+        settled(timed, 3)
+        clock.set(1_009_000)
+        c.send(TcpFlags.ACK) // a bare ACK: the desktop is still there
+        settled(timed, 4)
+        clock.set(1_010_001); quiet("idle counts from the last desktop segment (1_009_000)")
+        assertEquals(1, timed.stats.activeTcp.get())
+        clock.set(1_019_001)
+        assertTrue("reset once idle for longer than the timeout", untilReset(3000).last().has(TcpFlags.RST))
+        val until = System.currentTimeMillis() + 2000
+        while (timed.stats.activeTcp.get() != 0 && System.currentTimeMillis() < until) Thread.sleep(5)
+        assertEquals("the flow is closed after its RST", 0, timed.stats.activeTcp.get())
+    }
+
+    /** Datagrams either way restart a UDP flow's idle timeout. */
+    @Test
+    fun `udp datagrams either way restart the udp idle timeout`() {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000)
+        val timed = clockedRelay(clock, RelayConfig(allowLoopback = true, udpIdleTimeoutMs = 10_000))
+        val server = DatagramSocket(0, InetAddress.getLoopbackAddress()).also { closeables += it }
+        server.soTimeout = 3000
+        fun up(text: String) = timed.handlePacket(PacketBuilder.udp(desktop, 5000, loopback, server.localPort, text.toByteArray(), 0, text.length))
+        fun activeAfterTicks(): Int { Thread.sleep(450); return timed.stats.activeUdp.get() }
+
+        up("hello") // flow opens at 1_000_000
+        val p = DatagramPacket(ByteArray(64), 64)
+        server.receive(p)
+        clock.set(1_005_000)
+        server.send(DatagramPacket("reply".toByteArray(), 5, p.socketAddress))
+        assertNotNull("the reply reaches the desktop", next(3000))
+        Thread.sleep(150)
+        clock.set(1_010_001)
+        assertEquals("a reply (1_005_000) restarts the idle timeout", 1, activeAfterTicks())
+
+        clock.set(1_012_000)
+        up("again")
+        server.receive(DatagramPacket(ByteArray(64), 64))
+        clock.set(1_015_001)
+        assertEquals("a desktop datagram (1_012_000) restarts it too", 1, activeAfterTicks())
+        clock.set(1_022_001)
+        assertEquals("closed once idle for longer than the timeout", 0, activeAfterTicks())
+    }
+
     /** A relay that gives up after 2 unanswered attempts instead of 10
      *  (about a minute of backoff), writing to the same queue as [relay]. */
     private fun twoRetryRelay() =

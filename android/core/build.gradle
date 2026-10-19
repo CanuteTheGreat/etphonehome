@@ -19,6 +19,14 @@ kotlin {
     jvmToolchain(17)
 }
 
+// PIT version, shared by the pitest {} block and the filter plugin compiled against it.
+def pitVersion = '1.22.1'
+
+sourceSets {
+    // A PIT plugin (Java, runs inside PIT, never shipped): see the pitest {} block.
+    pitFilters
+}
+
 dependencies {
     api 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
     // TLS 1.3 server with the desktop's token-derived Ed25519 certificate
@@ -30,6 +38,10 @@ dependencies {
     api 'org.bouncycastle:bctls-jdk18on:1.86'
 
     testImplementation 'junit:junit:4.13.2'
+
+    // PIT mutation filter plugin (src/pitFilters), put on PIT's own classpath only.
+    pitFiltersCompileOnly "org.pitest:pitest-entry:${pitVersion}"
+    pitest sourceSets.pitFilters.output
 }
 
 test {
@@ -50,7 +62,23 @@ pitest {
     // just the changed classes (no *Test class matches, so every mutant was NO_COVERAGE)
     targetTests = ['com.etphonehome.*']
     failWhenNoMutations = !pitChanged
+    // PIT itself; the filter below compiles against this exact version.
+    pitestVersion = pitVersion
+    // Memory, sized for the 6 GB mutation-x86_64 slot: Gradle daemon (1g, gradle.properties,
+    // Kotlin compiles in it) + PIT main process (explicit 1g; unset it takes 1/4 of the
+    // container) + 2 minions x 768m = ~3.5g heap. A minion MEMORY_ERROR is a mutant allocating
+    // without bound (e.g. a retransmit loop that never advances) and counts as caught, like
+    // TIMED_OUT for the mutants that hang (a removed Job.cancel, a loop ignoring cancellation).
     threads = 2
+    mainProcessJvmArgs = ['-Xmx1g']
+    // Kotlin-aware filtering, both only drop mutants no source edit can produce:
+    // - Log calls: the facade only prints (com.etphonehome.log is excluded from the score
+    //   floors for the same reason); like PIT's default slf4j/log4j entries, this drops every
+    //   mutant on a line that calls it, which here is just the message text.
+    // - src/pitFilters (FETPHCOROUTINE): the coroutine state machine kotlinc generates --
+    //   removed ResultKt.throwOnFailure resume checks, null for a Unit coroutine result.
+    avoidCallsTo = ['java.util.logging', 'org.apache.log4j', 'org.slf4j', 'org.apache.commons.logging',
+                    'com.etphonehome.log']
     outputFormats = ['XML', 'HTML']
     timestampedReports = false
     exportLineCoverage = true

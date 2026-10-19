@@ -145,7 +145,7 @@ class UserspaceRelay(
                 val now = System.currentTimeMillis()
                 if (now - lastTimerRun >= TIMER_MS) {
                     lastTimerRun = now
-                    runTimers(now)
+                    runTimers(config.clock()) // ticks follow real time, the timers config.clock
                 }
             }
         } catch (e: Exception) {
@@ -268,7 +268,7 @@ class UserspaceRelay(
             if (seg.has(TcpFlags.SYN) && !seg.has(TcpFlags.ACK)) openTcp(key, seg, raw) else rstFor(seg)
             return
         }
-        flow.lastActivity = System.currentTimeMillis()
+        flow.lastActivity = config.clock()
         flow.probes = 0
         when (flow.state) {
             TcpState.CONNECTING -> return // SYN retransmit while we connect
@@ -319,7 +319,7 @@ class UserspaceRelay(
     }
 
     private fun openTcp(key: FlowKey, seg: TcpSegment, raw: ByteArray) {
-        if (key.dstIp == config.localAddress || isPhoneLoopback(key.dstIp) || tcpFlows.size >= MAX_TCP_FLOWS) {
+        if (key.dstIp == config.localAddress || isPhoneLoopback(key.dstIp) || tcpFlows.size >= config.maxTcpFlows) {
             rstFor(seg)
             return
         }
@@ -334,7 +334,7 @@ class UserspaceRelay(
             rstFor(seg)
             return
         }
-        val flow = TcpFlow(key, ch, random.nextInt(), raw.copyOf(minOf(raw.size, 64)))
+        val flow = TcpFlow(key, ch, random.nextInt(), raw.copyOf(minOf(raw.size, 64)), config.clock())
         flow.rcvNxt = seg.seq + 1
         flow.desktopMss = seg.mss ?: 536
         flow.desktopWindow = seg.window
@@ -406,7 +406,10 @@ class UserspaceRelay(
             return
         }
         if (n == 0) return
-        flow.lastActivity = System.currentTimeMillis()
+        // (No lastActivity here: this data is outstanding until the desktop
+        // ACKs it, and its ACK -- any desktop segment -- marks the activity.
+        // The idle timer only runs once nothing is outstanding.)
+        flow.lastSend = config.clock() // set before the segments go out
         stats.tcpBytesDown.addAndGet(n.toLong())
         val data = readBuf.array()
         flow.unacked.append(data, 0, n)
@@ -418,7 +421,6 @@ class UserspaceRelay(
             flow.sndNxt += len
             off += len
         }
-        flow.lastSend = System.currentTimeMillis()
     }
 
     private fun segmentSize(flow: TcpFlow) = minOf(flow.desktopMss, config.mtu - 40).coerceAtLeast(64)
@@ -470,7 +472,7 @@ class UserspaceRelay(
             flow.sndUna = seg.ack
             flow.retries = 0
             flow.rto = INITIAL_RTO_MS
-            flow.lastSend = System.currentTimeMillis()
+            flow.lastSend = config.clock()
             flow.dupAcks = 0
         } else if (acked == 0 && inFlight > 0 && seg.dataLength == 0 && !seg.has(TcpFlags.FIN) &&
             seg.window == flow.desktopWindow
@@ -484,6 +486,7 @@ class UserspaceRelay(
 
     private fun retransmit(flow: TcpFlow) {
         stats.tcpRetransmits.incrementAndGet()
+        flow.lastSend = config.clock()
         val mss = segmentSize(flow)
         val dataInFlight = flow.unacked.size
         val limit = minOf(dataInFlight, maxOf(flow.desktopWindow, mss))
@@ -504,7 +507,6 @@ class UserspaceRelay(
                 ),
             )
         }
-        flow.lastSend = System.currentTimeMillis()
     }
 
     private fun tcpTimer(flow: TcpFlow, now: Long) {
@@ -555,6 +557,7 @@ class UserspaceRelay(
 
     private fun sendSynAck(flow: TcpFlow) {
         val k = flow.key
+        flow.lastSend = config.clock()
         send(
             PacketBuilder.tcp(
                 k.dstIp, k.dstPort, k.srcIp, k.srcPort, flow.ourIsn, flow.rcvNxt,
@@ -563,7 +566,6 @@ class UserspaceRelay(
         )
         flow.sndUna = flow.ourIsn
         flow.sndNxt = flow.ourIsn + 1
-        flow.lastSend = System.currentTimeMillis()
     }
 
     private fun sendAck(flow: TcpFlow) {
@@ -583,6 +585,7 @@ class UserspaceRelay(
      */
     private fun sendWindowProbe(flow: TcpFlow) {
         val k = flow.key
+        flow.lastSend = config.clock()
         stats.tcpWindowProbes.incrementAndGet()
         send(
             PacketBuilder.tcp(
@@ -590,12 +593,12 @@ class UserspaceRelay(
                 TcpFlags.ACK, advertisedWindow(flow),
             ),
         )
-        flow.lastSend = System.currentTimeMillis()
     }
 
     private fun sendFin(flow: TcpFlow) {
         if (flow.finSent) return
         val k = flow.key
+        flow.lastSend = config.clock()
         send(
             PacketBuilder.tcp(
                 k.dstIp, k.dstPort, k.srcIp, k.srcPort, flow.sndNxt, flow.rcvNxt,
@@ -604,7 +607,6 @@ class UserspaceRelay(
         )
         flow.sndNxt += 1
         flow.finSent = true
-        flow.lastSend = System.currentTimeMillis()
     }
 
     private fun advertisedWindow(flow: TcpFlow) = (MAX_TO_REMOTE - flow.toRemote.size).coerceIn(0, 0xFFFF)
@@ -699,7 +701,7 @@ class UserspaceRelay(
                 ch.configureBlocking(false)
                 config.socketPreparer.prepareUdp(ch.socket())
                 ch.connect(InetSocketAddress(InetAddress.getByAddress(ipToBytes(dst)), dstPort))
-                flow = UdpFlow(key, ch, raw.copyOf(minOf(raw.size, 64)))
+                flow = UdpFlow(key, ch, raw.copyOf(minOf(raw.size, 64)), config.clock())
                 ch.register(selector, SelectionKey.OP_READ, flow)
                 udpFlows[key] = flow
                 stats.udpFlowsOpened.incrementAndGet()
@@ -710,7 +712,7 @@ class UserspaceRelay(
                 return
             }
         }
-        flow.lastActivity = System.currentTimeMillis()
+        flow.lastActivity = config.clock()
         try {
             flow.channel.write(ByteBuffer.wrap(d, o + 8, udpLen - 8))
             stats.udpBytesUp.addAndGet((udpLen - 8).toLong())
@@ -730,7 +732,7 @@ class UserspaceRelay(
                 0
             }
             if (n <= 0) break
-            flow.lastActivity = System.currentTimeMillis()
+            flow.lastActivity = config.clock()
             stats.udpBytesDown.addAndGet(n.toLong())
             send(PacketBuilder.udp(k.dstIp, k.dstPort, k.srcIp, k.srcPort, readBuf.array(), 0, n))
         }
@@ -766,7 +768,6 @@ class UserspaceRelay(
         private const val INBOUND_QUEUE = 1024
         const val MAX_TO_REMOTE = 65535
         private const val MAX_UNACKED = 256 * 1024
-        private const val MAX_TCP_FLOWS = 2048
         private const val MAX_UDP_FLOWS = 512
         private const val INITIAL_RTO_MS = 400L
         private const val MAX_RTO_MS = 8000L
@@ -791,9 +792,16 @@ data class RelayConfig(
      *  (400 ms up to 8 s), so the default gives a vanished desktop about a
      *  minute. Tests lower it to see the reset without waiting that long. */
     val tcpMaxRetries: Int = 10,
+    /** Open TCP flows at most; a SYN beyond that is answered with RST, so a
+     *  desktop app opening sockets in a loop can't exhaust the phone's file
+     *  descriptors. Tests lower it to reach the limit with a few flows. */
+    val maxTcpFlows: Int = 2048,
     /** Relay to the phone's own loopback (127/8, 0/8). Off in the app;
      *  unit tests turn it on because their stand-in internet is loopback. */
     val allowLoopback: Boolean = false,
+    /** Milliseconds for every flow timer (RTO, probes, connect/idle timeouts).
+     *  Tests drive it by hand to hit a timer's exact boundary. */
+    val clock: () -> Long = System::currentTimeMillis,
 )
 
 /** Hook to adjust relay sockets before use (e.g. bind them to a network). */
@@ -847,10 +855,11 @@ internal class TcpFlow(
     val ourIsn: Int,
     /** First desktop packet, re-checked when the traffic filter changes. */
     val probe: ByteArray,
+    /** [RelayConfig.clock] when the desktop's SYN arrived. */
+    val created: Long,
 ) {
     var state = TcpState.CONNECTING
     var selKey: SelectionKey? = null
-    val created = System.currentTimeMillis()
     var lastActivity = created
     var lastSend = created
 
@@ -879,6 +888,6 @@ internal class TcpFlow(
     var finAcked = false
 }
 
-internal class UdpFlow(val key: FlowKey, val channel: DatagramChannel, val probe: ByteArray) {
-    var lastActivity = System.currentTimeMillis()
+internal class UdpFlow(val key: FlowKey, val channel: DatagramChannel, val probe: ByteArray, now: Long) {
+    var lastActivity = now
 }

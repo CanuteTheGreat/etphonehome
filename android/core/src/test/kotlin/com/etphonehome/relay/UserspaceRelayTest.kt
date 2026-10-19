@@ -12,6 +12,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.ServerSocket
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
@@ -241,6 +242,91 @@ class UserspaceRelayTest {
         while (seg.dataLength == 0) seg = nextTcp(3000) // a further probe may already be in flight
         assertEquals(c.ack, seg.seq)
         assertEquals("def", String(seg.ip.data, seg.dataOffset, seg.dataLength))
+    }
+
+    /** Next segment that carries data, and when it reached the desktop (ms). */
+    private fun nextData(timeoutMs: Long = 5000): Pair<TcpSegment, Long> {
+        while (true) {
+            val seg = nextTcp(timeoutMs)
+            if (seg.dataLength > 0) return seg to System.nanoTime() / 1_000_000
+        }
+    }
+
+    @Test
+    fun `retransmissions back off exponentially and an ACK resets the timer`() {
+        // RTO starts at 400 ms and doubles per retransmit (RFC 6298 5.5); an
+        // ACK for new data resets it (5.3/5.7). Without the backoff a lost
+        // desktop floods the link every timer tick; without the reset one
+        // bad stretch leaves every later loss waiting up to 8 s.
+        val server = ServerSocket(0, 5, InetAddress.getLoopbackAddress()).also { closeables += it }
+        val sendMore = CountDownLatch(1)
+        thread {
+            server.accept().use { s ->
+                s.getOutputStream().write("one".toByteArray())
+                s.getOutputStream().flush()
+                sendMore.await(15, TimeUnit.SECONDS)
+                s.getOutputStream().write("two".toByteArray())
+                s.getOutputStream().flush()
+                Thread.sleep(5000)
+            }
+        }
+        val c = DesktopTcp(server.localPort)
+        c.connect()
+        val (first, t0) = nextData()
+        // Don't ACK: first retransmit after >400 ms, the next after >800 ms.
+        val (r1, t1) = nextData()
+        val (r2, t2) = nextData()
+        assertEquals(first.seq, r1.seq)
+        assertEquals(first.seq, r2.seq)
+        assertTrue("first retransmit waits the initial RTO (${t1 - t0} ms)", t1 - t0 >= 350)
+        assertTrue("second retransmit waits the doubled RTO (${t2 - t1} ms)", t2 - t1 >= 700)
+
+        // The RTO is now 1600 ms. ACK the data: the next loss is retried after
+        // the initial 400 ms again, not 1600+.
+        c.ack += first.dataLength
+        c.send(TcpFlags.ACK)
+        sendMore.countDown()
+        val (second, t3) = nextData()
+        assertEquals("two", String(second.ip.data, second.dataOffset, second.dataLength))
+        val (again, t4) = nextData()
+        assertEquals(second.seq, again.seq)
+        assertTrue("an ACK resets the RTO (retransmit after ${t4 - t3} ms)", t4 - t3 < 1300)
+    }
+
+    @Test
+    fun `window probes back off exponentially and a reopened window starts over`() {
+        val server = ServerSocket(0, 5, InetAddress.getLoopbackAddress()).also { closeables += it }
+        thread {
+            server.accept().use { s ->
+                s.getOutputStream().write("abc".toByteArray())
+                s.getOutputStream().flush()
+                Thread.sleep(10_000)
+            }
+        }
+        val c = DesktopTcp(server.localPort)
+        c.connect()
+        val (first, _) = nextData()
+        c.ack += first.dataLength
+        c.send(TcpFlags.ACK, window = 0)
+        val t0 = System.nanoTime() / 1_000_000
+
+        fun nextProbe(): Long {
+            val seg = nextTcp(5000)
+            assertEquals("a probe carries no data", 0, seg.dataLength)
+            assertEquals("a probe sits one below the next byte", c.ack - 1, seg.seq)
+            return System.nanoTime() / 1_000_000
+        }
+        val p1 = nextProbe()
+        val p2 = nextProbe()
+        assertTrue("first probe waits the initial RTO (${p1 - t0} ms)", p1 - t0 >= 350)
+        assertTrue("second probe waits the doubled RTO (${p2 - p1} ms)", p2 - p1 >= 700)
+
+        // Backoff is now 1600 ms. The window opens (nothing new to send) and
+        // closes again: probing starts over at the initial RTO.
+        c.send(TcpFlags.ACK)
+        c.send(TcpFlags.ACK, window = 0)
+        val p3 = nextProbe()
+        assertTrue("a reopened window resets the probe backoff (next after ${p3 - p2} ms)", p3 - p2 < 1300)
     }
 
     @Test

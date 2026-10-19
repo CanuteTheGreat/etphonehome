@@ -148,7 +148,16 @@ tap() { # id
   done
   return 1
 }
-text_of() { dump; ui "$1" | cut -d'|' -f2-; }
+text_of() { # id -> text; scrolls down when the view is off screen (WiFi mode's panel pushes it down)
+  local r
+  for _ in 1 2 3; do
+    dump
+    r=$(ui "$1") && { printf '%s\n' "${r#*|}"; return 0; }
+    adb shell input swipe 540 1500 540 900 200
+    sleep 1
+  done
+  return 1
+}
 launch() { adb shell am start -W -n "$ACT" >/dev/null; sleep 2; }
 wait_log() { # pattern seconds
   local n=$(($2 * 2))
@@ -308,12 +317,15 @@ if [ -n "$PREV_APK" ]; then
       else
         fail "old-app button did not open the old app's App info page (see legacy-settings.xml)"
       fi
+      # What a user does: uninstall on that page, then come back to this app (onResume re-checks).
+      adb uninstall "$LEGACY_PKG" >/dev/null 2>&1
       adb shell input keyevent KEYCODE_BACK
+      sleep 2
     else
       fail "old-app button not found"
+      adb uninstall "$LEGACY_PKG" >/dev/null 2>&1
+      launch
     fi
-    adb uninstall "$LEGACY_PKG" >/dev/null 2>&1
-    launch
     dump
     if ui legacyAppText >/dev/null; then
       fail "old-app notice still shown after $LEGACY_PKG was uninstalled"

@@ -514,7 +514,7 @@ class UserspaceRelay(
                 refuse(flow)
             }
             TcpState.SYN_RCVD -> if (now - flow.lastSend > flow.rto) {
-                if (++flow.retries > MAX_RETRIES) resetFlow(flow) else {
+                if (++flow.retries > config.tcpMaxRetries) resetFlow(flow) else {
                     flow.rto = minOf(flow.rto * 2, MAX_RTO_MS)
                     sendSynAck(flow)
                 }
@@ -522,7 +522,7 @@ class UserspaceRelay(
             TcpState.ESTABLISHED -> {
                 val outstanding = flow.sndNxt != flow.sndUna
                 if (outstanding && now - flow.lastSend > flow.rto) {
-                    if (++flow.retries > MAX_RETRIES) {
+                    if (++flow.retries > config.tcpMaxRetries) {
                         Log.d(tag, "Desktop stopped acknowledging ${flow.key}; resetting")
                         resetFlow(flow)
                         return
@@ -536,7 +536,7 @@ class UserspaceRelay(
                     // it: if the desktop's TUN queue dropped it, the flow would
                     // sit at zero window until the idle timeout (2 h). Probe.
                     if (now - flow.lastSend > flow.rto) {
-                        if (++flow.probes > MAX_RETRIES) {
+                        if (++flow.probes > config.tcpMaxRetries) {
                             Log.d(tag, "Desktop stopped answering window probes on ${flow.key}; resetting")
                             resetFlow(flow)
                             return
@@ -770,7 +770,6 @@ class UserspaceRelay(
         private const val MAX_UDP_FLOWS = 512
         private const val INITIAL_RTO_MS = 400L
         private const val MAX_RTO_MS = 8000L
-        private const val MAX_RETRIES = 10
         private const val CLOSING_IDLE_MS = 120_000L
         private const val UDP_DNS_IDLE_MS = 20_000L
         private const val ICMP_TIMEOUT_MS = 3000
@@ -787,6 +786,11 @@ data class RelayConfig(
     val connectTimeoutMs: Long = 20_000,
     val tcpIdleTimeoutMs: Long = 2 * 60 * 60 * 1000L,
     val udpIdleTimeoutMs: Long = 120_000,
+    /** Unanswered SYN-ACK retransmits, data retransmits or zero-window
+     *  probes before a flow is reset. Each waits twice as long as the last
+     *  (400 ms up to 8 s), so the default gives a vanished desktop about a
+     *  minute. Tests lower it to see the reset without waiting that long. */
+    val tcpMaxRetries: Int = 10,
     /** Relay to the phone's own loopback (127/8, 0/8). Off in the app;
      *  unit tests turn it on because their stand-in internet is loopback. */
     val allowLoopback: Boolean = false,

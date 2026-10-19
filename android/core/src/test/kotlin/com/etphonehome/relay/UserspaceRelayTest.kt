@@ -57,12 +57,16 @@ class UserspaceRelayTest {
     }
 
     /** Minimal desktop-side TCP endpoint for one connection. */
-    private inner class DesktopTcp(val dstPort: Int, val srcPort: Int = 40000 + (Math.random() * 20000).toInt()) {
+    private inner class DesktopTcp(
+        val dstPort: Int,
+        val srcPort: Int = 40000 + (Math.random() * 20000).toInt(),
+        val via: UserspaceRelay = relay,
+    ) {
         var seq = 1000
         var ack = 0
 
         fun send(flags: Int, data: ByteArray? = null, window: Int = 65535) {
-            relay.handlePacket(
+            via.handlePacket(
                 PacketBuilder.tcp(
                     desktop, srcPort, loopback, dstPort, seq, ack, flags, window,
                     data, 0, data?.size ?: 0, mss = if (flags and TcpFlags.SYN != 0) 1460 else null,
@@ -327,6 +331,116 @@ class UserspaceRelayTest {
         c.send(TcpFlags.ACK, window = 0)
         val p3 = nextProbe()
         assertTrue("a reopened window resets the probe backoff (next after ${p3 - p2} ms)", p3 - p2 < 1300)
+    }
+
+    /** A relay that gives up after 2 unanswered attempts instead of 10
+     *  (about a minute of backoff), writing to the same queue as [relay]. */
+    private fun twoRetryRelay() =
+        UserspaceRelay({ out.put(it) }, RelayConfig(allowLoopback = true, tcpMaxRetries = 2))
+            .also { it.start(); closeables += it }
+
+    /** Everything the relay sends the desktop up to and including its RST. */
+    private fun untilReset(timeoutMs: Long = 5000): List<TcpSegment> {
+        val segs = mutableListOf<TcpSegment>()
+        while (true) {
+            val seg = nextTcp(timeoutMs)
+            segs += seg
+            if (seg.has(TcpFlags.RST)) return segs
+        }
+    }
+
+    /** The relay's packet queue runs in order on its own thread, so a
+     *  segment sent now is handled after the reset closed the flow: it must
+     *  get the RST for an unknown connection. */
+    private fun assertFlowGone(c: DesktopTcp, via: UserspaceRelay) {
+        c.send(TcpFlags.ACK)
+        assertTrue("a segment after the reset finds no flow", nextTcp().has(TcpFlags.RST))
+        assertEquals(0, via.stats.activeTcp.get())
+    }
+
+    private fun accepting(first: String, more: CountDownLatch? = null, second: String = ""): ServerSocket {
+        val server = ServerSocket(0, 5, InetAddress.getLoopbackAddress()).also { closeables += it }
+        thread {
+            server.accept().use { s ->
+                s.getOutputStream().write(first.toByteArray())
+                s.getOutputStream().flush()
+                if (more != null) {
+                    more.await(15, TimeUnit.SECONDS)
+                    s.getOutputStream().write(second.toByteArray())
+                    s.getOutputStream().flush()
+                }
+                Thread.sleep(15_000)
+            }
+        }
+        return server
+    }
+
+    @Test
+    fun `a desktop that stops acknowledging is reset after the retry limit and an ACK restarts the count`() {
+        // Without the limit a vanished desktop pins the flow (and its
+        // buffers) until the 2 h idle timeout; without the restart, losses
+        // spread over a long healthy download add up until it is reset.
+        val two = twoRetryRelay()
+        val sendMore = CountDownLatch(1)
+        val c = DesktopTcp(accepting("one", sendMore, "two").localPort, via = two)
+        c.connect()
+        val (first, _) = nextData()
+        val (r1, _) = nextData()
+        assertEquals(first.seq, r1.seq)
+
+        // 1 of 2 retries used. The ACK must give the flow its full 2 again.
+        c.ack += first.dataLength
+        c.send(TcpFlags.ACK)
+        sendMore.countDown()
+        val (second, _) = nextData()
+        assertEquals("two", String(second.ip.data, second.dataOffset, second.dataLength))
+        val rest = untilReset(5000)
+        val retransmits = rest.count { it.dataLength > 0 && it.seq == second.seq }
+        assertEquals("retransmits of unacknowledged data before the reset", 2, retransmits)
+        val rst = rest.last()
+        assertEquals("the RST names the desktop's next byte", c.seq, rst.ack)
+        assertFlowGone(c, two)
+    }
+
+    @Test
+    fun `a desktop that stops answering window probes is reset after the limit and any segment from it restarts the count`() {
+        val two = twoRetryRelay()
+        val c = DesktopTcp(accepting("abc").localPort, via = two)
+        c.connect()
+        val (first, _) = nextData()
+        c.ack += first.dataLength
+        c.send(TcpFlags.ACK, window = 0)
+        val p1 = nextTcp(3000)
+        assertEquals("a probe carries no data", 0, p1.dataLength)
+
+        // 1 of 2 probes used. The desktop answers (window still zero): it is
+        // alive, so it gets 2 more probes before the flow is given up.
+        c.send(TcpFlags.ACK, window = 0)
+        val rest = untilReset(8000)
+        val probes = rest.count { !it.has(TcpFlags.RST) && it.dataLength == 0 && it.seq == c.ack - 1 }
+        assertEquals("probes after the desktop's answer, before the reset", 2, probes)
+        assertFlowGone(c, two)
+    }
+
+    @Test
+    fun `an unanswered SYN-ACK is retried with backoff up to the limit and then reset`() {
+        val two = twoRetryRelay()
+        val c = DesktopTcp(accepting("x").localPort, via = two)
+        c.send(TcpFlags.SYN) // ...and never the ACK that completes the handshake
+        val synAcks = mutableListOf<Long>()
+        val segs = mutableListOf<TcpSegment>()
+        while (true) {
+            val seg = nextTcp(5000)
+            if (seg.has(TcpFlags.RST)) break
+            assertTrue("only SYN-ACKs before the handshake completes", seg.has(TcpFlags.SYN) && seg.has(TcpFlags.ACK))
+            segs += seg
+            synAcks += System.nanoTime() / 1_000_000
+        }
+        assertEquals("the SYN-ACK and its 2 retries", 3, synAcks.size)
+        assertTrue("all carry the same ISN", segs.all { it.seq == segs[0].seq })
+        assertTrue("first retry waits the initial RTO (${synAcks[1] - synAcks[0]} ms)", synAcks[1] - synAcks[0] >= 350)
+        assertTrue("second retry waits the doubled RTO (${synAcks[2] - synAcks[1]} ms)", synAcks[2] - synAcks[1] >= 700)
+        assertFlowGone(c, two)
     }
 
     @Test

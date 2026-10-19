@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-18
+
+### Changed
+- **Android: targets Android 16 (API 36)**, which Google Play requires for new apps. The app now draws edge to edge on every Android version, with its content kept clear of the status bar, navigation bar, camera cutout and keyboard (Android 15+ forces edge-to-edge for apps targeting it). Back navigation uses the system's predictive back. Still runs on Android 8.0 and newer.
+
 ## [0.7.0] - 2026-10-18
 
 ### Changed

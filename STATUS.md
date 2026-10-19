@@ -1,7 +1,7 @@
 # ET Phone Home - Project Status
 
 **Last updated:** 2026-10-17
-**Version:** 0.7.0 ([releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases))
+**Version:** 0.7.1 ([releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases))
 
 Every "Done" below is something a user can do in the shipped app/client and
 that a CI-executed test (or the real-phone QA rotation) exercises. Re-verify

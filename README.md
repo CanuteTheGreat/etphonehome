@@ -27,7 +27,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 ## ✨ Features
 
-### Current Features (v0.7.0)
+### Current Features (v0.7.1)
 
 - ✅ **Real internet for the computer, no root** - the app relays the computer's TCP, UDP (DNS included) and ping traffic through ordinary phone sockets (a userspace relay). Verified in CI against public HTTPS and on a real phone (Samsung, Android 13)
 - ✅ **The phone keeps its internet** - no phone VPN is used, so the phone's own apps are never affected
@@ -431,4 +431,4 @@ You are free to use, modify, and distribute this software for any purpose, inclu
 
 ---
 
-**Note:** Current version is v0.7.0 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.
+**Note:** Current version is v0.7.1 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.

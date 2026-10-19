@@ -12,7 +12,7 @@ if (hasReleaseSigning) {
 
 android {
     namespace 'com.etphonehome'
-    compileSdk 34
+    compileSdk 36
 
 
     defaultConfig {
@@ -23,9 +23,14 @@ android {
         // at the old app (LegacyApp) so it isn't silently left behind.
         applicationId "solutions.errant.etph"
         minSdk 26
-        targetSdk 34
-        versionCode 8
-        versionName "0.7.0"
+        // Google Play requires targetSdk 36 (Android 16) for new apps. Behaviour changes that
+        // apply at 35/36 and how the app handles them: edge-to-edge is enforced, so MainActivity
+        // pads its content by the system-bar/cutout/IME insets (EdgeToEdge); predictive back is
+        // on by default (the app has no custom back handling, AppCompat routes back itself);
+        // TetherService is a specialUse foreground service, which has no Android 15 time limit.
+        targetSdk 36
+        versionCode 9
+        versionName "0.7.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -98,6 +103,8 @@ android {
 dependencies {
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
+    // enableEdgeToEdge(): same edge-to-edge look and bar contrast on API 26-36.
+    implementation 'androidx.activity:activity-ktx:1.10.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'

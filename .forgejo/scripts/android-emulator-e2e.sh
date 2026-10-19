@@ -342,6 +342,30 @@ fi
 [ "$API" -ge 33 ] && adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null
 adb logcat -c
 
+# --- Edge to edge (targetSdk 35+ forces it): content must start below the status bar ----------
+# The app draws behind the system bars on every version and pads its scroll content by the
+# insets; without that padding the first child of mainScroll starts at y=0, under the status bar.
+launch
+dump
+DENS=$(adb shell wm density 2>/dev/null | tr -d '\r' | grep -o '[0-9]*$' | tail -1)
+TOP=$(python3 - "$LOG/ui.xml" "$PKG" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+for n in root.iter("node"):
+    if n.get("package") == sys.argv[2] and (n.get("resource-id") or "").endswith(":id/mainScroll"):
+        kids = list(n.findall("node"))
+        if kids:
+            print(int(re.findall(r"\d+", kids[0].get("bounds"))[1]))
+        break
+PY
+)
+MIN=$(( ${DENS:-160} * 20 / 160 ))
+if [ -n "$TOP" ] && [ "$TOP" -ge "$MIN" ]; then
+  pass "edge to edge: content starts below the status bar (top ${TOP}px >= ${MIN}px = 20dp)"
+else
+  fail "edge to edge: content starts at '${TOP}'px, under the status bar (want >= ${MIN}px)"
+fi
+
 # --- USB, started from the UI ----------------------------------------------------
 start_mode radioUsb
 if wait_log "USB server listening" 20; then

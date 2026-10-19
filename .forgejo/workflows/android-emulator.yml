@@ -2,7 +2,8 @@ name: Android emulator (real app, real internet)
 # The real APK on Android emulators (KVM, rw-man-01): UI-started USB and WiFi
 # TLS sessions giving a desktop real internet, app killed / Stop button
 # recovery, the phone keeping its own connectivity, and an in-place upgrade
-# from the previous release. API 26 = the app's minSdk, API 34 = targetSdk.
+# from the previous release. API 26 = the app's minSdk, API 36 = targetSdk (Android 16,
+# edge-to-edge and predictive back enforced), API 34 = the last version before those.
 # See .forgejo/scripts/android-emulator-e2e.sh.
 
 on:
@@ -12,7 +13,7 @@ on:
 
 jobs:
   emulator:
-    name: Real app on emulators (API 26 + 34)
+    name: Real app on emulators (API 26 + 34 + 36)
     runs-on: kvm-x86_64
     timeout-minutes: 120
     steps:
@@ -54,11 +55,17 @@ jobs:
           print([a['browser_download_url'] for a in r['assets'] if a['name'].endswith('.apk')][0])")
           echo "previous APK: $URL"
           curl -fsSL "$URL" -o prev.apk
-      - name: API 34 (targetSdk) -- with the upgrade from the previous release
+      - name: API 36 (targetSdk, Android 16) -- with the upgrade from the previous release
         run: |
           export ANDROID_HOME="$HOME/android-sdk"
           APK=$(ls android/app/build/outputs/apk/release/app-release*.apk | head -1)
-          bash .forgejo/scripts/android-emulator-e2e.sh 34 google_apis "$APK" desktop/target/release/etphonehome prev.apk
+          bash .forgejo/scripts/android-emulator-e2e.sh 36 google_apis "$APK" desktop/target/release/etphonehome prev.apk
+      - name: API 34 (Android 14)
+        if: always()
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          APK=$(ls android/app/build/outputs/apk/release/app-release*.apk | head -1)
+          bash .forgejo/scripts/android-emulator-e2e.sh 34 google_apis "$APK" desktop/target/release/etphonehome
       - name: API 26 (minSdk, Android 8.0)
         if: always()
         run: |

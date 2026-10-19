@@ -92,6 +92,8 @@ jobs:
     name: Build Android Release
     runs-on: linux-cross-x86_64
     timeout-minutes: 30
+    outputs:
+      sha256: ${{ steps.out.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 17
@@ -103,22 +105,29 @@ jobs:
       # "node: executable file not found", see android-ci.yml.)
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
-      - name: Build release APK
+      # UNSIGNED here (no secrets on build runners); sign-android signs it with the ETPH release
+      # key on the dedicated signer. Before 0.7.0 the release APK carried the committed debug key.
+      - name: Build UNSIGNED release APK
         working-directory: android
         run: |
           export ANDROID_HOME="$HOME/android-sdk"
           export PATH="$PATH:$ANDROID_HOME/platform-tools"
-          ./gradlew assembleRelease
-      - name: Package
-        # Release builds are signed (release key, or the debug key as a
-        # fallback), so the APK is app-release.apk, never
-        # app-release-unsigned.apk as this step used to assume.
-        run: bash .forgejo/scripts/package.sh android "${{ github.ref_name }}"
-      - name: Upload artifact
+          test ! -e keystore.properties
+          ./gradlew assembleRelease -PunsignedRelease=true --max-workers=2
+      - name: Checksum
+        id: out
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          unzip -l "$APK" > list.txt; grep -q AndroidManifest.xml list.txt
+          echo "sha256=$(sha256sum "$APK" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          sha256sum "$APK"
+      - name: Upload unsigned APK for the signer
         uses: actions/upload-artifact@v3
         with:
-          name: etphonehome-android-${{ github.ref_name }}
-          path: dist/etphonehome-${{ github.ref_name }}.apk
+          name: android-unsigned-apk
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+          retention-days: 3
 
   create-release:
     name: Publish Forgejo release
@@ -165,6 +174,8 @@ jobs:
           fi
           ID=$(python3 -c 'import json; print(json.load(open("rel.json"))["id"])')
           echo "release id $ID"
+          # The APK is signed and uploaded by sign-android, never the unsigned build.
+          rm -rf artifacts/android-unsigned-apk
           for f in artifacts/*/*; do
             name=$(basename "$f")
             # Re-runs replace an asset of the same name.
@@ -183,6 +194,63 @@ jobs:
             done
             [ "$ok" = 1 ] || { echo "giving up on $name"; exit 1; }
           done
+
+  sign-android:
+    name: Sign the APK with the ETPH release key and attach it
+    needs: [build-android, create-release]
+    runs-on: etphonehome-release-signer
+    timeout-minutes: 20
+    steps:
+      - name: Fetch this commit (plain git, no actions; runs on the dedicated signer)
+        env:
+          REPO_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader
+          GIT_CONFIG_VALUE_0="Authorization: basic $(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          git fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
+          git checkout -q --force FETCH_HEAD
+      - name: Verify checksum, sign, verify signer cert
+        env:
+          EXPECTED_SHA256: ${{ needs.build-android.outputs.sha256 }}
+          REPO_TOKEN: ${{ github.token }}
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          RELEASE_KEYSTORE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_STORE_PASSWORD }}
+          RELEASE_KEYSTORE_KEY_ALIAS: ${{ secrets.RELEASE_KEYSTORE_KEY_ALIAS }}
+          RELEASE_KEYSTORE_KEY_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_KEY_PASSWORD }}
+        run: |
+          mkdir -p dist
+          .forgejo/scripts/sign-apk.sh "dist/etphonehome-${{ github.ref_name }}.apk"
+      - name: Attach the signed APK to the release
+        env:
+          TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          trap 'rm -rf dist' EXIT
+          f="dist/etphonehome-$TAG.apk"; name=$(basename "$f")
+          auth=(-H "Authorization: token $TOKEN")
+          ID=$(curl -fsS "${auth[@]}" "$API/releases/tags/$TAG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          ok=0
+          for try in 1 2 3 4 5 6; do
+            for a in $(curl -fsS "${auth[@]}" "$API/releases/$ID/assets" | python3 -c 'import json,sys; n=sys.argv[1]; print(" ".join(str(a["id"]) for a in json.load(sys.stdin) if a["name"]==n))' "$name"); do
+              curl -fsS "${auth[@]}" -X DELETE "$API/releases/$ID/assets/$a" || true
+            done
+            if curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=$name" -F "attachment=@$f" >/dev/null; then ok=1; break; fi
+            echo "upload of $name failed (attempt $try); retrying in $((try*20))s"; sleep $((try*20))
+          done
+          [ "$ok" = 1 ] || { echo "giving up on $name"; exit 1; }
+          echo "attached $name ($(sha256sum "$f" | awk '{print $1}'))"
+
+  verify-release:
+    name: Verify the published release
+    needs: sign-android
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 10
+    steps:
       - name: Verify the published release
         env:
           TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}

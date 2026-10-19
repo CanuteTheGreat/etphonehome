@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **New app id and name: "Errant Solutions ETPH" (`solutions.errant.etph`).** This is the name and id the app will have on Google Play (ETPH = ET Phone Home); the launcher icon is labelled "ETPH". Android treats a new app id as a different app, so **0.7.0 installs next to an older ET Phone Home (`com.etphonehome`) instead of updating it.** While the old app is still installed, the new one says so on its main screen, with a button that opens the old app's App info page (Uninstall is there). Uninstall the old app afterwards, and re-pair WiFi/Bluetooth desktops with the token the new app shows (the tokens belong to the app, so they did not carry over). USB needs nothing new. Settings such as the connection mode start fresh too.
+- **The APK on the releases page is signed with the ETPH release key** (the key registered for `solutions.errant.etph` with Google's Android developer verification, SHA-256 `01:11:AF:00:57:D7:E9:28:90:FB:CE:02:E9:92:7A:85:E5:EA:B2:AD:AC:2C:00:76:55:E1:7C:B0:CF:7F:68:40`). Releases up to 0.6.1 carried a public debug key.
 - Google Play release pipeline: the Play bundle is built unsigned on a normal runner and signed with the upload key on a dedicated signer, then uploaded to the internal testing track (`release-play-*` tags; a manual run is a dry run that changes nothing in Play). Store listing text and the Data safety answers live in `store/`.
 
 ### Fixed

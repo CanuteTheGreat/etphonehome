@@ -71,4 +71,7 @@ WANT_FP=$(keytool -list -keystore "$W/ks.jks" -storepass:env KS_PASS -alias "$RE
 GOT_FP=$(keytool -printcert -jarfile "$OUT" | sed -nE 's/^[[:space:]]*SHA256: *([0-9A-F:]+).*/\1/p' | sed -n 1p)
 unset KS_PASS KEY_PASS
 [ -n "$WANT_FP" ] && [ "$WANT_FP" = "$GOT_FP" ] || { echo "signer cert mismatch (keystore $WANT_FP, aab $GOT_FP)" >&2; exit 1; }
+# ...and that must be the key registered for solutions.errant.etph (Android developer verification).
+REGISTERED=01:11:AF:00:57:D7:E9:28:90:FB:CE:02:E9:92:7A:85:E5:EA:B2:AD:AC:2C:00:76:55:E1:7C:B0:CF:7F:68:40
+[ "$GOT_FP" = "$REGISTERED" ] || { echo "upload cert $GOT_FP is not the registered ETPH key" >&2; exit 1; }
 echo "signed + verified: $(sha256sum "$OUT" | awk '{print $1}')  upload cert SHA-256 $GOT_FP"

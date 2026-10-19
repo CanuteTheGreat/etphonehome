@@ -19,7 +19,11 @@
 #   Stop        the UI Stop button ends the session and the service
 #   WiFi TLS    (images with WiFi) token from the UI, TLS 1.3 on ART
 #   upgrade     (with a previous APK) install it, note the pairing token,
-#               upgrade in place to this build: token kept, app works
+#               upgrade in place to this build: token kept, app works.
+#               A previous release from before the app-id change
+#               (com.etphonehome) instead: this build installs next to it,
+#               the old-app notice shows, opens its App info page, and goes
+#               away once the old app is uninstalled
 #
 # Usage: android-emulator-e2e.sh <api> <image tag> <apk> <etphonehome> [<previous apk>]
 set -uo pipefail
@@ -33,7 +37,12 @@ SDK=${ANDROID_HOME:-$HOME/android-sdk}
 export PATH="$SDK/platform-tools:$SDK/emulator:$SDK/cmdline-tools/latest/bin:$PATH"
 LOG=${EMU_LOG:-$PWD/emulator-results/api$API}
 mkdir -p "$LOG"
-PKG=com.etphonehome
+# App id since 0.7.0 (Google Play "Errant Solutions ETPH"); the Kotlin classes keep the
+# com.etphonehome package, so components are named in full. Releases up to 0.6.1 were
+# LEGACY_PKG: a different app id, which Android installs next to the new one.
+PKG=solutions.errant.etph
+ACT=$PKG/com.etphonehome.MainActivity
+LEGACY_PKG=com.etphonehome
 NS=etphdesk$API
 PASS=0
 FAIL=0
@@ -105,21 +114,23 @@ dump() {
   for i in 1 2 3; do
     adb exec-out uiautomator dump /dev/tty 2>/dev/null | sed 's/UI hierchary dumped to.*//' >"$LOG/ui.xml"
     # A system dialog over the app ("isn't responding", etc.): clear it.
-    if grep -q 'package="com.etphonehome"' "$LOG/ui.xml"; then return 0; fi
+    if grep -q "package=\"$PKG\"" "$LOG/ui.xml"; then return 0; fi
     settle
-    adb shell am start -n "$PKG/.MainActivity" >/dev/null 2>&1
+    adb shell am start -n "$ACT" >/dev/null 2>&1
     sleep 2
   done
 }
 ui() { # id -> "x y|text"
-  python3 - "$LOG/ui.xml" "$PKG:id/$1" <<'PY'
+  # Matched on the app's package + the ":id/<name>" suffix: the resource-id prefix is the
+  # resource package, which need not equal the app id.
+  python3 - "$LOG/ui.xml" "$PKG" "$1" <<'PY'
 import re, sys, xml.etree.ElementTree as ET
 try:
     root = ET.parse(sys.argv[1]).getroot()
 except ET.ParseError:
     sys.exit(1)
 for n in root.iter("node"):
-    if n.get("resource-id") == sys.argv[2]:
+    if n.get("package") == sys.argv[2] and (n.get("resource-id") or "").endswith(":id/" + sys.argv[3]):
         a, b, c, d = map(int, re.findall(r"\d+", n.get("bounds")))
         print(f"{(a+c)//2} {(b+d)//2}|{n.get('text')}")
         sys.exit(0)
@@ -138,7 +149,7 @@ tap() { # id
   return 1
 }
 text_of() { dump; ui "$1" | cut -d'|' -f2-; }
-launch() { adb shell am start -W -n "$PKG/.MainActivity" >/dev/null; sleep 2; }
+launch() { adb shell am start -W -n "$ACT" >/dev/null; sleep 2; }
 wait_log() { # pattern seconds
   local n=$(($2 * 2))
   for _ in $(seq 1 $n); do adb logcat -d -s ETPhoneHome:* 2>/dev/null | grep -q "$1" && return 0; sleep 0.5; done
@@ -162,7 +173,7 @@ PY
   fi
   return 0
 }
-# Record headers look like "* ServiceRecord{1a2b u0 com.etphonehome/.service.TetherService}".
+# Record headers look like "* ServiceRecord{1a2b u0 solutions.errant.etph/com.etphonehome.service.TetherService}".
 service_count() { adb shell dumpsys activity services $PKG 2>/dev/null | grep -c "ServiceRecord{.* $PKG/"; }
 no_service_within() { # seconds: the service record is gone (it lingers briefly after a stop)
   for _ in $(seq 1 $(($1 * 2))); do [ "$(service_count)" = 0 ] && return 0; sleep 0.5; done
@@ -248,23 +259,70 @@ HAS_WIFI=0
 adb shell ip -4 addr show wlan0 2>/dev/null | grep -q "inet " && HAS_WIFI=1
 if [ -n "$PREV_APK" ]; then
   adb uninstall "$PKG" >/dev/null 2>&1
+  adb uninstall "$LEGACY_PKG" >/dev/null 2>&1
   adb install "$PREV_APK" >"$LOG/install-prev.log" 2>&1 || { cat "$LOG/install-prev.log"; fail "previous APK did not install"; }
-  OLDV=$(adb shell dumpsys package $PKG | grep -m1 versionName | tr -d ' \r')
-  launch; tap radioWifi; sleep 1
-  TOK1=$(text_of wifiIpText | grep -o 'Auth Token: [^ ]*' | head -1 | cut -d' ' -f3)
-  if adb install -r "$APK" >"$LOG/install-up.log" 2>&1; then
-    NEWV=$(adb shell dumpsys package $PKG | grep -m1 versionName | tr -d ' \r')
+  PREV_PKGS=$(adb shell pm list packages 2>/dev/null | tr -d '\r')
+  if grep -qx "package:$PKG" <<<"$PREV_PKGS"; then
+    OLDV=$(adb shell dumpsys package $PKG | grep -m1 versionName | tr -d ' \r')
     launch; tap radioWifi; sleep 1
-    TOK2=$(text_of wifiIpText | grep -o 'Auth Token: [^ ]*' | head -1 | cut -d' ' -f3)
-    pass "upgrade in place: $OLDV -> $NEWV installed over the previous release (adb install -r)"
-    if [ "$HAS_WIFI" = 1 ]; then
-      [ -n "$TOK1" ] && [ "$TOK1" = "$TOK2" ] && pass "upgrade kept the pairing token (saved desktops keep working)" \
-        || fail "upgrade changed/lost the pairing token ('$TOK1' -> '$TOK2')"
+    TOK1=$(text_of wifiIpText | grep -o 'Auth Token: [^ ]*' | head -1 | cut -d' ' -f3)
+    if adb install -r "$APK" >"$LOG/install-up.log" 2>&1; then
+      NEWV=$(adb shell dumpsys package $PKG | grep -m1 versionName | tr -d ' \r')
+      launch; tap radioWifi; sleep 1
+      TOK2=$(text_of wifiIpText | grep -o 'Auth Token: [^ ]*' | head -1 | cut -d' ' -f3)
+      pass "upgrade in place: $OLDV -> $NEWV installed over the previous release (adb install -r)"
+      if [ "$HAS_WIFI" = 1 ]; then
+        [ -n "$TOK1" ] && [ "$TOK1" = "$TOK2" ] && pass "upgrade kept the pairing token (saved desktops keep working)" \
+          || fail "upgrade changed/lost the pairing token ('$TOK1' -> '$TOK2')"
+      fi
+    else
+      cat "$LOG/install-up.log"
+      fail "this build does not install over the previous release (users could not upgrade)"
+      adb install "$APK" >/dev/null 2>&1
+    fi
+  elif grep -qx "package:$LEGACY_PKG" <<<"$PREV_PKGS"; then
+    # The previous release predates the app-id change (com.etphonehome -> solutions.errant.etph):
+    # Android installs this build NEXT TO it. Prove both stay installed and the new app tells the
+    # user about the old one (banner + its App info page, where Uninstall is) instead of leaving
+    # it behind silently, and that the banner goes away once the old app is gone.
+    OLDV=$(adb shell dumpsys package $LEGACY_PKG | grep -m1 versionName | tr -d ' \r')
+    adb install -r "$APK" >"$LOG/install-up.log" 2>&1 || { cat "$LOG/install-up.log"; echo "FAIL: install"; exit 1; }
+    BOTH=$(adb shell pm list packages 2>/dev/null | tr -d '\r')
+    if grep -qx "package:$PKG" <<<"$BOTH" && grep -qx "package:$LEGACY_PKG" <<<"$BOTH"; then
+      pass "new app id installs next to the old release ($LEGACY_PKG $OLDV kept, not replaced)"
+    else
+      fail "after installing $PKG next to $LEGACY_PKG: $(grep -E "$PKG|$LEGACY_PKG" <<<"$BOTH" | tr '\n' ' ')"
+    fi
+    launch
+    LT=$(text_of legacyAppText)
+    if grep -q "old ET Phone Home app is still installed" <<<"$LT"; then
+      pass "new app shows the old-app notice while $LEGACY_PKG is installed"
+    else
+      fail "no old-app notice with $LEGACY_PKG installed (got '$LT')"
+    fi
+    if tap legacyAppButton; then
+      sleep 3
+      adb exec-out uiautomator dump /dev/tty 2>/dev/null | sed 's/UI hierchary dumped to.*//' >"$LOG/legacy-settings.xml"
+      if grep -q 'package="com.android.settings"' "$LOG/legacy-settings.xml" && grep -q 'ET Phone Home' "$LOG/legacy-settings.xml"; then
+        pass "old-app button opens the old app's App info page (Uninstall)"
+      else
+        fail "old-app button did not open the old app's App info page (see legacy-settings.xml)"
+      fi
+      adb shell input keyevent KEYCODE_BACK
+    else
+      fail "old-app button not found"
+    fi
+    adb uninstall "$LEGACY_PKG" >/dev/null 2>&1
+    launch
+    dump
+    if ui legacyAppText >/dev/null; then
+      fail "old-app notice still shown after $LEGACY_PKG was uninstalled"
+    else
+      pass "old-app notice gone once $LEGACY_PKG is uninstalled"
     fi
   else
-    cat "$LOG/install-up.log"
-    fail "this build does not install over the previous release (users could not upgrade)"
-    adb install "$APK" >/dev/null 2>&1
+    fail "previous APK installed as neither $PKG nor $LEGACY_PKG"
+    adb install -r "$APK" >/dev/null 2>&1
   fi
 else
   adb install -r "$APK" >"$LOG/install.log" 2>&1 || { cat "$LOG/install.log"; echo "FAIL: install"; exit 1; }

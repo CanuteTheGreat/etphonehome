@@ -1,0 +1,6 @@
+# Play store listing contact details (edits.details), pushed by play-listing.yml.
+contactEmail=support@errant.solutions
+contactWebsite=https://errant.solutions/etphonehome/
+defaultLanguage=en-US
+# Not settable through the API (Play Console > App content > Privacy policy):
+privacyPolicyUrl=https://errant.solutions/privacy.html

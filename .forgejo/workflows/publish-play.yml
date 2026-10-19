@@ -1,38 +1,52 @@
-name: Publish to Play Console
+name: Publish to Google Play
 
-# Ships a real signed AAB to the Play Console beta track. Triggered by pushing a tag
-# matching release-play-*, e.g.:
-#   git tag release-play-1 && git push origin release-play-1
+# Google Play app "Errant Solutions ETPH", app id solutions.errant.etph (owner decision 2026-10-18).
 #
-# Modeled directly on ssherpa's publish.yml (same reusable ci/publish-to-play.js, same
-# Forgejo secrets pattern) -- see rustinion-ci-infra-map / ssherpa reference for the full
-# history of gotchas this already avoids (SDK location, JDK, keystore write/shred, AGP
-# aapt2 arch mismatch).
+# Real upload: push a tag release-play-<n> (e.g. git tag release-play-1 && git push origin release-play-1)
+#   -> the signed AAB goes to the INTERNAL testing track (never production).
+# Dry run: run this workflow manually (workflow_dispatch, dry_run=true is the default): builds,
+#   signs and verifies the bundle, then only READS Play (does the app exist, may the service
+#   account manage it, current tracks). Works before the app exists in Play Console: a missing
+#   app is reported, not an error. Nothing is uploaded.
+#
+# Same split as SSHerpa's publish.yml:
+#   build-release-aab   normal linux-cross-x86_64 runner, NO secrets: builds the release bundle
+#                       UNSIGNED (-PunsignedRelease=true), uploads it as a run artifact and reports
+#                       its sha256 + versionCode.
+#   sign-and-publish    dedicated etphonehome-release-signer runner (rw-man-04, host mode, repo-
+#                       scoped; ctg-infrastructure ci-runners/etphonehome-release-signer): plain git
+#                       fetch (no actions, never builds), downloads the artifact, requires the same
+#                       sha256, signs it with the upload key (jarsigner), checks the signer cert is the
+#                       upload cert, then uploads. The upload keystore and the Play key (secret
+#                       PLAY_SERVICE_ACCOUNT_JSON, the big-double-d-ci@ service account SSHerpa uses)
+#                       only ever reach that runner.
+# A new app accepts only DRAFT releases until one has been rolled out in Play Console;
+# ci/publish-to-play.js falls back to a draft and says so.
 on:
   push:
     tags:
       - 'release-play-*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "true = build+sign+verify+read-only Play check, no upload"
+        default: "true"
+      track:
+        description: "Play track for a real upload (internal or beta; never production)"
+        default: "internal"
+
+env:
+  PLAY_PACKAGE: solutions.errant.etph
 
 jobs:
-  publish:
+  build-release-aab:
     runs-on: linux-cross-x86_64
+    timeout-minutes: 40
+    outputs:
+      sha256: ${{ steps.out.outputs.sha256 }}
+      version_code: ${{ steps.out.outputs.version_code }}
     steps:
       - uses: actions/checkout@v4
-      - name: Write release keystore
-        env:
-          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
-          RELEASE_KEYSTORE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_STORE_PASSWORD }}
-          RELEASE_KEYSTORE_KEY_ALIAS: ${{ secrets.RELEASE_KEYSTORE_KEY_ALIAS }}
-          RELEASE_KEYSTORE_KEY_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_KEY_PASSWORD }}
-        run: |
-          set -e
-          KS_FILE="$GITHUB_WORKSPACE/etphonehome-upload.jks"
-          printf '%s' "$RELEASE_KEYSTORE_B64" | base64 -d > "$KS_FILE"
-          PROPS_FILE="$GITHUB_WORKSPACE/android/keystore.properties"
-          printf 'storeFile=%s\n' "$KS_FILE" > "$PROPS_FILE"
-          printf 'storePassword=%s\n' "$RELEASE_KEYSTORE_STORE_PASSWORD" >> "$PROPS_FILE"
-          printf 'keyAlias=%s\n' "$RELEASE_KEYSTORE_KEY_ALIAS" >> "$PROPS_FILE"
-          printf 'keyPassword=%s\n' "$RELEASE_KEYSTORE_KEY_PASSWORD" >> "$PROPS_FILE"
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
@@ -40,24 +54,84 @@ jobs:
           java-version: '17'
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
-      - name: Build release AAB
+      - name: Build UNSIGNED release AAB
         working-directory: android
         run: |
           set -e
           export ANDROID_HOME="$HOME/android-sdk"
           export PATH="$PATH:$ANDROID_HOME/platform-tools"
           chmod +x ./gradlew
-          ./gradlew :app:bundleRelease --console=plain
-      - name: Remove release keystore
-        if: always()
-        run: shred -u "$GITHUB_WORKSPACE/etphonehome-upload.jks" "$GITHUB_WORKSPACE/android/keystore.properties" 2>/dev/null || true
-      - name: Publish to Play Console beta track
+          test ! -e keystore.properties
+          ./gradlew :app:bundleRelease -PunsignedRelease=true --console=plain --max-workers=2 \
+            -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m"
+      - name: Checksum, version, app id
+        id: out
+        run: |
+          set -euo pipefail
+          AAB=android/app/build/outputs/bundle/release/app-release.aab
+          PRE_VERIFY=$(jarsigner -verify "$AAB" 2>/dev/null || true)
+          if grep -q '^jar verified' <<<"$PRE_VERIFY"; then
+            echo "release AAB came out signed; expected unsigned" >&2; exit 1
+          fi
+          APPID=$(sed -n 's/^ *applicationId "\(.*\)"/\1/p' android/app/build.gradle | head -1)
+          [ "$APPID" = "$PLAY_PACKAGE" ] || { echo "applicationId $APPID != Play package $PLAY_PACKAGE" >&2; exit 1; }
+          VC=$(sed -n 's/^ *versionCode \([0-9]*\)/\1/p' android/app/build.gradle | head -1)
+          echo "sha256=$(sha256sum "$AAB" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VC" >> "$GITHUB_OUTPUT"
+          echo "app id $APPID versionCode $VC"; sha256sum "$AAB"
+      - name: Upload unsigned AAB for the signer
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-release-unsigned-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 3
+
+  sign-and-publish:
+    needs: build-release-aab
+    runs-on: etphonehome-release-signer
+    timeout-minutes: 30
+    steps:
+      - name: Fetch this commit (plain git, no actions; runs on the dedicated signer)
+        env:
+          REPO_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader
+          GIT_CONFIG_VALUE_0="Authorization: basic $(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          git fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
+          git checkout -q --force FETCH_HEAD
+      - name: Verify checksum, sign, verify signature
+        env:
+          EXPECTED_SHA256: ${{ needs.build-release-aab.outputs.sha256 }}
+          REPO_TOKEN: ${{ github.token }}
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          RELEASE_KEYSTORE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_STORE_PASSWORD }}
+          RELEASE_KEYSTORE_KEY_ALIAS: ${{ secrets.RELEASE_KEYSTORE_KEY_ALIAS }}
+          RELEASE_KEYSTORE_KEY_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_KEY_PASSWORD }}
+        run: |
+          mkdir -p signed
+          .forgejo/scripts/sign-aab.sh signed/app-release.aab
+      - name: Upload to Play (read-only check on a dry run)
         env:
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run != 'false' }}
+          TRACK: ${{ inputs.track || 'internal' }}
+          VERSION_CODE: ${{ needs.build-release-aab.outputs.version_code }}
         run: |
-          set -e
+          set -euo pipefail
           KEY_FILE="$(mktemp)"
           trap 'shred -u "$KEY_FILE"' EXIT
           printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$KEY_FILE"
-          node ci/publish-to-play.js "$KEY_FILE" com.etphonehome \
-            android/app/build/outputs/bundle/release/app-release.aab beta
+          trap 'shred -u "$KEY_FILE"; rm -rf signed notes.txt' EXIT
+          case "$TRACK" in internal|beta) ;; *) echo "track must be internal or beta, got '$TRACK'" >&2; exit 1 ;; esac
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "DRY RUN: signed $PLAY_PACKAGE versionCode $VERSION_CODE verified; NOT uploading. Read-only Play check:"
+            node ci/play-app-status.js "$KEY_FILE" "$PLAY_PACKAGE" --allow-missing
+          else
+            node ci/play-app-status.js "$KEY_FILE" "$PLAY_PACKAGE"
+            # Release notes: the newest released CHANGELOG section's bullet titles.
+            python3 .forgejo/scripts/play-release-notes.py CHANGELOG.md > notes.txt
+            node ci/publish-to-play.js "$KEY_FILE" "$PLAY_PACKAGE" signed/app-release.aab "$TRACK" notes.txt
+          fi

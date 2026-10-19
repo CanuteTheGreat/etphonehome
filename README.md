@@ -6,6 +6,8 @@ Your computer uses the phone's internet over USB, WiFi or Bluetooth. No root, no
 
 Website and downloads: https://errant.solutions/etphonehome/ (latest release files: [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases)).
 
+Google Play: the Android app is coming to Google Play as **Errant Solutions ETPH** (ETPH = ET Phone Home, app id `solutions.errant.etph`); until it is live, install the APK from the releases. Since 0.7.0 the app id is `solutions.errant.etph` (it was `com.etphonehome`), so the new app installs next to an old copy instead of updating it, and shows a notice with a button to the old app's App info page so you can uninstall it.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](https://git.canutethegreat.com/CanuteTheGreat/etphonehome)
 
@@ -25,7 +27,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 ## ✨ Features
 
-### Current Features (v0.6.1)
+### Current Features (v0.7.0)
 
 - ✅ **Real internet for the computer, no root** - the app relays the computer's TCP, UDP (DNS included) and ping traffic through ordinary phone sockets (a userspace relay). Verified in CI against public HTTPS and on a real phone (Samsung, Android 13)
 - ✅ **The phone keeps its internet** - no phone VPN is used, so the phone's own apps are never affected
@@ -429,4 +431,4 @@ You are free to use, modify, and distribute this software for any purpose, inclu
 
 ---
 
-**Note:** Current version is v0.6.1 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.
+**Note:** Current version is v0.7.0 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.

@@ -225,7 +225,7 @@ htop
 **Android:**
 ```bash
 # Monitor app resources
-adb shell dumpsys meminfo com.etphonehome
+adb shell dumpsys meminfo solutions.errant.etph
 adb shell top -n 1 | grep etphonehome
 ```
 

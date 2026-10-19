@@ -180,7 +180,7 @@ case "\$*" in
     exit 1
     ;;
   "shell pm list packages")
-    echo "package:com.etphonehome"
+    echo "package:solutions.errant.etph"
     ;;
   "shell ip addr show wlan0")
     echo "30: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP"

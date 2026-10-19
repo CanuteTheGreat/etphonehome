@@ -116,7 +116,7 @@ if ($LASTEXITCODE -eq 0) {
 Write-Host ""
 Write-Host "Checking if Android app is installed..." -ForegroundColor Yellow
 
-$appInstalled = adb shell pm list packages | Select-String "com.etphonehome"
+$appInstalled = adb shell pm list packages | Select-String "solutions.errant.etph"
 
 if ($appInstalled) {
     Write-Host "✓ Android app is installed" -ForegroundColor Green
@@ -152,7 +152,7 @@ Write-Host "Setup complete! Follow these steps:" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "1. On your Android device:" -ForegroundColor Yellow
-Write-Host "   - Open the 'ET Phone Home' app"
+Write-Host "   - Open the 'ETPH' app (Errant Solutions ETPH)"
 Write-Host "   - Tap 'Start Tethering'"
 Write-Host "   - Grant VPN permission when prompted"
 Write-Host ""

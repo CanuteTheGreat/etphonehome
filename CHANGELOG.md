@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-18
+
+### Changed
+- **New app id and name: "Errant Solutions ETPH" (`solutions.errant.etph`).** This is the name and id the app will have on Google Play (ETPH = ET Phone Home); the launcher icon is labelled "ETPH". Android treats a new app id as a different app, so **0.7.0 installs next to an older ET Phone Home (`com.etphonehome`) instead of updating it.** While the old app is still installed, the new one says so on its main screen, with a button that opens the old app's App info page (Uninstall is there). Uninstall the old app afterwards, and re-pair WiFi/Bluetooth desktops with the token the new app shows (the tokens belong to the app, so they did not carry over). USB needs nothing new. Settings such as the connection mode start fresh too.
+- Google Play release pipeline: the Play bundle is built unsigned on a normal runner and signed with the upload key on a dedicated signer, then uploaded to the internal testing track (`release-play-*` tags; a manual run is a dry run that changes nothing in Play). Store listing text and the Data safety answers live in `store/`.
+
 ### Fixed
 - **A connection that stalled mid-handshake locked every desktop out of the phone.** The phone serves one desktop at a time, and once a connection had sent its first byte nothing timed out until the handshake finished. So a connection that sent one byte, or a TLS ClientHello, and then went quiet held the session slot indefinitely, before any token check. Anyone on the same WiFi, or any app on the phone for the USB port, could do this. The whole handshake now has to finish within 15 s, otherwise the connection is dropped.
 - **A phone-side filter rule with an invalid IPv4 address triggered a DNS lookup.** Rule addresses like `256.1.1.1` were handed to the system resolver as hostnames, which blocked the session while the lookup ran, and on networks whose DNS answers every name the rule ended up applying to an unrelated address. Rule addresses are now parsed as numeric IPv4/IPv6 literals only, and anything else drops the rule.

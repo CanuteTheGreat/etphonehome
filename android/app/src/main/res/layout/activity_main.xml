@@ -30,6 +30,31 @@
             android:text="@string/subtitle"
             android:textSize="14sp" />
 
+        <LinearLayout
+            android:id="@+id/legacyAppBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="#33FFB300"
+            android:orientation="vertical"
+            android:padding="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/legacyAppText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/legacy_app_installed"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/legacyAppButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/legacy_app_open" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/connectionModeLabel"
             android:layout_width="wrap_content"

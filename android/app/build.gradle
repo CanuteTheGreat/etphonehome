@@ -16,11 +16,16 @@ android {
 
 
     defaultConfig {
-        applicationId "com.etphonehome"
+        // Google Play: "Errant Solutions ETPH" (owner decision 2026-10-18). The Kotlin
+        // namespace/package stays com.etphonehome; only the installed app id changed.
+        // Builds before 0.7.0 were com.etphonehome, so the new id installs NEXT TO an
+        // old sideloaded copy (it cannot replace it); MainActivity points such users
+        // at the old app (LegacyApp) so it isn't silently left behind.
+        applicationId "solutions.errant.etph"
         minSdk 26
         targetSdk 34
-        versionCode 7
-        versionName "0.6.1"
+        versionCode 8
+        versionName "0.7.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -29,7 +34,11 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
+            // -PunsignedRelease=true: publish-play.yml builds the Play bundle with NO signing
+            // on a normal runner; the dedicated etphonehome-release-signer runner signs it with
+            // the upload key after checking its sha256, so that key never reaches a build runner.
+            signingConfig project.findProperty('unsignedRelease') == 'true' ? null :
+                (hasReleaseSigning ? signingConfigs.release : signingConfigs.debug)
         }
     }
 

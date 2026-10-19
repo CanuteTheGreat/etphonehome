@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ET Phone Home</string>
+    <!-- Play / app name (owner decision 2026-10-18); ETPH = ET Phone Home. The launcher icon
+         uses the short label, which fits under an icon. -->
+    <string name="app_name">Errant Solutions ETPH</string>
+    <string name="launcher_label">ETPH</string>
     <string name="subtitle">Share this phone\'s internet with your computer. No root, and the phone keeps its own internet.</string>
     <string name="notification_channel_name">Tethering Service</string>
     <string name="notification_channel_description">Shows tethering connection status</string>
-    <string name="notification_title">ET Phone Home</string>
+    <string name="notification_title">ETPH</string>
+
+    <!-- An old ET Phone Home build (app id com.etphonehome) is still installed. -->
+    <string name="legacy_app_installed">The old ET Phone Home app is still installed on this phone. This app replaces it (Android installs the two side by side, they can\'t share an update). Uninstall the old one so a desktop doesn\'t connect to it by mistake; desktops paired over WiFi or Bluetooth need this app\'s new token.</string>
+    <string name="legacy_app_open">Open old app\'s settings to uninstall</string>
 
     <!-- Connection types -->
     <string name="connection_mode">Connection Mode:</string>

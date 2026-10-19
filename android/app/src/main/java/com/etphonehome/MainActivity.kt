@@ -24,6 +24,7 @@ import com.etphonehome.service.TetherService
 import com.etphonehome.service.TetherState
 import com.etphonehome.service.TetherStatus
 import com.etphonehome.util.BluetoothText
+import com.etphonehome.util.LegacyApp
 import com.etphonehome.util.Settings
 import com.etphonehome.util.TokenManager
 import kotlinx.coroutines.launch
@@ -45,6 +46,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var wifiIpText: TextView
     private lateinit var bluetoothInfoText: TextView
     private lateinit var requireEncryptionSwitch: SwitchCompat
+    private lateinit var legacyAppBanner: View
 
     private var selectedConnectionMode = TetherService.CONNECTION_USB
 
@@ -71,6 +73,10 @@ class MainActivity : AppCompatActivity() {
         wifiIpText = findViewById(R.id.wifiIpText)
         bluetoothInfoText = findViewById(R.id.bluetoothInfoText)
         requireEncryptionSwitch = findViewById(R.id.requireEncryptionSwitch)
+        legacyAppBanner = findViewById(R.id.legacyAppBanner)
+        findViewById<Button>(R.id.legacyAppButton).setOnClickListener {
+            startActivity(LegacyApp.settingsIntent())
+        }
 
         selectedConnectionMode = Settings.connectionMode(this, TetherService.CONNECTION_USB)
         connectionModeGroup.check(
@@ -105,6 +111,13 @@ class MainActivity : AppCompatActivity() {
                 TetherStatus.state.collect { render(it) }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-checked on every return, so the banner goes away once the old app is uninstalled.
+        legacyAppBanner.visibility =
+            if (LegacyApp.shouldWarn(packageName) { LegacyApp.isInstalled(packageManager, it) }) View.VISIBLE else View.GONE
     }
 
     private fun render(state: TetherState) {

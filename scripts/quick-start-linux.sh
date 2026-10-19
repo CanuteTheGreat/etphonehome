@@ -93,7 +93,7 @@ echo "✓ Port forwarding configured"
 # Check if Android app is installed
 echo ""
 echo "Checking if Android app is installed..."
-if adb shell pm list packages | grep -q "com.etphonehome"; then
+if adb shell pm list packages | grep -q "solutions.errant.etph"; then
     echo "✓ Android app is installed"
 else
     echo ""
@@ -121,7 +121,7 @@ echo "Setup complete! Follow these steps:"
 echo "========================================="
 echo ""
 echo "1. On your Android device:"
-echo "   - Open the 'ET Phone Home' app"
+echo "   - Open the 'ETPH' app (Errant Solutions ETPH)"
 echo "   - Tap 'Start Tethering'"
 echo "   - Grant VPN permission when prompted"
 echo ""

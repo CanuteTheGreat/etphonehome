@@ -47,3 +47,6 @@ no-root-no-vpn	README.md	No root and no VPN permission needed	.forgejo/scripts/a
 distros	README.md	tested nightly with a real tunnel on Debian 11/12/13, Ubuntu 20.04/22.04/24.04, Fedora, Arch and openSUSE Tumbleweed	.forgejo/scripts/distro-smoke.sh	debian:11 debian:12 debian:13 ubuntu:20.04 ubuntu:22.04 ubuntu:24.04 fedora:latest archlinux:latest opensuse/tumbleweed:latest
 arm64	README.md	plus the full tunnel test on arm64	.forgejo/workflows/nightly.yml	run: bash .forgejo/scripts/desktop-e2e.sh
 wintun	README.md	put `wintun.dll` next to `etphonehome.exe`	.forgejo/scripts/windows-wine-smoke.sh	without the Wintun driver it stops with a clear wintun.dll message
+legacy-app	README.md	shows a notice with a button to the old app's App info page so you can uninstall it	.forgejo/scripts/android-emulator-e2e.sh	old-app button opens the old app's App info page (Uninstall)
+legacy-app	README.md	the new app installs next to an old copy instead of updating it	.forgejo/scripts/android-emulator-e2e.sh	new app id installs next to the old release
+legacy-app	README.md	shows a notice with a button to the old app's App info page so you can uninstall it	android/app/src/test/java/com/etphonehome/util/LegacyAppTest.kt	warnsWhenTheOldAppIsInstalledNextToTheNewOne

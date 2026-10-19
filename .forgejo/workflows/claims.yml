@@ -28,3 +28,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check ci/claims.tsv
         run: python3 .forgejo/scripts/check-claims.py
+      - name: Google Play metadata (store/) matches the app
+        run: python3 .forgejo/scripts/check-store-listing.py

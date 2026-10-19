@@ -1,0 +1,76 @@
+name: Play store listing
+
+# Store listing + Data safety for the Google Play app "Errant Solutions ETPH" (solutions.errant.etph),
+# from files in store/ (versioned like code; checked on every push by check-store-listing.py).
+# Runs on the dedicated etphonehome-release-signer runner (holds the Play key).
+#   Read the live listing (changes nothing):  git tag get-play-listing-<n>  && git push origin get-play-listing-<n>
+#   Write title + short + full description + contact details (store/listing-en-US-*.txt, store/contact.txt):
+#                                             git tag set-play-listing-<n>  && git push origin set-play-listing-<n>
+#   Write the Data safety answers (store/data-safety.csv, rationale in store/data-safety.md):
+#                                             git tag set-play-data-safety-<n> && git push origin set-play-data-safety-<n>
+# All of them need the app to exist in Play Console first (the status step says so if it doesn't).
+on:
+  push:
+    tags:
+      - 'get-play-listing-*'
+      - 'set-play-listing-*'
+      - 'set-play-data-safety-*'
+
+env:
+  PLAY_PACKAGE: solutions.errant.etph
+
+jobs:
+  listing:
+    if: startsWith(github.ref_name, 'get-play-listing-') || startsWith(github.ref_name, 'set-play-listing-')
+    runs-on: etphonehome-release-signer
+    timeout-minutes: 10
+    steps:
+      - name: Fetch this commit (plain git, no actions; runs on the dedicated signer)
+        env:
+          REPO_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader
+          GIT_CONFIG_VALUE_0="Authorization: basic $(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          git fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
+          git checkout -q --force FETCH_HEAD
+      - name: Listing (write on set-play-listing-*, read back always)
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          MODE: ${{ startsWith(github.ref_name, 'get-') && '--read-only' || '' }}
+        run: |
+          set -euo pipefail
+          KEY_FILE="$(mktemp)"
+          trap 'shred -u "$KEY_FILE"' EXIT
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$KEY_FILE"
+          node ci/play-app-status.js "$KEY_FILE" "$PLAY_PACKAGE"
+          node ci/set-play-listing.js "$KEY_FILE" "$PLAY_PACKAGE" store $MODE
+
+  data-safety:
+    if: startsWith(github.ref_name, 'set-play-data-safety-')
+    runs-on: etphonehome-release-signer
+    timeout-minutes: 10
+    steps:
+      - name: Fetch this commit (plain git, no actions; runs on the dedicated signer)
+        env:
+          REPO_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader
+          GIT_CONFIG_VALUE_0="Authorization: basic $(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          git fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
+          git checkout -q --force FETCH_HEAD
+      - name: Push store/data-safety.csv (applications.dataSafety)
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          KEY_FILE="$(mktemp)"
+          trap 'shred -u "$KEY_FILE"' EXIT
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$KEY_FILE"
+          node ci/play-app-status.js "$KEY_FILE" "$PLAY_PACKAGE"
+          node ci/set-play-data-safety.js "$KEY_FILE" "$PLAY_PACKAGE" store/data-safety.csv

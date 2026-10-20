@@ -58,7 +58,7 @@ jobs:
           bash .forgejo/scripts/openwrt-packages.sh "$VER" dist/openwrt "$PWD/openwrt-bin"
       - name: Sizes (binary / package per arch)
         run: |
-          column -t dist/openwrt/sizes.tsv
+          cat dist/openwrt/sizes.tsv
           # Small routers have 16 MB of flash: fail if the MIPS package outgrows 2 MiB.
           awk -F'\t' '$1=="mips_24kc" && $4 > 2097152 {print "mips_24kc ipk too big: " $4; exit 1}' dist/openwrt/sizes.tsv
       - name: Upload packages

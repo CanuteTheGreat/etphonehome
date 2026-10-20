@@ -134,4 +134,6 @@ jobs:
             # Release notes: the newest released CHANGELOG section's bullet titles.
             python3 .forgejo/scripts/play-release-notes.py CHANGELOG.md > notes.txt
             node ci/publish-to-play.js "$KEY_FILE" "$PLAY_PACKAGE" signed/app-release.aab "$TRACK" notes.txt
+            echo "Tracks after publishing:"
+            node ci/play-app-status.js "$KEY_FILE" "$PLAY_PACKAGE"
           fi

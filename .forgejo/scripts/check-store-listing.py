@@ -64,8 +64,13 @@ check(all(r[2] in ("", "TRUE", "FALSE") or r[2].startswith("https://") for r in 
 collects = [r[2] for r in rows if r[0] == "PSL_DATA_COLLECTION_COLLECTS_PERSONAL_DATA"]
 check(collects in (["TRUE"], ["FALSE"]), f"collects-data answered once ({collects})")
 if collects == ["FALSE"]:
-    typed = [r[1] for r in rows if r[0].startswith(("PSL_DATA_TYPES_", "PSL_DATA_USAGE_")) and r[2]]
-    check(not typed, f"no data-type answers while declaring no collection ({typed[:3]})")
+    # With "no data collected", Play skips every follow-up question and rejects the file if any of
+    # them is answered ("You cannot answer PSL_SUPPORTED_ACCOUNT_CREATION_METHODS", run 5045): the
+    # account-creation, account/data-deletion and outside-account questions all sit behind the
+    # collection answer. So the collection question must be the ONLY answered row.
+    extra = [r[0] + (":" + r[1] if r[1] else "") for r in rows[1:]
+             if r[2] and r[0] != "PSL_DATA_COLLECTION_COLLECTS_PERSONAL_DATA"]
+    check(not extra, f"no other question answered while declaring no collection (Play rejects them: {extra[:3]})")
     deps = " ".join(re.findall(r"^\s*implementation[^\n]*", gradle, re.M)).lower()
     sdk = [s for s in ("firebase", "crashlytics", "analytics", "sentry", "bugsnag", "play-services-ads",
                        "appsflyer", "adjust", "mixpanel", "amplitude") if s in deps]

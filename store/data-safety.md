@@ -18,8 +18,13 @@ gains an analytics/crash-reporting/ads SDK or a network call home while this fil
 | Question | Answer | Why |
 |---|---|---|
 | Collects or shares any required user data types? | No | The app has no account, no ads, no analytics and no crash reporting; it never contacts an Errant Solutions server. Its only dependencies are AndroidX, Material, Kotlin coroutines and Bouncy Castle (TLS). |
-| Account creation methods | My app does not allow users to create an account | There is no account. |
-| Every data-type row | blank | Nothing is collected, so Play asks none of them. |
+| Every other row (account creation, account/data deletion URL, outside-app accounts, data types) | blank | Nothing is collected, so Play asks none of them, and it rejects the file if any is answered. |
+
+Play quirk: with "No" to the collection question, Play's API refuses ANY other answer, even
+"My app does not allow users to create an account" (HTTP 400 "You cannot answer
+PSL_SUPPORTED_ACCOUNT_CREATION_METHODS", tag set-play-data-safety-1). SSHerpa answers those rows
+only because it does collect data (and there Play requires PSL_DATA_DELETION_URL). The claims
+check fails if any row besides the collection question is answered while it says "No".
 
 Why the relayed traffic is not "collected": the app forwards the user's own computer's
 connections to the destinations that computer chose, on the user's request, and keeps nothing.

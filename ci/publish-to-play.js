@@ -5,7 +5,8 @@
 // releases ("Only releases with status draft may be created on draft app"). Then this retries
 // the whole edit with status draft and says so: the release appears in Play Console under the
 // track, ready for "Review release > Start rollout".
-// A versionCode Play already has (a re-run of a tag that was already published) is a no-op.
+// A versionCode Play already has (a re-run, or the hand-uploaded first bundle) is not uploaded
+// again, but is still assigned to the track, so the track always ends up carrying it.
 'use strict';
 const fs = require('fs');
 const { API, UPLOAD, getAccessToken, classify, call, jsonBody } = require('./play-api');
@@ -22,17 +23,22 @@ async function publish(auth, pkg, aab, track, notes, status) {
   console.log(`Edit ${id}: uploading ${aab} (${fs.statSync(aab).size} bytes)...`);
   const up = await call(auth, 'POST', `${UPLOAD}/${pkg}/edits/${id}/bundles?uploadType=media`,
     fs.readFileSync(aab), { 'Content-Type': 'application/octet-stream' });
-  if (!up.json.versionCode) {
+  let vc;
+  if (up.json.versionCode) {
+    vc = String(up.json.versionCode);
+    console.log(`Uploaded as versionCode ${vc}; assigning to "${track}" as ${status}...`);
+  } else {
     const m = ((up.json.error && up.json.error.message) || '').match(/Version code (\d+) has already been used/i);
-    await call(auth, 'DELETE', `${API}/${pkg}/edits/${id}`);
-    if (m) {
-      console.log(`versionCode ${m[1]} is already in Play (an earlier run published it): nothing to do.`);
-      return 'already';
+    if (!m) {
+      await call(auth, 'DELETE', `${API}/${pkg}/edits/${id}`);
+      throw new Error(`Upload failed: HTTP ${up.status} ${JSON.stringify(up.json)}`);
     }
-    throw new Error(`Upload failed: HTTP ${up.status} ${JSON.stringify(up.json)}`);
+    // The bundle is already in the app's library (an earlier run, or the first bundle uploaded by
+    // hand in Play Console), but that doesn't put it on the track: a Console draft can be left
+    // without it (run 5046 read "internal: draft []"). Assign it again, in this same edit.
+    vc = m[1];
+    console.log(`versionCode ${vc} is already in Play; making sure "${track}" carries it (${status})...`);
   }
-  const vc = String(up.json.versionCode);
-  console.log(`Uploaded as versionCode ${vc}; assigning to "${track}" as ${status}...`);
   const release = { versionCodes: [vc], status };
   if (notes) release.releaseNotes = [{ language: 'en-US', text: notes }];
   const tr = await call(auth, 'PUT', `${API}/${pkg}/edits/${id}/tracks/${track}`, ...jsonBody({ track, releases: [release] }));

@@ -64,7 +64,17 @@ def resolve_release(rel):
     if not rel.startswith("latest-"):
         return rel
     series = rel.split("-", 1)[1]
-    v = json.load(urllib.request.urlopen(DL + "/.versions.json", timeout=30))
+    # The runner's resolver blips now and then (one CI run lost DNS for a
+    # few seconds right between the two VM runs): retry before giving up.
+    for attempt in range(6):
+        try:
+            v = json.load(urllib.request.urlopen(DL + "/.versions.json", timeout=30))
+            break
+        except OSError as e:
+            if attempt == 5:
+                raise
+            print(f"versions.json: {e}; retrying in {10 * (attempt + 1)}s", flush=True)
+            time.sleep(10 * (attempt + 1))
     cands = [x for x in v["versions_list"] if x.startswith(series + ".") and "rc" not in x]
     cands.sort(key=lambda s: [int(p) for p in s.split(".")])
     return cands[-1]

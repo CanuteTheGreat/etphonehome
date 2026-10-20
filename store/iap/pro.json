@@ -1,0 +1,14 @@
+{
+  "_comment": "ETPH Pro one-time product. Owner decisions 2026-10-20: product id 'pro', 15.00 USD one-time, local prices converted by Play from the USD price (pricing:convertRegionPrices), on sale (purchase option ACTIVE). Pushed by ci/play-iap.js (tag set-play-iap-<n>); get-play-iap-<n> only reads it back.",
+  "productId": "pro",
+  "purchaseOptionId": "lifetime",
+  "priceUsd": "15.00",
+  "activate": true,
+  "listings": [
+    {
+      "languageCode": "en-US",
+      "title": "ETPH Pro",
+      "description": "Unlocks Wi-Fi and Bluetooth sharing, routers, several computers and routers, auto-start and auto-reconnect, and data usage history. One-time purchase, no subscription."
+    }
+  ]
+}

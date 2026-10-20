@@ -8,8 +8,8 @@ name: Play store listing
 #   store/contact.txt, store/graphics/: icon, feature graphic, phone screenshots; refresh them with
 #   store/graphics/make-graphics.py and the store-screenshots.yml run):
 #                                             git tag set-play-listing-<n>  && git push origin set-play-listing-<n>
-#   ETPH Pro in-app product (store/iap/etph_pro_lifetime.json): create it INACTIVE / keep its text in sync;
-#   never sets a live price or activates it (the owner does that in Play Console):
+#   ETPH Pro in-app product (store/iap/pro.json): create/update it (text, 15.00 USD with Play's
+#   converted local prices) and activate it, then read it back:
 #                                             git tag set-play-iap-<n> && git push origin set-play-iap-<n>
 #   Read it back only:                        git tag get-play-iap-<n> && git push origin get-play-iap-<n>
 #   Write the Data safety answers (store/data-safety.csv, rationale in store/data-safety.md):
@@ -99,7 +99,7 @@ jobs:
           export GIT_CONFIG_VALUE_0
           git fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
           git checkout -q --force FETCH_HEAD
-      - name: ETPH Pro one-time product (created inactive; never priced live or activated here)
+      - name: ETPH Pro one-time product (price from store/iap/pro.json, activated, read back)
         env:
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           MODE: ${{ startsWith(github.ref_name, 'get-') && '--read-only' || '' }}
@@ -109,4 +109,4 @@ jobs:
           trap 'shred -u "$KEY_FILE"' EXIT
           printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$KEY_FILE"
           node ci/play-app-status.js "$KEY_FILE" "$PLAY_PACKAGE"
-          node ci/play-iap.js "$KEY_FILE" "$PLAY_PACKAGE" store/iap/etph_pro_lifetime.json $MODE
+          node ci/play-iap.js "$KEY_FILE" "$PLAY_PACKAGE" store/iap/pro.json $MODE

@@ -116,9 +116,11 @@ jobs:
           [ "$APPID" = "$PLAY_PACKAGE" ] || { echo "applicationId $APPID != Play package $PLAY_PACKAGE" >&2; exit 1; }
           VC=$(sed -n 's/^ *versionCode \([0-9]*\)/\1/p' android/app/build.gradle | head -1)
           # ETPH Pro: a Play bundle must never carry the e2e test hook that forces Pro.
-          BC=android/app/build/generated/source/buildConfig/release/com/etphonehome/BuildConfig.java
-          grep -q 'BILLING_TEST_HOOKS = false' "$BC" || { echo "BILLING_TEST_HOOKS is not false in the Play build" >&2; exit 1; }
-          grep -q 'PRO_PRODUCT_ID = "etph_pro_lifetime"' "$BC" || { echo "Pro product id missing" >&2; exit 1; }
+          BC=$(find android/app/build/generated -name BuildConfig.java -path '*release*' -print -quit)
+          [ -n "$BC" ] || { find android/app/build/generated -name 'BuildConfig*' >&2; echo "no release BuildConfig.java" >&2; exit 1; }
+          grep -E 'BILLING_TEST_HOOKS|PRO_PRODUCT_ID' "$BC" || true
+          grep -Eq 'BILLING_TEST_HOOKS *= *false' "$BC" || { echo "BILLING_TEST_HOOKS is not false in the Play build ($BC)" >&2; exit 1; }
+          grep -Fq 'PRO_PRODUCT_ID = "pro"' "$BC" || { echo "Pro product id missing ($BC)" >&2; exit 1; }
           if grep -q 'PLAY_LICENSE_KEY = ""' "$BC"; then
             echo "::warning::no Play licence key (android/app/play-license-key.txt): purchase signatures are not checked on the phone"
           fi

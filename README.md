@@ -29,7 +29,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 ### Free and Pro
 
-One app, two tiers. **Free** shares the phone's internet over USB with one computer, with no speed cap and no time limit; you start and stop it on the phone. **ETPH Pro** is a one-time in-app purchase in the Google Play app (no subscription) that adds Wi-Fi and Bluetooth, routers, several computers and routers, auto-start when the computer asks plus waiting for it to come back (auto-reconnect), and a data usage history. The phone enforces the split: desktops and routers never need a licence of their own, and when something needs Pro the phone says so in the handshake, so the client prints "Pro required on the phone". How purchases are checked (no server): [docs/pro.md](docs/pro.md).
+One app, two tiers. **Free** shares the phone's internet over USB with one computer, with no speed cap and no time limit; you start and stop it on the phone. **ETPH Pro** is a one-time in-app purchase in the Google Play app (US$15, local prices elsewhere; no subscription) that adds Wi-Fi and Bluetooth, routers, several computers and routers, auto-start when the computer asks plus waiting for it to come back (auto-reconnect), and a data usage history. The phone enforces the split: desktops and routers never need a licence of their own, and when something needs Pro the phone says so in the handshake, so the client prints "Pro required on the phone". How purchases are checked (no server): [docs/pro.md](docs/pro.md).
 
 | | Free | ETPH Pro |
 |---|---|---|

@@ -12,7 +12,10 @@ the owner on 2026-10-20:
 | Auto-start when the computer asks over USB; keeps waiting after a disconnect | start/stop by hand | yes |
 | Data usage per computer/router and by kind of traffic | live numbers only | yes |
 
-Pro is a one-time (non-consumable) Google Play in-app product, id `etph_pro_lifetime`.
+Pro is a one-time (non-consumable) Google Play in-app product, id `pro`, purchase option
+`lifetime`, 15.00 USD (owner decision 2026-10-20) with Play's converted local prices everywhere
+else. It is code: `store/iap/pro.json`, pushed and activated by `ci/play-iap.js` (tag
+`set-play-iap-<n>`, read back with `get-play-iap-<n>`).
 
 ## Where the split is enforced: the phone
 

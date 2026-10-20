@@ -44,7 +44,7 @@ data class Entitlement(val status: Status, val message: String? = null) {
 
 /**
  * Decides Free/Pro from Play's answer:
- *  - a verified, purchased `etph_pro_lifetime` = Pro (acknowledged if it wasn't yet: Play refunds
+ *  - a verified, purchased `pro` = Pro (acknowledged if it wasn't yet: Play refunds
  *    unacknowledged purchases after 3 days), remembered with its signature;
  *  - pending (e.g. cash payment not made yet) = still Free, with a note;
  *  - Play answers and the purchase is gone (refund, chargeback, revoked) = Free, cache dropped;

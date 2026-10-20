@@ -27,7 +27,7 @@ class MemoryStore(var cached: EntitlementStore.Cached? = null, var forced: Boole
 class EntitlementEngineTest {
     private var clock = 1_000_000L
     private val store = MemoryStore()
-    private val engine = EntitlementEngine(PurchaseVerifier(publicB64), "solutions.errant.etph", "etph_pro_lifetime", store, { clock }, offlineGraceMs = 1000)
+    private val engine = EntitlementEngine(PurchaseVerifier(publicB64), "solutions.errant.etph", "pro", store, { clock }, offlineGraceMs = 1000)
     private fun bought(state: Int = 0, ack: Boolean = false) = json(state = state, ack = ack).let { PlayPurchase(it, sign(it)) }
 
     @Test
@@ -76,7 +76,7 @@ class EntitlementEngineTest {
     @Test
     fun forgedPurchaseIsIgnored() = runBlocking {
         val j = json()
-        val forged = PlayPurchase(j, sign(j.replace("etph_pro_lifetime", "x")))
+        val forged = PlayPurchase(j, sign(j.replace("pro", "x")))
         val e = engine.refresh(FakeBillingGateway(PurchaseQuery.Ok(listOf(forged))))
         assertFalse(e.isPro)
         assertTrue(e.message!!.contains("ignored"))

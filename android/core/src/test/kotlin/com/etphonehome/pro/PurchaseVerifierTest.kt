@@ -14,7 +14,7 @@ class PurchaseVerifierTest {
         val keys = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
         val publicB64: String = Base64.getEncoder().encodeToString(keys.public.encoded)
 
-        fun json(state: Int = 0, pkg: String = "solutions.errant.etph", product: String = "etph_pro_lifetime", ack: Boolean = false) =
+        fun json(state: Int = 0, pkg: String = "solutions.errant.etph", product: String = "pro", ack: Boolean = false) =
             """{"orderId":"GPA.1234-5678","packageName":"$pkg","productId":"$product","purchaseTime":1760000000000,""" +
                 """"purchaseState":$state,"purchaseToken":"tok-\"abc\"","quantity":1,"acknowledged":$ack}"""
 
@@ -28,7 +28,7 @@ class PurchaseVerifierTest {
     }
 
     private val v = PurchaseVerifier(publicB64)
-    private fun verify(j: String, sig: String? = sign(j)) = v.verify(j, sig, "solutions.errant.etph", "etph_pro_lifetime")
+    private fun verify(j: String, sig: String? = sign(j)) = v.verify(j, sig, "solutions.errant.etph", "pro")
 
     @Test
     fun genuinePurchaseVerifies() {
@@ -62,7 +62,7 @@ class PurchaseVerifierTest {
     @Test
     fun pendingAndProductIdsArray() {
         assertTrue(verify(json(state = 4)) is PurchaseVerifier.Result.Pending)
-        val multi = """{"packageName":"solutions.errant.etph","productIds":["a","etph_pro_lifetime"],"purchaseState":0,"purchaseToken":"t"}"""
+        val multi = """{"packageName":"solutions.errant.etph","productIds":["a","pro"],"purchaseState":0,"purchaseToken":"t"}"""
         assertTrue(verify(multi) is PurchaseVerifier.Result.Purchased)
     }
 
@@ -70,7 +70,7 @@ class PurchaseVerifierTest {
     fun withoutAKeyOnlyTheContentIsChecked() {
         val none = PurchaseVerifier("")
         assertFalse(none.enforcing)
-        assertTrue(none.verify(json(), null, "solutions.errant.etph", "etph_pro_lifetime") is PurchaseVerifier.Result.Purchased)
-        assertTrue(none.verify(json(pkg = "x"), null, "solutions.errant.etph", "etph_pro_lifetime") is PurchaseVerifier.Result.Invalid)
+        assertTrue(none.verify(json(), null, "solutions.errant.etph", "pro") is PurchaseVerifier.Result.Purchased)
+        assertTrue(none.verify(json(pkg = "x"), null, "solutions.errant.etph", "pro") is PurchaseVerifier.Result.Invalid)
     }
 }

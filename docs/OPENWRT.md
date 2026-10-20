@@ -82,7 +82,11 @@ ETPH's traffic is the phone's own.
 
 The first setup asks to restart the router's network once so it loads the
 new protocol (all links drop for a few seconds; a repeater re-joins its
-upstream Wi-Fi). Say no and reboot later if that is a bad moment. The page then shows the phone's model, the
+upstream Wi-Fi). Say no and reboot later if that is a bad moment. A
+repeater with more than one Wi-Fi client network on the same radio (for
+example an old one with a wrong password) can fail to re-join after the
+restart, because one radio can only follow one channel: disable the client
+networks you don't use (Network > Wireless) before setting up. The page then shows the phone's model, the
 connection, current speed and data used, with *Reconnect now*, *Unpair*
 and *Remove*.
 

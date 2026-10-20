@@ -417,7 +417,12 @@ def main():
         check('"transport": "usb"' in out and "no phone with USB debugging" in out and '"retrying"' in out
               and "usb --native" in out,
               "USB uplink without a phone: built-in ADB host says to plug in a phone with USB debugging, keeps retrying", out)
-        con.sh("ifdown usbphone; uci delete network.usbphone; uci commit network; /etc/init.d/network reload")
+        # Remove while the client is still running (retrying): nothing may stay behind.
+        rc, out = con.sh("/usr/libexec/etph-luci remove usbphone; uci -q get network.usbphone || echo GONE; "
+                         "ls /var/run/etph/usbphone.json 2>/dev/null || echo NOSTATUS; "
+                         "echo NCLI=$(ps w | grep -v grep | grep -c 'usb --native')", 60)
+        check("GONE" in out and "NOSTATUS" in out and "NCLI=0" in out,
+              "Remove of a running uplink stops its client and leaves no status file", out)
 
         # Unpair and remove.
         rc, out = con.sh("/usr/libexec/etph-luci unpair phone; uci -q get network.phone.token || echo NOTOKEN; ifstatus phone | grep '\"up\"'")

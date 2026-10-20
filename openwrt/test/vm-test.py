@@ -166,6 +166,10 @@ def start_standin(standin, extra=""):
             return p
         except OSError:
             time.sleep(0.5)
+    try:
+        print(open("/tmp/etph-vm-standin.log").read()[-2000:])
+    except OSError:
+        pass
     raise RuntimeError("standin did not start")
 
 
@@ -314,9 +318,9 @@ def main():
                "'https://speed.cloudflare.com/__down?bytes=1048576'", check_rc=False)
         check(r.stdout.startswith("1048576"), "LAN laptop: 1 MiB download through the phone intact", r.stdout + r.stderr)
 
-        rc, out = con.sh("cat /var/run/etph/phone.json")
+        rc, out = con.sh("sleep 3; cat /var/run/etph/phone.json; echo; echo TUNRX $(cat /sys/class/net/etph-phone/statistics/rx_bytes)")
         try:
-            s = json.loads(out[out.index("{"):])
+            s = json.loads(out[out.index("{"):out.rindex("}") + 1])
         except ValueError:
             s = {}
         check(s.get("state") == "connected" and s.get("device") == "ETPH stand-in phone" and s.get("bytes_received", 0) > 1000000
@@ -357,7 +361,7 @@ def main():
             res = json.loads(r.stdout)["result"]
             st2 = json.loads(res[1]["stdout"])
             sess = json.loads(st2["interfaces"][0]["session"])
-            ok = res[0] == 0 and sess["state"] == "connected" and st2["adb_installed"]
+            ok = res[0] == 0 and sess["state"] == "connected" and "usb_phones" in st2 and bool(st2.get("adb_fingerprint"))
         except Exception as e:
             r.stdout += f" ({e})"
         check(ok, "LuCI page backend via rpcd ACL: status shows the connected phone", r.stdout[-800:])

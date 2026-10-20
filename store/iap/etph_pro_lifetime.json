@@ -1,0 +1,13 @@
+{
+  "_comment": "ETPH Pro one-time product (owner decision 2026-10-20). Created INACTIVE by ci/play-iap.js (tag set-play-iap-<n>). The script never sets a live price or activates anything: the owner sets the price and activates the purchase option in Play Console. proposedPriceUsd is only used if Play refuses a product without any purchase-option price, and then only on a DRAFT purchase option.",
+  "productId": "etph_pro_lifetime",
+  "purchaseOptionId": "lifetime",
+  "proposedPriceUsd": "6.99",
+  "listings": [
+    {
+      "languageCode": "en-US",
+      "title": "ETPH Pro",
+      "description": "Unlocks Wi-Fi and Bluetooth sharing, routers, several computers and routers, auto-start and auto-reconnect, and data usage history. One-time purchase, no subscription."
+    }
+  ]
+}

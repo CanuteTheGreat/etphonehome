@@ -9,6 +9,10 @@ Fails when
   - store/data-safety.csv is malformed, or says "no data collected" while the release build
     has an analytics / crash-reporting / ads SDK, the advertising-ID permission, or a location
     permission;
+  - store/graphics/ misses what Play requires or has the wrong sizes: icon-512.png 512x512 32-bit
+    PNG, feature-graphic.png 1024x500 PNG without alpha, 4..8 phone screenshots in phone/ (PNG,
+    each side 320..3840 px, long side at most twice the short one; we use 9:16 >= 1080x1920),
+    optional tablet-7/ and tablet-10/ with the same per-image rules (Play takes up to 8);
   - the full description grows a section nobody reviewed (every ALL-CAPS heading must be one
     of the known ones; a new one means re-checking its claims against the app first).
 usage: check-store-listing.py [repo root]
@@ -16,6 +20,7 @@ usage: check-store-listing.py [repo root]
 import csv
 import os
 import re
+import struct
 import sys
 
 os.chdir(sys.argv[1] if len(sys.argv) > 1 else ".")
@@ -79,6 +84,35 @@ if collects == ["FALSE"]:
     perms = re.findall(r'uses-permission android:name="([^"]+)"', manifest)
     risky = [p for p in perms if p.endswith(("AD_ID", "_LOCATION", "READ_CONTACTS", "READ_PHONE_STATE"))]
     check(not risky, f"no data-type permissions declared while declaring no collection ({risky})")
+
+
+def png_info(path):
+    """(width, height, colour type) from the IHDR chunk; colour type 6 = RGBA, 2 = RGB."""
+    with open(path, "rb") as f:
+        head = f.read(26)
+    if head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        return None
+    w, h = struct.unpack(">II", head[16:24])
+    return w, h, head[25]
+
+
+G = "store/graphics"
+icon = png_info(f"{G}/icon-512.png") if os.path.exists(f"{G}/icon-512.png") else None
+check(icon is not None and icon[:2] == (512, 512) and icon[2] == 6, f"icon-512.png is a 512x512 32-bit PNG ({icon})")
+feat = png_info(f"{G}/feature-graphic.png") if os.path.exists(f"{G}/feature-graphic.png") else None
+check(feat is not None and feat[:2] == (1024, 500) and feat[2] == 2, f"feature-graphic.png is 1024x500 RGB without alpha ({feat})")
+for sub, lo in (("phone", 4), ("tablet-7", 0), ("tablet-10", 0)):
+    d = f"{G}/{sub}"
+    shots = sorted(f for f in os.listdir(d) if f.endswith(".png")) if os.path.isdir(d) else []
+    if not shots and lo == 0:
+        continue
+    check(lo <= len(shots) <= 8, f"{sub}: {len(shots)} screenshots (Play: {max(lo, 2)}..8)")
+    for f in shots:
+        i = png_info(f"{d}/{f}")
+        ok = i is not None and 320 <= min(i[:2]) and max(i[:2]) <= 3840 and max(i[:2]) <= 2 * min(i[:2])
+        if sub == "phone":
+            ok = ok and i[0] * 16 == i[1] * 9 and i[0] >= 1080
+        check(ok, f"{sub}/{f}: {i and i[:2]}")
 
 print(f"{bad} problem(s)")
 sys.exit(1 if bad else 0)

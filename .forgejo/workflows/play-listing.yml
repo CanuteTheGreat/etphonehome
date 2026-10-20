@@ -4,7 +4,9 @@ name: Play store listing
 # from files in store/ (versioned like code; checked on every push by check-store-listing.py).
 # Runs on the dedicated etphonehome-release-signer runner (holds the Play key).
 #   Read the live listing (changes nothing):  git tag get-play-listing-<n>  && git push origin get-play-listing-<n>
-#   Write title + short + full description + contact details (store/listing-en-US-*.txt, store/contact.txt):
+#   Write title + short + full description + contact details + graphics (store/listing-en-US-*.txt,
+#   store/contact.txt, store/graphics/: icon, feature graphic, phone screenshots; refresh them with
+#   store/graphics/make-graphics.py and the store-screenshots.yml run):
 #                                             git tag set-play-listing-<n>  && git push origin set-play-listing-<n>
 #   ETPH Pro in-app product (store/iap/etph_pro_lifetime.json): create it INACTIVE / keep its text in sync;
 #   never sets a live price or activates it (the owner does that in Play Console):

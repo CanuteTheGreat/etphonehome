@@ -9,6 +9,7 @@
 #   etph-luci unpair <iface>
 #   etph-luci remove <iface>
 #   etph-luci keygen
+#   etph-luci netrestart
 #
 # The pairing token comes in the environment, never in argv (keeps it out
 # of `ps` and rpcd's exec log; LuCI's fs.exec passes it as env).
@@ -154,11 +155,21 @@ cmd_setup() {
 		ifup "$iface"
 		ok "Phone uplink $iface set up"
 	fi
-	# First uplink after installing: netifd loads protocol handlers only
-	# when it starts. Restart it in the background (connections drop for a
-	# few seconds) so this request can still answer.
+	# First uplink after installing: netifd loads protocol handlers only when
+	# it starts, so the network has to restart once. That drops every link
+	# for a few seconds (a repeater re-joins its upstream Wi-Fi), so it is
+	# the user's call: LuCI asks, then runs `etph-luci netrestart`.
+	json_init
+	json_add_boolean ok 1
+	json_add_boolean needs_restart 1
+	json_add_string message "Phone uplink $iface set up. The router's network must restart once to load the ETPH protocol (connections drop for a few seconds)."
+	json_dump
+	exit 0
+}
+
+cmd_netrestart() {
 	( sleep 1; /etc/init.d/network restart ) >/dev/null 2>&1 </dev/null &
-	ok "Phone uplink $iface set up; the network restarts once (a few seconds) to load the ETPH protocol"
+	ok "restarting the network"
 }
 
 cmd_settoken() {
@@ -215,5 +226,6 @@ settoken) cmd_settoken "$2" ;;
 unpair) cmd_unpair "$2" ;;
 remove) cmd_remove "$2" ;;
 keygen) cmd_keygen ;;
-*) fail "usage: etph-luci status|discover|retry|setup|settoken|unpair|remove|keygen" ;;
+netrestart) cmd_netrestart ;;
+*) fail "usage: etph-luci status|discover|retry|setup|settoken|unpair|remove|keygen|netrestart" ;;
 esac

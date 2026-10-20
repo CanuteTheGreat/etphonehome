@@ -175,7 +175,17 @@ return view.extend({
 			row(_('Pairing token (Wi-Fi)'), token),
 			E('div', { 'class': 'right' }, E('button', { 'class': 'cbi-button cbi-button-positive', 'click': ui.createHandlerFn(this, function() {
 				return call([ 'setup', name.value, transport.value, host.value ], { ETPH_PAIR_TOKEN: token.value })
-					.then(notify).then(function() { location.reload(); });
+					.then(function(res) {
+						notify(res);
+						if (res && res.ok && res.needs_restart) {
+							if (!confirm(_('Restart the router\'s network now to start the phone uplink? All connections drop for a few seconds (a repeater re-joins its upstream Wi-Fi). You can also reboot later.')))
+								return;
+							return call([ 'netrestart' ]).then(function() {
+								ui.addNotification(null, E('p', _('Network restarting; reload this page in a few seconds.')), 'info');
+							});
+						}
+						location.reload();
+					});
 			}) }, _('Set up')))
 		]);
 	},

@@ -80,8 +80,9 @@ ETPH's traffic is the phone's own.
    the address), enter the token, **Set up**. The link is TLS 1.3 pinned to
    that token; *Unpair* forgets it.
 
-The first setup restarts the router's network once (a few seconds) so it
-loads the new protocol. The page then shows the phone's model, the
+The first setup asks to restart the router's network once so it loads the
+new protocol (all links drop for a few seconds; a repeater re-joins its
+upstream Wi-Fi). Say no and reboot later if that is a bad moment. The page then shows the phone's model, the
 connection, current speed and data used, with *Reconnect now*, *Unpair*
 and *Remove*.
 

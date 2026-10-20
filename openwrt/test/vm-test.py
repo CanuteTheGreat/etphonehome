@@ -278,7 +278,8 @@ def main():
 
         # Set up through the LuCI backend, exactly what the page's "Set up" button runs.
         rc, out = con.sh(f"ETPH_PAIR_TOKEN={TOKEN} /usr/libexec/etph-luci setup phone wifi 10.0.2.2", 60)
-        check('"ok": true' in out, "LuCI setup creates the phone uplink", out)
+        check('"ok": true' in out and '"needs_restart": true' in out, "LuCI setup creates the phone uplink and asks for the one network restart", out)
+        con.sh("/usr/libexec/etph-luci netrestart")
         time.sleep(15)  # first install: netifd restarts to load proto etph
         con.send("\n")
         rc, out = con.sh("for i in $(seq 60); do ifstatus phone | grep -q '\"up\": true' && break; sleep 2; done; ifstatus phone", 200)

@@ -72,6 +72,10 @@ demo status -e volume hide -e bluetooth hide -e location hide -e alarm hide -e s
 
 adb install -r "$APK" >"$LOG/install.log" 2>&1 || { cat "$LOG/install.log"; die "install"; }
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null
+# The Bluetooth screen as a user sees it after allowing the permission on first Start.
+adb shell pm grant $PKG android.permission.BLUETOOTH_CONNECT 2>/dev/null
+adb shell pm grant $PKG android.permission.BLUETOOTH_ADVERTISE 2>/dev/null
+adb shell svc bluetooth enable 2>/dev/null
 adb logcat -c
 
 # --- UI helpers (as in android-emulator-e2e.sh) ------------------------------------------

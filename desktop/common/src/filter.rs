@@ -70,6 +70,17 @@ impl FilterConfig {
             ("filter.rules".to_string(), self.rules.len().to_string()),
         ];
         for (i, r) in self.rules.iter().enumerate() {
+            // The phone drops a wire rule whose id is blank (`parseWireRule`
+            // in FilterConfig.kt), while the desktop enforces every rule
+            // whatever its id. So `id = ""` in the TOML made a BLOCK rule
+            // block on the desktop only, and an ALLOW rule in whitelist mode
+            // allow on the desktop only. The id is only a label (it shows up
+            // in the phone's "blocked by rule" log line), so send a stand-in
+            // instead; this also works with phones already in the field.
+            let id = match clean(&r.id) {
+                id if id.trim().is_empty() => format!("rule-{}", i),
+                id => id,
+            };
             let protocol = match r.protocol {
                 None | Some(Protocol::Any) => "any",
                 Some(Protocol::Tcp) => "tcp",
@@ -84,7 +95,7 @@ impl FilterConfig {
                 format!("filter.rule.{}", i),
                 format!(
                     "{}|{}|{}|{}|{}|{}|{}|{}",
-                    clean(&r.id),
+                    id,
                     r.enabled,
                     action,
                     protocol,
@@ -563,6 +574,36 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn config_update_gives_a_blank_rule_id_a_stand_in_the_phone_accepts() {
+        let rule = |id: &str| FilterRule {
+            id: id.into(),
+            enabled: true,
+            action: FilterAction::Block,
+            protocol: None,
+            dest_ip: Some("10.0.0.0/8".into()),
+            dest_port: None,
+            source_ip: None,
+            source_port: None,
+            description: None,
+        };
+        let cfg = FilterConfig {
+            enabled: true,
+            mode: FilterMode::Blacklist,
+            log_blocked: true,
+            rules: vec![rule("keep"), rule(""), rule("  "), rule("\n")],
+        };
+        let m: std::collections::HashMap<_, _> =
+            cfg.to_config_update().config.into_iter().collect();
+        assert_eq!(m["filter.rules"], "4");
+        assert_eq!(m["filter.rule.0"], "keep|true|block|any|10.0.0.0/8|||");
+        // Blank and whitespace-only ids get `rule-<index>`; an id made only
+        // of characters `clean` replaces ("\n" -> "_") is not blank.
+        assert_eq!(m["filter.rule.1"], "rule-1|true|block|any|10.0.0.0/8|||");
+        assert_eq!(m["filter.rule.2"], "rule-2|true|block|any|10.0.0.0/8|||");
+        assert_eq!(m["filter.rule.3"], "_|true|block|any|10.0.0.0/8|||");
+    }
 
     #[test]
     fn test_ip_range_parse() {

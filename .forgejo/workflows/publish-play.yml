@@ -4,6 +4,10 @@ name: Publish to Google Play
 #
 # Real upload: push a tag release-play-<n> (e.g. git tag release-play-1 && git push origin release-play-1)
 #   -> the signed AAB goes to the INTERNAL testing track (never production).
+# Internal App Sharing: dispatch with mode=internal-app-sharing (and ref=<tag> to build a release
+#   tag): builds + signs, uploads to Internal App Sharing and prints INTERNAL_APP_SHARING_URL (an
+#   install link that works without a rolled-out release or tester list).
+# Diagnose: dispatch with mode=diagnose: read-only Play API dump (ci/play-diagnose.js), no build.
 # Dry run: run this workflow manually (workflow_dispatch, dry_run=true is the default): builds,
 #   signs and verifies the bundle, then only READS Play (does the app exist, may the service
 #   account manage it, current tracks). Works before the app exists in Play Console: a missing
@@ -34,12 +38,45 @@ on:
       track:
         description: "Play track for a real upload (internal or beta; never production)"
         default: "internal"
+      mode:
+        description: "track = dry run / upload to a track (above); internal-app-sharing = upload the signed AAB to Internal App Sharing and print the install link (no review, works on a Draft app); diagnose = read-only Play API dump (tracks, testers, country availability, release states, details), no build"
+        default: "track"
+      ref:
+        description: "Tag/branch/commit to BUILD (e.g. v0.7.1); empty = the dispatched commit. Workflow scripts always come from the dispatched commit."
+        default: ""
 
 env:
   PLAY_PACKAGE: solutions.errant.etph
 
 jobs:
+  diagnose:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'diagnose'
+    runs-on: etphonehome-release-signer
+    timeout-minutes: 10
+    steps:
+      - name: Fetch this commit (plain git, no actions; runs on the dedicated signer)
+        env:
+          REPO_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init -q .
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader
+          GIT_CONFIG_VALUE_0="Authorization: basic $(printf 'x-access-token:%s' "$REPO_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          git fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
+          git checkout -q --force FETCH_HEAD
+      - name: Read-only Play API dump
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          KEY_FILE="$(mktemp)"
+          trap 'shred -u "$KEY_FILE"' EXIT
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$KEY_FILE"
+          node ci/play-diagnose.js "$KEY_FILE" "$PLAY_PACKAGE"
+
   build-release-aab:
+    if: github.event_name != 'workflow_dispatch' || inputs.mode != 'diagnose'
     runs-on: linux-cross-x86_64
     timeout-minutes: 40
     outputs:
@@ -47,6 +84,8 @@ jobs:
       version_code: ${{ steps.out.outputs.version_code }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
@@ -117,6 +156,7 @@ jobs:
         env:
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run != 'false' }}
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'track' }}
           TRACK: ${{ inputs.track || 'internal' }}
           VERSION_CODE: ${{ needs.build-release-aab.outputs.version_code }}
         run: |
@@ -126,7 +166,12 @@ jobs:
           printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$KEY_FILE"
           trap 'shred -u "$KEY_FILE"; rm -rf signed notes.txt' EXIT
           case "$TRACK" in internal|beta) ;; *) echo "track must be internal or beta, got '$TRACK'" >&2; exit 1 ;; esac
-          if [ "$DRY_RUN" = "true" ]; then
+          if [ "$MODE" = "internal-app-sharing" ]; then
+            echo "Internal App Sharing: $PLAY_PACKAGE versionCode $VERSION_CODE (signed, verified)"
+            node ci/internal-app-sharing.js "$KEY_FILE" "$PLAY_PACKAGE" signed/app-release.aab
+          elif [ "$MODE" != "track" ]; then
+            echo "unknown mode '$MODE' (track, internal-app-sharing, diagnose)" >&2; exit 1
+          elif [ "$DRY_RUN" = "true" ]; then
             echo "DRY RUN: signed $PLAY_PACKAGE versionCode $VERSION_CODE verified; NOT uploading. Read-only Play check:"
             node ci/play-app-status.js "$KEY_FILE" "$PLAY_PACKAGE" --allow-missing
           else

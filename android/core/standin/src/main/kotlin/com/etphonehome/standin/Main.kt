@@ -26,7 +26,7 @@ import kotlin.system.exitProcess
  *
  *   standin --listen 127.0.0.1:8888 [--token T] [--require-tls]
  *           [--keepalive-secs N] [--stats-secs N] [--disconnect-after-secs N]
- *           [--advertise-version 0xMMmm] [--stats-log] [--quiet]
+ *           [--advertise-version 0xMMmm] [--stats-log] [--device-name NAME] [--quiet]
  *
  * --stats-log prints the relay's live counters (the numbers the app shows)
  * every --stats-secs, so tests can check flows are cleaned up.
@@ -40,6 +40,7 @@ fun main(args: Array<String>) {
     var disconnectAfterSecs: Long? = null
     var advertiseVersion = Protocol.PROTOCOL_VERSION
     var statsLog = false
+    var deviceName: String? = "ETPH stand-in"
     var i = 0
     fun value(): String = args.getOrNull(++i) ?: usage("missing value for ${args[i - 1]}")
     while (i < args.size) {
@@ -52,6 +53,7 @@ fun main(args: Array<String>) {
             "--disconnect-after-secs" -> disconnectAfterSecs = value().toLong()
             "--advertise-version" -> advertiseVersion = Integer.decode(value()).toShort()
             "--stats-log" -> statsLog = true
+            "--device-name" -> deviceName = value().ifEmpty { null }
             "--quiet" -> Log.debugEnabled = false
             else -> usage("unknown argument ${args[i]}")
         }
@@ -93,6 +95,7 @@ fun main(args: Array<String>) {
                         protocolVersion = advertiseVersion,
                         onForcedDisconnect = { link.close() },
                         abortLink = { link.abort() },
+                        deviceName = deviceName,
                     ),
                     if (statsLog) StatsLogger(statsSecs * 1000) else SessionListener.NONE,
                 ).run()
@@ -126,7 +129,7 @@ private fun usage(msg: String): Nothing {
     System.err.println("standin: $msg")
     System.err.println(
         "usage: standin --listen HOST:PORT [--token T] [--require-tls] [--keepalive-secs N] " +
-            "[--stats-secs N] [--disconnect-after-secs N] [--advertise-version 0xMMmm] [--stats-log] [--quiet]",
+            "[--stats-secs N] [--disconnect-after-secs N] [--advertise-version 0xMMmm] [--stats-log] [--device-name NAME] [--quiet]",
     )
     exitProcess(2)
 }

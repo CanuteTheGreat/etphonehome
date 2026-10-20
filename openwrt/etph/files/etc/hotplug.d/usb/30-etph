@@ -1,0 +1,41 @@
+#!/bin/sh
+# A phone with USB debugging was plugged in (adb interface class 255/66/1):
+# running ETPH uplinks retry now instead of after their backoff, and an
+# uplink that was set to start on plug-in (`option auto 0` + usb/auto
+# transport) is brought up. Unplugging ends the session by itself (the
+# USB device disappears), which takes the interface down.
+[ "$INTERFACE" = "255/66/1" ] || exit 0
+if [ "$ACTION" = remove ]; then
+	. /lib/functions.sh
+	stop_on_unplug() {
+		local proto transport auto
+		config_get proto "$1" proto
+		config_get transport "$1" transport usb
+		config_get auto "$1" auto 1
+		[ "$proto" = etph ] && [ "$transport" = usb ] && [ "$auto" = 0 ] && ifdown "$1"
+	}
+	config_load network
+	config_foreach stop_on_unplug interface
+	logger -t etph "phone unplugged"
+	exit 0
+fi
+case "$ACTION" in add|bind) ;; *) exit 0 ;; esac
+(
+	sleep 2
+	for f in /var/run/etph/*.json; do
+		[ -f "$f" ] || continue
+		pid=$(sed -n 's/^ *"pid": *\([0-9]*\).*/\1/p' "$f")
+		[ -n "$pid" ] && kill -USR1 "$pid" 2>/dev/null
+	done
+	. /lib/functions.sh
+	start_on_plug() {
+		local proto transport auto
+		config_get proto "$1" proto
+		config_get transport "$1" transport usb
+		config_get auto "$1" auto 1
+		[ "$proto" = etph ] && [ "$transport" != wifi ] && [ "$auto" = 0 ] && ifup "$1"
+	}
+	config_load network
+	config_foreach start_on_plug interface
+	logger -t etph "phone plugged in: USB uplinks retrying now"
+) &

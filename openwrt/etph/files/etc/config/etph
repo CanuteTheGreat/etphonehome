@@ -1,0 +1,6 @@
+# Errant Solutions ETPH (phone as WAN). The uplink itself is a network
+# interface with `option proto 'etph'` (/etc/config/network; LuCI:
+# Network > Phone uplink); this file holds the router-wide settings.
+config etph 'main'
+	# Create the router's adb key at boot if it has none (USB phones).
+	option keygen '1'

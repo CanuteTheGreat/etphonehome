@@ -228,6 +228,7 @@ fn wifi_accepts_hostnames() {
             capabilities: capabilities::WIFI,
             ip_address: 0x0a000002,
             dns: 0x08080808,
+            device_name: None,
         })
         .write_to(&mut buf)
         .unwrap();

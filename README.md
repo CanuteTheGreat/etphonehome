@@ -27,7 +27,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 ## ✨ Features
 
-### Current Features (v0.7.1)
+### Current Features (v0.8.0)
 
 - ✅ **Real internet for the computer, no root** - the app relays the computer's TCP, UDP (DNS included) and ping traffic through ordinary phone sockets (a userspace relay). Verified in CI against public HTTPS and on a real phone (Samsung, Android 13)
 - ✅ **The phone keeps its internet** - no phone VPN is used, so the phone's own apps are never affected
@@ -41,6 +41,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 - ✅ **Auto-Reconnect** - exponential backoff retry
 - ✅ **mDNS Discovery**, **IP Discovery** (ADB), **Connection Profiles**
 - ✅ **Open Protocol** - documented binary protocol, shared test vectors between the Rust and Kotlin sides
+- ✅ **Routers (OpenWrt, GL.iNet)** - the phone becomes a router's internet (WAN) for every device behind it, over USB (built-in ADB host, no adb package) or Wi-Fi: packages for OpenWrt 24.10 (opkg, also GL.iNet 4.x) and 25.x (apk) on aarch64, armv7, mips, mipsel and x86_64, a normal network interface (`proto etph`: firewall zones, metrics, mwan3 failover) and a LuCI page with status and pairing. Tested in CI on real OpenWrt 24.10 and 25.12 VMs. See [docs/OPENWRT.md](docs/OPENWRT.md)
 
 ### Planned Features
 
@@ -431,4 +432,4 @@ You are free to use, modify, and distribute this software for any purpose, inclu
 
 ---
 
-**Note:** Current version is v0.7.1 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.
+**Note:** Current version is v0.8.0 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK, OpenWrt router packages): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.

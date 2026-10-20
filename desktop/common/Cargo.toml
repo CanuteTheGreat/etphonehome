@@ -21,15 +21,32 @@ rcgen = { workspace = true }
 mdns-sd = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
+serde_json = { workspace = true }
+libc = "0.2"
+# 64-bit counters on 32-bit MIPS (no native AtomicU64): lock-based fallback there,
+# plain std atomics everywhere else.
+portable-atomic = { version = "1", features = ["fallback"] }
+# Built-in ADB host (router USB without the adb package): the adb key is
+# RSA-2048 (PKCS#1 v1.5 over the SHA-1-sized auth token), stored like adb's.
+rsa = { version = "0.9", default-features = false, features = ["std", "pem", "u64_digit"] }
+sha1 = { version = "0.10", default-features = false, features = ["oid"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+[features]
+# Bluetooth RFCOMM through BlueZ (Linux). On by default for the desktop
+# builds; the OpenWrt router build turns it off (routers have no BlueZ, and
+# it drags in libdbus).
+default = ["bluetooth"]
+bluetooth = ["dep:bluer", "dep:futures", "dep:libdbus-sys"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
-bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"] }
-futures = "0.3"
+bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"], optional = true }
+futures = { version = "0.3", optional = true }
 # Build libdbus (bluer's D-Bus transport) from source and link it statically:
 # the release binary then needs no libdbus-1.so on the user's machine and
 # can be linked against an old glibc (.forgejo/scripts/build-linux-release.sh)
 # so it runs on every distro we claim, not just ones as new as the CI image.
-libdbus-sys = { version = "0.2", features = ["vendored"] }
+libdbus-sys = { version = "0.2", features = ["vendored"], optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

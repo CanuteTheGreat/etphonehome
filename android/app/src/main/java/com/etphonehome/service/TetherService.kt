@@ -22,6 +22,7 @@ import com.etphonehome.filter.FilterConfig
 import com.etphonehome.log.Log
 import com.etphonehome.protocol.MessageStream
 import com.etphonehome.protocol.Protocol
+import com.etphonehome.relay.RelayConfig
 import com.etphonehome.session.SessionInfo
 import com.etphonehome.session.SessionListener
 import com.etphonehome.session.SessionLoop
@@ -66,6 +67,7 @@ class TetherService : Service() {
     @Volatile private var activeConnection: Closeable? = null
     @Volatile private var sessionLoop: SessionLoop<*>? = null
     private var nsdAdvertiser: NsdAdvertiser? = null
+    private var upstream: UpstreamNetworks? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var mode = CONNECTION_USB
     private var running = false
@@ -167,6 +169,8 @@ class TetherService : Service() {
         bluetoothServerSocket = null
         nsdAdvertiser?.unregisterService()
         nsdAdvertiser = null
+        upstream?.stop()
+        upstream = null
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         TetherStatus.set(TetherState.Stopped(error))
@@ -201,6 +205,7 @@ class TetherService : Service() {
         serverSocket = server
         Log.i(tag, "WiFi server listening on port $port")
         nsdAdvertiser = NsdAdvertiser(this).also { it.registerService(port) }
+        upstream = UpstreamNetworks(this).also { it.start() }
         val token = TokenManager.getWifiToken(this)
         val ip = wifiIpAddress()
         val requireTls = Settings.requireEncryption(this)
@@ -209,7 +214,8 @@ class TetherService : Service() {
                 "WiFi is not connected."
             } else {
                 "On the computer run:\n  sudo etphonehome wifi --host $ip --token $token" +
-                    if (requireTls) "" else "\n(encryption not required: --no-tls also works)"
+                    (if (requireTls) "" else "\n(encryption not required: --no-tls also works)") +
+                    "\nRouter (OpenWrt/GL.iNet): LuCI > Network > Phone uplink, WiFi, phone $ip, token $token"
             },
         )
         serveTcp(server, token, requireTls)
@@ -225,6 +231,17 @@ class TetherService : Service() {
                 activeConnection = link
                 val verifier: ((String?) -> Boolean)? = token?.let {
                     { presented -> TokenManager.verifyWifiToken(this, presented) }
+                }
+                // A router whose internet is this phone, reached over the
+                // router's own Wi-Fi: pin relay sockets to another network
+                // (UpstreamPolicy), or they would loop back through it.
+                val up = upstream
+                val downlink = if (token != null) sock.localAddress else null
+                val peer = if (token != null) sock.inetAddress else null
+                val relayConfig = if (up != null) {
+                    RelayConfig(socketPreparer = up.preparerFor(downlink, peer), icmpEchoer = up.echoerFor(downlink, peer))
+                } else {
+                    RelayConfig()
                 }
                 runSession(
                     link.stream,
@@ -243,6 +260,8 @@ class TetherService : Service() {
                         capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI or
                             (if (token != null) Protocol.CAP_TLS else 0),
                         abortLink = { link.abort() },
+                        relayConfig = relayConfig,
+                        deviceName = deviceName(),
                     ),
                 )
             },
@@ -285,6 +304,7 @@ class TetherService : Service() {
                             } catch (_: java.io.IOException) {
                             }
                         },
+                        deviceName = deviceName(),
                     ),
                 )
             },
@@ -327,9 +347,14 @@ class TetherService : Service() {
         refreshNotification()
     }
 
+    /** "samsung SM-N986U": how the computer/router UI names this phone. */
+    private fun deviceName(): String =
+        listOf(Build.MANUFACTURER, Build.MODEL).filter { !it.isNullOrBlank() }.joinToString(" ").ifBlank { "Android phone" }
+
     /** One desktop left; keep listening for the next. */
     private fun endSession() {
         activeConnection = null
+        upstream?.releaseCellular()
         if (running) {
             Log.i(tag, "Session ended, waiting for the next desktop connection")
             waiting(waitingHint)

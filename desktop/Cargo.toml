@@ -8,7 +8,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 authors = ["ET Phone Home Contributors"]
 license = "MIT"
@@ -34,7 +34,7 @@ anyhow = "1.0"
 thiserror = "1.0"
 
 # CLI
-clap = { version = "4.4", features = ["derive"] }
+clap = { version = "4.4", features = ["derive", "env"] }
 
 # TUN/TAP interface
 tun = { version = "0.6", features = ["async"] }
@@ -46,12 +46,31 @@ dirs = "5.0"
 mdns-sd = "0.11"
 
 # TLS support
-rustls = { version = "0.23", features = ["ring"] }
-tokio-rustls = "0.26"
+# ring only (no aws-lc-rs, the rustls default): the code always picks the ring
+# provider explicitly, and aws-lc-sys neither builds for MIPS routers nor fits
+# their flash.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
 ring = "0.17"
-rcgen = { version = "0.13", features = ["pem"] }
+rcgen = { version = "0.13", default-features = false, features = ["pem", "ring"] }
 
 # Debug info: line tables only (backtraces keep file:line, no full DWARF).
 # Smaller objects and test binaries, so CI links use less memory and disk.
 [profile.dev]
 debug = "line-tables-only"
+
+# Size-optimised build for routers (OpenWrt packages): 16-128 MB of flash.
+[profile.release-small]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# RSA key generation (the built-in adb key) is very slow unoptimised; keep
+# the bignum code optimised in test/dev builds too.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+[profile.dev.package.rsa]
+opt-level = 3

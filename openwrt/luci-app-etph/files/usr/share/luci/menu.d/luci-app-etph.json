@@ -1,0 +1,13 @@
+{
+	"admin/network/etph": {
+		"title": "Phone uplink",
+		"order": 35,
+		"action": {
+			"type": "view",
+			"path": "etph/status"
+		},
+		"depends": {
+			"acl": [ "luci-app-etph" ]
+		}
+	}
+}

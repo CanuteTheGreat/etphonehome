@@ -31,7 +31,9 @@ use anyhow::{Context, Result};
 use log::{debug, error, info, warn};
 use std::future::Future;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+// portable-atomic: 32-bit MIPS routers have no native 64-bit atomics.
+use portable_atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -569,6 +571,7 @@ pub(crate) mod tests {
             capabilities: capabilities::WIFI,
             ip_address: 0x0a000002,
             dns: 0x08080808,
+            device_name: None,
         }
     }
 

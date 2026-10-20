@@ -1,0 +1,21 @@
+{
+	"luci-app-etph": {
+		"description": "Grant access to the ETPH phone uplink page",
+		"read": {
+			"file": {
+				"/usr/libexec/etph-luci status": [ "exec" ],
+				"/usr/libexec/etph-luci discover": [ "exec" ]
+			},
+			"ubus": {
+				"network.interface": [ "dump" ]
+			},
+			"uci": [ "network", "etph" ]
+		},
+		"write": {
+			"file": {
+				"/usr/libexec/etph-luci *": [ "exec" ]
+			},
+			"uci": [ "network", "etph" ]
+		}
+	}
+}

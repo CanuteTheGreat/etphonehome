@@ -4,6 +4,7 @@
 
 use crate::config::Config;
 use crate::filter::FilterConfig;
+use crate::host::{self, HostIntegration, StatusFile, TunAddressing};
 use crate::protocol::capabilities;
 use crate::runner::{self, RetryPolicy, SessionPlan, Target, DEFAULT_PORT};
 use crate::session::ConnectOptions;
@@ -39,6 +40,63 @@ pub struct RetryArgs {
     pub max_retries: Option<u32>,
 }
 
+/// How the session plugs into the host (routers: OpenWrt netifd), shared
+/// by every connecting subcommand.
+#[derive(clap::Args, Debug, Clone, Default)]
+pub struct HostArgs {
+    /// Don't add a default route or DNS; leave that to --up-script (on
+    /// OpenWrt netifd owns routes, DNS, firewall zones and mwan3)
+    #[arg(long)]
+    pub no_routes: bool,
+    /// Run this after the TUN device is up: `<script> up`, with ETPH_IFNAME,
+    /// ETPH_LOCAL, ETPH_PREFIX, ETPH_PEER, ETPH_DNS, ETPH_DEVICE, ETPH_TRANSPORT
+    #[arg(long, value_name = "SCRIPT")]
+    pub up_script: Option<std::path::PathBuf>,
+    /// Run this after a session ended: `<script> down` (same variables plus ETPH_REASON)
+    #[arg(long, value_name = "SCRIPT")]
+    pub down_script: Option<std::path::PathBuf>,
+    /// Keep a JSON status (state, phone, bytes, rates, last error) in this file
+    #[arg(long, value_name = "FILE")]
+    pub status_file: Option<std::path::PathBuf>,
+    /// Address of this end of the TUN link, A.B.C.D[/prefix] (default 10.0.0.1/24)
+    #[arg(long, value_name = "ADDR")]
+    pub tun_address: Option<String>,
+    /// The phone's end of the TUN link (default: the next address)
+    #[arg(long, value_name = "ADDR")]
+    pub tun_peer: Option<String>,
+}
+
+impl HostArgs {
+    fn integration(
+        &self,
+        transport: &str,
+        target: &str,
+        interface: &str,
+        adb_serial: Option<String>,
+    ) -> Result<HostIntegration> {
+        let tun = match &self.tun_address {
+            Some(a) => TunAddressing::parse(a, self.tun_peer.as_deref())?,
+            None if self.tun_peer.is_some() => {
+                TunAddressing::parse("10.0.0.1/24", self.tun_peer.as_deref())?
+            }
+            None => TunAddressing::default(),
+        };
+        Ok(HostIntegration {
+            manage_routes: !self.no_routes,
+            up_script: self.up_script.clone(),
+            down_script: self.down_script.clone(),
+            status: self
+                .status_file
+                .clone()
+                .map(|p| StatusFile::new(p, transport, target, interface)),
+            tun,
+            adb_serial,
+            usb_native: false,
+            adb_tcp: None,
+        })
+    }
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Connect via USB (sets up `adb forward` automatically)
@@ -49,9 +107,63 @@ pub enum Commands {
         /// TUN interface name
         #[arg(short, long, default_value = "etph0")]
         interface: String,
+        /// Which phone, when several are plugged in (`adb devices` serial)
+        #[arg(long)]
+        adb_serial: Option<String>,
+        /// Talk to the phone over USB with the built-in ADB host (Linux usbfs):
+        /// no adb tool or adb server needed (routers)
+        #[arg(long)]
+        native: bool,
+        /// Built-in ADB host over TCP to an adbd in `adb tcpip` mode (HOST:PORT)
+        #[arg(long, value_name = "HOST:PORT")]
+        adb_tcp: Option<String>,
         #[command(flatten)]
         retry: RetryArgs,
+        #[command(flatten)]
+        net: HostArgs,
     },
+
+    /// Router mode: the phone on USB when one is plugged in (built-in ADB
+    /// host), otherwise WiFi when --host is given; chosen on every attempt
+    Auto {
+        /// Port the app listens on in USB mode
+        #[arg(short, long, default_value_t = DEFAULT_PORT)]
+        port: u16,
+        /// WiFi fallback: the phone's address
+        #[arg(short = 'H', long)]
+        host: Option<String>,
+        /// WiFi fallback: the app's port
+        #[arg(long, default_value_t = DEFAULT_PORT)]
+        wifi_port: u16,
+        /// WiFi fallback: pairing token (or $ETPH_TOKEN)
+        #[arg(short = 't', long, env = "ETPH_TOKEN", hide_env_values = true)]
+        token: Option<String>,
+        /// WiFi fallback without TLS
+        #[arg(long)]
+        no_tls: bool,
+        /// Which USB phone, when several are plugged in
+        #[arg(long)]
+        adb_serial: Option<String>,
+        /// TUN interface name
+        #[arg(short, long, default_value = "etph0")]
+        interface: String,
+        #[command(flatten)]
+        retry: RetryArgs,
+        #[command(flatten)]
+        net: HostArgs,
+    },
+
+    /// List phones with USB debugging on this computer's USB ports (sysfs;
+    /// no adb needed)
+    UsbList {
+        /// JSON (for scripts and LuCI)
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Create this device's adb key now if it has none (key generation takes
+    /// a while on router CPUs) and print its fingerprint
+    AdbKeygen,
 
     /// Connect via WiFi
     Wifi {
@@ -64,8 +176,9 @@ pub enum Commands {
         /// TUN interface name
         #[arg(short, long, default_value = "etph0")]
         interface: String,
-        /// Authentication token shown in the Android app (required by the app)
-        #[arg(short = 't', long)]
+        /// Authentication token shown in the Android app (required by the app;
+        /// also read from $ETPH_TOKEN, which keeps it out of `ps`)
+        #[arg(short = 't', long, env = "ETPH_TOKEN", hide_env_values = true)]
         token: Option<String>,
         /// Cert-pinned TLS 1.3 keyed to the token (the default; kept so
         /// older scripts that pass it still work). Fails closed, never falls
@@ -78,6 +191,8 @@ pub enum Commands {
         no_tls: bool,
         #[command(flatten)]
         retry: RetryArgs,
+        #[command(flatten)]
+        net: HostArgs,
     },
 
     /// Connect via Bluetooth RFCOMM (Linux/BlueZ)
@@ -85,14 +200,16 @@ pub enum Commands {
         /// The phone's Bluetooth address (MAC) or its name as paired (shown in the app)
         #[arg(short = 'a', long)]
         address: String,
-        /// Authentication token shown in the Android app
-        #[arg(short = 't', long)]
+        /// Authentication token shown in the Android app (or $ETPH_TOKEN)
+        #[arg(short = 't', long, env = "ETPH_TOKEN", hide_env_values = true)]
         token: Option<String>,
         /// TUN interface name
         #[arg(short, long, default_value = "etph0")]
         interface: String,
         #[command(flatten)]
         retry: RetryArgs,
+        #[command(flatten)]
+        net: HostArgs,
     },
 
     /// Set up ADB port forwarding (computer port -> phone port)
@@ -104,11 +221,22 @@ pub enum Commands {
     /// Discover the Android device's WiFi IP address via ADB
     DiscoverIp,
 
+    /// Print the fingerprint the phone shows in "Allow USB debugging?" for
+    /// this computer's adb key (routers have no screen to compare with)
+    AdbFingerprint {
+        /// adb public key (default: $HOME/.android/adbkey.pub)
+        #[arg(long)]
+        key: Option<std::path::PathBuf>,
+    },
+
     /// Discover Android devices on WiFi via mDNS
     DiscoverWifi {
         /// Discovery timeout in seconds
         #[arg(short, long, default_value = "5")]
         timeout: u64,
+        /// Print the phones found as JSON (for scripts and LuCI)
+        #[arg(long)]
+        json: bool,
     },
 
     /// Connect using a saved profile
@@ -120,6 +248,8 @@ pub enum Commands {
         interface: Option<String>,
         #[command(flatten)]
         retry: RetryArgs,
+        #[command(flatten)]
+        net: HostArgs,
     },
 
     /// List all saved profiles
@@ -190,6 +320,7 @@ fn tcp_plan(
         tun_name: interface,
         // Ad-hoc connections have no saved filter; use a profile for rules.
         filter: FilterConfig::default(),
+        host: HostIntegration::default(),
     }
 }
 
@@ -211,15 +342,28 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
         std::env::set_var("ETPHONEHOME_CONFIG", path);
     }
     let cfg_path = || Config::default_path();
+    host::install_retry_signal();
 
     match cli.command {
         Commands::Usb {
             port,
             interface,
+            adb_serial,
+            native,
+            adb_tcp,
             retry,
+            net,
         } => {
             warn_unprivileged(&platform);
-            let plan = tcp_plan(
+            let target = if native || adb_tcp.is_some() {
+                format!("phone port {port} (built-in ADB host)")
+            } else {
+                format!("127.0.0.1:{port} (adb forward)")
+            };
+            let mut integration = net.integration("usb", &target, &interface, adb_serial)?;
+            integration.usb_native = native;
+            integration.adb_tcp = adb_tcp;
+            let mut plan = tcp_plan(
                 SocketAddr::from(([127, 0, 0, 1], port)),
                 capabilities::USB,
                 None,
@@ -227,6 +371,7 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
                 Some(port),
                 interface,
             );
+            plan.host = integration;
             runner::run_plan(
                 &plan,
                 policy(&retry, false, 0),
@@ -237,13 +382,14 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
             .await
         }
         Commands::Wifi {
-            host,
+            host: wifi_host,
             port,
             interface,
             token,
             tls,
             no_tls,
             retry,
+            net,
         } => {
             // TLS unless --no-tls was the last word (`--tls` is the default).
             let tls = tls || !no_tls;
@@ -253,8 +399,15 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
                     "No --token given; the Android app rejects WiFi connections without its token"
                 );
             }
-            let addr = runner::resolve_addr(&host, port).await?;
-            let plan = tcp_plan(addr, capabilities::WIFI, token, tls, None, interface);
+            let integration = net.integration(
+                "wifi",
+                &format!("{wifi_host}:{port}"),
+                &interface,
+                None,
+            )?;
+            let addr = runner::resolve_addr(&wifi_host, port).await?;
+            let mut plan = tcp_plan(addr, capabilities::WIFI, token, tls, None, interface);
+            plan.host = integration;
             runner::run_plan(
                 &plan,
                 policy(&retry, false, 0),
@@ -269,6 +422,7 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
             token,
             interface,
             retry,
+            net,
         } => {
             warn_unprivileged(&platform);
             let config = Config::load_or_default()?;
@@ -276,10 +430,12 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
                 (!config.auth.bluetooth_token.is_empty())
                     .then(|| config.auth.bluetooth_token.clone())
             });
+            let integration = net.integration("bluetooth", &address, &interface, None)?;
             let plan = SessionPlan {
                 target: Target::Bluetooth { address, token },
                 tun_name: interface,
                 filter: FilterConfig::default(),
+                host: integration,
             };
             runner::run_plan(
                 &plan,
@@ -290,7 +446,99 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
             )
             .await
         }
+        Commands::Auto {
+            port,
+            host: wifi_host,
+            wifi_port,
+            token,
+            no_tls,
+            adb_serial,
+            interface,
+            retry,
+            net,
+        } => {
+            warn_unprivileged(&platform);
+            let wifi = match &wifi_host {
+                Some(h) => Some(crate::session::ConnectOptions {
+                    addr: runner::resolve_addr(h, wifi_port).await?,
+                    capabilities: capabilities::WIFI,
+                    token: token.clone(),
+                    tls: !no_tls,
+                    timeout: Duration::from_secs(10),
+                }),
+                None => None,
+            };
+            let plan_target = runner::Target::Auto {
+                usb_port: port,
+                wifi,
+            };
+            let mut integration = net.integration(
+                "auto",
+                &runner::target_label(&plan_target),
+                &interface,
+                adb_serial,
+            )?;
+            integration.usb_native = true;
+            let plan = SessionPlan {
+                target: plan_target,
+                tun_name: interface,
+                filter: FilterConfig::default(),
+                host: integration,
+            };
+            runner::run_plan(
+                &plan,
+                policy(&retry, false, 0),
+                runner::ctrl_c_shutdown(),
+                None,
+                None,
+            )
+            .await
+        }
+        Commands::UsbList { json } => {
+            #[cfg(target_os = "linux")]
+            let devs = crate::adb::usb::find_devices(std::path::Path::new("/sys/bus/usb/devices"));
+            #[cfg(not(target_os = "linux"))]
+            let devs: Vec<crate::adb::usb_info::UsbAdbDevice> = Vec::new();
+            if json {
+                let list: Vec<serde_json::Value> = devs
+                    .iter()
+                    .map(|d| serde_json::json!({"serial": d.serial, "product": d.product, "port": d.sysfs}))
+                    .collect();
+                println!("{}", serde_json::Value::Array(list));
+            } else if devs.is_empty() {
+                println!("No phone with USB debugging on the USB ports.");
+            } else {
+                for d in &devs {
+                    println!("{}\t{}\t(port {})", d.serial, d.product, d.sysfs);
+                }
+            }
+            Ok(())
+        }
+        Commands::AdbKeygen => {
+            let dir = crate::adb::key::default_dir();
+            let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
+                .map(|h| format!("etph@{}", h.trim()))
+                .unwrap_or_else(|_| "etph@router".into());
+            let key = crate::adb::key::AdbKey::load_or_create(&dir, &host)?;
+            println!("{}", key.fingerprint());
+            Ok(())
+        }
         Commands::SetupAdb { port } => runner::setup_adb_forwarding(port),
+        Commands::AdbFingerprint { key } => {
+            let path = match key {
+                Some(p) => p,
+                None => std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                    .join(".android/adbkey.pub"),
+            };
+            let pubkey = std::fs::read_to_string(&path).with_context(|| {
+                format!(
+                    "cannot read {} (adb creates it the first time it runs)",
+                    path.display()
+                )
+            })?;
+            println!("{}", host::adb_key_fingerprint(&pubkey)?);
+            Ok(())
+        }
         Commands::DiscoverIp => {
             let ip = runner::discover_ip_via_adb()?;
             println!("Android WiFi IP: {}", ip);
@@ -301,7 +549,12 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
             );
             Ok(())
         }
-        Commands::DiscoverWifi { timeout } => {
+        Commands::DiscoverWifi { timeout, json } => {
+            if json {
+                let found = runner::discover_mdns(Duration::from_secs(timeout)).await?;
+                println!("{}", runner::discovered_json(&found));
+                return Ok(());
+            }
             info!(
                 "Scanning for ET Phone Home devices on WiFi ({}s)...",
                 timeout
@@ -342,6 +595,7 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
             profile_name,
             interface,
             retry,
+            net,
         } => {
             let path = cfg_path()?;
             let config = runner::load_config_at(&path)?;
@@ -354,10 +608,15 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
             })?;
             warn_unprivileged(&platform);
             let tun = interface.unwrap_or_else(|| config.default.interface.clone());
-            runner::connect_profile(
-                &config,
-                profile,
+            let mut plan = runner::plan_for_profile(&config, profile, &tun).await?;
+            plan.host = net.integration(
+                runner::transport_name(&plan.target),
+                &runner::target_label(&plan.target),
                 &tun,
+                None,
+            )?;
+            runner::run_plan(
+                &plan,
                 policy(
                     &retry,
                     config.default.auto_reconnect,
@@ -365,6 +624,7 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
                 ),
                 runner::ctrl_c_shutdown(),
                 None,
+                Some(profile.clone()),
             )
             .await
         }
@@ -502,6 +762,87 @@ mod tests {
         parse(&["connect", "my-home-wifi"]);
         parse(&["delete-profile", "my-home-wifi"]);
         parse(&["--config", "/tmp/x.toml", "list-profiles"]);
+    }
+
+    #[test]
+    fn router_flags_parse_into_host_integration() {
+        match parse(&[
+            "wifi",
+            "--host",
+            "192.168.8.153",
+            "-t",
+            "tok",
+            "--reconnect",
+            "--no-routes",
+            "--up-script",
+            "/lib/netifd/etph-hook",
+            "--down-script",
+            "/lib/netifd/etph-hook",
+            "--status-file",
+            "/tmp/etph-cli-test-wan.json",
+            "--tun-address",
+            "172.31.255.1/30",
+        ])
+        .command
+        {
+            Commands::Wifi { net, .. } => {
+                assert!(net.no_routes);
+                let i = net
+                    .integration("wifi", "192.168.8.153:8888", "etph-wan", None)
+                    .unwrap();
+                assert!(!i.manage_routes);
+                assert_eq!(
+                    i.up_script.as_deref(),
+                    Some(std::path::Path::new("/lib/netifd/etph-hook"))
+                );
+                assert_eq!(i.tun.peer.to_string(), "172.31.255.2");
+                assert!(i.status.is_some());
+                let _ = std::fs::remove_file("/tmp/etph-cli-test-wan.json");
+            }
+            c => panic!("{:?}", c),
+        }
+        match parse(&["usb", "--adb-serial", "R5CR70PMMQR"]).command {
+            Commands::Usb {
+                adb_serial, net, ..
+            } => {
+                assert_eq!(adb_serial.as_deref(), Some("R5CR70PMMQR"));
+                let i = net.integration("usb", "x", "etph0", adb_serial).unwrap();
+                assert!(i.manage_routes, "desktops keep managing their routes");
+                assert_eq!(i.adb_serial.as_deref(), Some("R5CR70PMMQR"));
+                assert_eq!(i.tun, TunAddressing::default());
+            }
+            c => panic!("{:?}", c),
+        }
+        match parse(&["usb", "--tun-address", "10.0.0.1/24", "--tun-peer", "10.9.0.2"]).command {
+            Commands::Usb { net, .. } => {
+                assert!(net.integration("usb", "x", "etph0", None).is_err());
+            }
+            c => panic!("{:?}", c),
+        }
+        match parse(&["discover-wifi", "--json", "-t", "2"]).command {
+            Commands::DiscoverWifi { json, timeout } => assert!(json && timeout == 2),
+            c => panic!("{:?}", c),
+        }
+        parse(&["connect", "phone", "--no-routes", "--status-file", "/tmp/x.json"]);
+        parse(&["bluetooth", "-a", "Pixel", "--no-routes"]);
+        parse(&["adb-fingerprint", "--key", "/etc/etph/.android/adbkey.pub"]);
+        parse(&["adb-keygen"]);
+        parse(&["usb-list", "--json"]);
+        match parse(&["usb", "--native", "--adb-tcp", "127.0.0.1:15556"]).command {
+            Commands::Usb { native, adb_tcp, .. } => {
+                assert!(native);
+                assert_eq!(adb_tcp.as_deref(), Some("127.0.0.1:15556"));
+            }
+            c => panic!("{:?}", c),
+        }
+        match parse(&["auto", "--host", "192.168.8.153", "--no-routes", "--reconnect"]).command {
+            Commands::Auto { host, port, wifi_port, no_tls, .. } => {
+                assert_eq!(host.as_deref(), Some("192.168.8.153"));
+                assert_eq!((port, wifi_port, no_tls), (8888, 8888, false));
+            }
+            c => panic!("{:?}", c),
+        }
+        parse(&["auto"]);
     }
 
     #[test]

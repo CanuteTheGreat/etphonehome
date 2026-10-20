@@ -33,7 +33,7 @@ fn decode(b: &[u8]) -> Message {
 #[test]
 fn every_message_matches_the_shared_vectors() {
     let v = vectors();
-    assert_eq!(v.len(), 9, "vector file changed; update both test suites");
+    assert_eq!(v.len(), 10, "vector file changed; update both test suites");
 
     let req = Message::HandshakeReq(HandshakeRequest::with_token(
         capabilities::WIFI,
@@ -61,6 +61,7 @@ fn every_message_matches_the_shared_vectors() {
         capabilities: capabilities::USB | capabilities::WIFI,
         ip_address: 0x0a000002,
         dns: 0x08080808,
+        device_name: None,
     });
     assert_eq!(encode(&resp), v["handshake_resp"]);
     match decode(&v["handshake_resp"]) {
@@ -69,6 +70,27 @@ fn every_message_matches_the_shared_vectors() {
             assert_eq!(r.ip_address, 0x0a000002);
             assert_eq!(r.dns, 0x08080808);
         }
+        m => panic!("{:?}", m),
+    }
+    // 0.8.0: the phone may append its name; old desktops read the first
+    // 14 bytes and ignore the rest (the plain vector still decodes to None).
+    let resp_dev = Message::HandshakeResp(HandshakeResponse {
+        version: PROTOCOL_VERSION,
+        capabilities: capabilities::USB | capabilities::WIFI,
+        ip_address: 0x0a000002,
+        dns: 0x08080808,
+        device_name: Some("Pixel 8".into()),
+    });
+    assert_eq!(encode(&resp_dev), v["handshake_resp_device"]);
+    match decode(&v["handshake_resp_device"]) {
+        Message::HandshakeResp(r) => {
+            assert_eq!(r.device_name.as_deref(), Some("Pixel 8"));
+            assert_eq!(r.dns, 0x08080808);
+        }
+        m => panic!("{:?}", m),
+    }
+    match decode(&v["handshake_resp"]) {
+        Message::HandshakeResp(r) => assert_eq!(r.device_name, None),
         m => panic!("{:?}", m),
     }
 

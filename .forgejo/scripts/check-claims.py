@@ -43,6 +43,10 @@ ALL_WF = "\n".join(workflows.values())
 
 
 def is_executed(path):
+    # Any other test program a workflow runs by its path (e.g. the OpenWrt
+    # VM test, openwrt/test/vm-test.py in openwrt.yml).
+    if not path.startswith(".forgejo/") and path in ALL_WF:
+        return True
     if path.startswith(".forgejo/workflows/"):
         return path in workflows
     if path.startswith(".forgejo/scripts/"):

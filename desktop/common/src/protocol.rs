@@ -293,7 +293,14 @@ pub struct HandshakeResponse {
     pub capabilities: u32,
     pub ip_address: u32,
     pub dns: u32,
+    /// The phone's name ("samsung SM-N986U"), sent by app 0.8.0+ after the
+    /// 14 fixed bytes as u16 length + UTF-8. Older peers ignore trailing
+    /// bytes, and older phones simply don't send it.
+    pub device_name: Option<String>,
 }
+
+/// Longest device name sent or accepted (bytes).
+pub const MAX_DEVICE_NAME: usize = 64;
 
 impl HandshakeResponse {
     fn to_bytes(&self) -> Vec<u8> {
@@ -302,6 +309,15 @@ impl HandshakeResponse {
         buf.extend_from_slice(&self.capabilities.to_be_bytes());
         buf.extend_from_slice(&self.ip_address.to_be_bytes());
         buf.extend_from_slice(&self.dns.to_be_bytes());
+        if let Some(name) = &self.device_name {
+            let mut end = name.len().min(MAX_DEVICE_NAME);
+            while !name.is_char_boundary(end) {
+                end -= 1;
+            }
+            let bytes = &name.as_bytes()[..end];
+            buf.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
+            buf.extend_from_slice(bytes);
+        }
         buf
     }
 
@@ -309,12 +325,26 @@ impl HandshakeResponse {
         if data.len() < 14 {
             return Err(ProtocolError::MessageTooShort);
         }
+        // Optional, best effort: a malformed name never fails the handshake.
+        let device_name = (data.len() >= 16)
+            .then(|| u16::from_be_bytes([data[14], data[15]]) as usize)
+            .filter(|n| *n > 0 && *n <= MAX_DEVICE_NAME && data.len() >= 16 + n)
+            .and_then(|n| std::str::from_utf8(&data[16..16 + n]).ok())
+            .map(|s| {
+                s.chars()
+                    .filter(|c| !c.is_control())
+                    .collect::<String>()
+                    .trim()
+                    .to_string()
+            })
+            .filter(|s| !s.is_empty());
 
         Ok(Self {
             version: u16::from_be_bytes([data[0], data[1]]),
             capabilities: u32::from_be_bytes([data[2], data[3], data[4], data[5]]),
             ip_address: u32::from_be_bytes([data[6], data[7], data[8], data[9]]),
             dns: u32::from_be_bytes([data[10], data[11], data[12], data[13]]),
+            device_name,
         })
     }
 

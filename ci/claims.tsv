@@ -50,3 +50,14 @@ wintun	README.md	put `wintun.dll` next to `etphonehome.exe`	.forgejo/scripts/win
 legacy-app	README.md	shows a notice with a button to the old app's App info page so you can uninstall it	.forgejo/scripts/android-emulator-e2e.sh	old-app button opens the old app's App info page (Uninstall)
 legacy-app	README.md	the new app installs next to an old copy instead of updating it	.forgejo/scripts/android-emulator-e2e.sh	new app id installs next to the old release
 legacy-app	README.md	shows a notice with a button to the old app's App info page so you can uninstall it	android/app/src/test/java/com/etphonehome/util/LegacyAppTest.kt	warnsWhenTheOldAppIsInstalledNextToTheNewOne
+routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	LAN laptop: router DNS + HTTPS through router -> phone
+routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	netifd interface 'phone' (proto etph) is up
+routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	mwan3 tracks the phone uplink as online
+routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	LuCI page backend via rpcd ACL: status shows the connected phone
+routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	phone back: uplink up again by itself
+routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	USB uplink without a phone: built-in ADB host says to plug in a phone with USB debugging
+routers	README.md	Routers (OpenWrt, GL.iNet)	.forgejo/workflows/openwrt.yml	OpenWrt 25.12 (apk)
+routers	README.md	Routers (OpenWrt, GL.iNet)	android/core/src/test/kotlin/com/etphonehome/relay/UpstreamPolicyTest.kt	routerOnThePhonesWifiPinsMobileDataEvenWhenTheWifiIsDefault
+routers	README.md	Routers (OpenWrt, GL.iNet)	.forgejo/scripts/android-emulator-e2e.sh	router USB path: tunnel up through the built-in ADB host (real adbd, no adb tool)
+routers	README.md	Routers (OpenWrt, GL.iNet)	desktop/common/src/adb/tests.rs	new_key_is_offered_for_the_allow_prompt
+routers	README.md	Routers (OpenWrt, GL.iNet)	desktop/common/src/adb/usb.rs	finds_the_adb_interface_in_sysfs

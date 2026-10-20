@@ -1,0 +1,11 @@
+# cargo audit settings for the desktop workspace.
+[advisories]
+# RUSTSEC-2023-0071 (rsa: "Marvin" timing side channel, no fixed version yet).
+# The rsa crate is used only by the built-in ADB host (desktop/common/src/adb)
+# to sign the 20-byte random token adbd sends while a phone is being
+# connected over USB, with this device's own adb key. Nothing is ever
+# decrypted with it, and the attack needs an attacker who can request and
+# precisely time very many private-key operations; the only party that can
+# ask for a signature is the phone on the cable, a handful of times per
+# connection. Re-check when rsa ships a constant-time release, then drop this.
+ignore = ["RUSTSEC-2023-0071"]

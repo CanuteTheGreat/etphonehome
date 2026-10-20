@@ -1,0 +1,116 @@
+name: OpenWrt router packages
+
+# The phone as a router's WAN: cross-built router client (static musl,
+# aarch64 / armv7 / mips / mipsel / x86_64), .ipk (OpenWrt <= 24.10, GL.iNet)
+# and .apk (OpenWrt 25.x) packages with the netifd `proto etph` handler and
+# the LuCI page, then a real OpenWrt VM per package manager (KVM, rw-man-01):
+# install, set the uplink up through the LuCI backend, internet for the
+# router AND a LAN laptop only through the phone's networking core,
+# reconnect, USB/adb path, unpair, uninstall. See openwrt/test/vm-test.py.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'openwrt/**'
+      - 'desktop/**'
+      - 'android/core/**'
+      - '.forgejo/scripts/openwrt-packages.sh'
+      - '.forgejo/workflows/openwrt.yml'
+  schedule:
+    - cron: '23 9 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: "latest:${{ github.workflow }}@${{ github.ref }}"
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  packages:
+    name: Build router packages (5 CPU families, ipk + apk)
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Ensure Node.js is present (self-heal)
+        run: command -v node || (sudo apt-get update && sudo apt-get install -y nodejs)
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y file xz-utils python3
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/target
+          key: ${{ runner.os }}-cargo-openwrt-${{ hashFiles('desktop/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-openwrt-
+      - name: Build binaries and packages
+        run: |
+          VER=$(sed -n 's/^version = "\(.*\)"/\1/p' desktop/Cargo.toml | head -1)
+          bash .forgejo/scripts/openwrt-packages.sh "$VER" dist/openwrt "$PWD/openwrt-bin"
+      - name: Sizes (binary / package per arch)
+        run: |
+          column -t dist/openwrt/sizes.tsv
+          # Small routers have 16 MB of flash: fail if the MIPS package outgrows 2 MiB.
+          awk -F'\t' '$1=="mips_24kc" && $4 > 2097152 {print "mips_24kc ipk too big: " $4; exit 1}' dist/openwrt/sizes.tsv
+      - name: Upload packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: openwrt-packages
+          path: dist/openwrt/
+
+  vm:
+    name: Real OpenWrt VMs (24.10 opkg + 25.12 apk) against the phone core
+    needs: packages
+    runs-on: kvm-x86_64
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep Node.js on PATH for JS-action steps
+        run: |
+          command -v node || (sudo apt-get update -qq && sudo apt-get install -y -qq nodejs)
+          dirname "$(command -v node)" >> "$GITHUB_PATH"
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils iproute2 curl python3 udhcpc bridge-utils dnsutils
+          ls -l /dev/kvm
+      - name: Router packages
+        uses: actions/download-artifact@v3
+        with:
+          name: openwrt-packages
+          path: pkgs
+      - name: Build the phone stand-in (android/core)
+        working-directory: android/core
+        run: |
+          for attempt in 1 2 3; do
+            ../gradlew --no-daemon --max-workers=2 installDist && break
+            [ "$attempt" -eq 3 ] && exit 1
+            echo "gradle failed (attempt $attempt/3), retrying in 20s"; sleep 20
+          done
+      - name: OpenWrt 24.10 (opkg, GL.iNet's package manager too)
+        run: sudo python3 openwrt/test/vm-test.py --release latest-24 --pkgs "$PWD/pkgs" --standin "$PWD/android/core/standin/build/install/standin" --work /tmp/owrt-vm
+      - name: OpenWrt 25.12 (apk)
+        if: always()
+        run: sudo python3 openwrt/test/vm-test.py --release latest-25 --pkgs "$PWD/pkgs" --standin "$PWD/android/core/standin/build/install/standin" --work /tmp/owrt-vm
+      - name: Upload serial logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: openwrt-vm-logs
+          path: |
+            /tmp/owrt-vm/serial-*.log
+            /tmp/etph-vm-standin.log

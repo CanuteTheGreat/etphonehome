@@ -30,7 +30,7 @@ class ProtocolVectorsTest {
 
     @Test
     fun vectorFileIsComplete() {
-        assertEquals(9, vectors.size)
+        assertEquals(10, vectors.size)
     }
 
     @Test
@@ -59,6 +59,18 @@ class ProtocolVectorsTest {
         )
         assertArrayEquals(vectors["handshake_resp"], msg.toBytes())
         assertEquals(msg, Message.fromBytes(vectors["handshake_resp"]!!))
+    }
+
+    @Test
+    fun handshakeResponseWithDeviceName() {
+        val msg = HandshakeResponse(
+            capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI,
+            ipAddress = 0x0a000002,
+            dns = 0x08080808,
+            deviceName = "Pixel 8",
+        )
+        assertArrayEquals(vectors["handshake_resp_device"], msg.toBytes())
+        assertEquals(msg, Message.fromBytes(vectors["handshake_resp_device"]!!))
     }
 
     @Test

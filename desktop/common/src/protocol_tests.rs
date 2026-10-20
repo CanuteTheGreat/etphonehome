@@ -28,7 +28,8 @@ fn test_handshake_response_roundtrip() {
         version: PROTOCOL_VERSION,
         capabilities: capabilities::USB | capabilities::ROOT,
         ip_address: 0x0A000002, // 10.0.0.2
-        dns: 0x08080808,        // 8.8.8.8
+        dns: 0x08080808,
+        device_name: None,        // 8.8.8.8
     };
 
     let bytes = original.to_bytes();
@@ -38,6 +39,42 @@ fn test_handshake_response_roundtrip() {
     assert_eq!(original.capabilities, parsed.capabilities);
     assert_eq!(original.ip_address, parsed.ip_address);
     assert_eq!(original.dns, parsed.dns);
+    assert_eq!(parsed.device_name, None);
+}
+
+#[test]
+fn test_handshake_response_device_name() {
+    let mut r = HandshakeResponse {
+        version: PROTOCOL_VERSION,
+        capabilities: capabilities::USB,
+        ip_address: 0x0A000002,
+        dns: 0x08080808,
+        device_name: Some("samsung SM-N986U".into()),
+    };
+    let parsed = HandshakeResponse::from_bytes(&r.to_bytes()).unwrap();
+    assert_eq!(parsed.device_name.as_deref(), Some("samsung SM-N986U"));
+    // Overlong names are cut at a character boundary, never mid-UTF-8.
+    r.device_name = Some("é".repeat(40));
+    let bytes = r.to_bytes();
+    assert_eq!(bytes.len(), 14 + 2 + 64);
+    let parsed = HandshakeResponse::from_bytes(&bytes).unwrap();
+    assert_eq!(parsed.device_name.unwrap().chars().count(), 32);
+    // Malformed trailers are ignored, never fatal.
+    let mut b = r.to_bytes()[..14].to_vec();
+    b.extend_from_slice(&[0x00, 0x20, b'x']); // claims 32 bytes, has 1
+    assert_eq!(HandshakeResponse::from_bytes(&b).unwrap().device_name, None);
+    let mut b = r.to_bytes()[..14].to_vec();
+    b.extend_from_slice(&[0x00, 0x03, 0xff, 0xfe, 0xfd]); // not UTF-8
+    assert_eq!(HandshakeResponse::from_bytes(&b).unwrap().device_name, None);
+    let mut b = r.to_bytes()[..14].to_vec();
+    b.extend_from_slice(&[0x00, 0x04, b'a', b'\n', b'b', b' ']); // control chars dropped
+    assert_eq!(
+        HandshakeResponse::from_bytes(&b).unwrap().device_name.as_deref(),
+        Some("ab")
+    );
+    let mut b = r.to_bytes()[..14].to_vec();
+    b.push(0x00); // one stray byte
+    assert_eq!(HandshakeResponse::from_bytes(&b).unwrap().device_name, None);
 }
 
 #[test]
@@ -163,6 +200,7 @@ fn test_all_message_types() {
             capabilities: capabilities::USB,
             ip_address: 0x0A000002,
             dns: 0x08080808,
+            device_name: None,
         }),
         Message::IpPacket(IpPacket::new(vec![1, 2, 3, 4])),
         Message::StatsUpdate(StatsUpdate {

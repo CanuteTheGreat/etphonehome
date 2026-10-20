@@ -88,6 +88,27 @@ jobs:
           name: etphonehome-gui-${{ github.ref_name }}
           path: dist/etphonehome-gui-${{ github.ref_name }}.tar.gz
 
+  build-openwrt:
+    name: Build OpenWrt router packages
+    # Same script as openwrt.yml (which also VM-tests them on every change).
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y file xz-utils python3
+      - name: Build binaries and packages
+        run: bash .forgejo/scripts/openwrt-packages.sh "${GITHUB_REF_NAME#v}" "dist/openwrt" "$PWD/openwrt-bin"
+      - name: Drop the VM-test file list
+        run: rm -f dist/openwrt/index.txt
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: openwrt-packages-${{ github.ref_name }}
+          path: dist/openwrt/
+
   build-android:
     name: Build Android Release
     runs-on: linux-cross-x86_64
@@ -135,7 +156,7 @@ jobs:
     # ever created here. This talks to the Forgejo releases API directly:
     # create (or reuse) the release for the tag, upload every package, then
     # verify the release really lists all four.
-    needs: [build-linux, build-windows, build-gui-linux, build-android]
+    needs: [build-linux, build-windows, build-gui-linux, build-android, build-openwrt]
     runs-on: linux-cross-x86_64
     timeout-minutes: 15
     steps:
@@ -263,7 +284,11 @@ jobs:
           names = sorted(a["name"] for a in r["assets"])
           print(r["html_url"]); print("\n".join(names))
           tag = r["tag_name"]
-          want = {f"etphonehome-linux-{tag}.tar.gz", f"etphonehome-windows-{tag}.zip", f"etphonehome-gui-{tag}.tar.gz", f"etphonehome-{tag}.apk"}
+          v = tag[1:] + "-r1"
+          want = {f"etphonehome-linux-{tag}.tar.gz", f"etphonehome-windows-{tag}.zip", f"etphonehome-gui-{tag}.tar.gz", f"etphonehome-{tag}.apk",
+                  "etph-openwrt-install.sh", "SHA256SUMS", "sizes.tsv", f"luci-app-etph_{v}_all.ipk", f"luci-app-etph-{v}_noarch.apk"}
+          for arch in ("x86_64", "aarch64_cortex-a53", "arm_cortex-a7_neon-vfpv4", "mips_24kc", "mipsel_24kc"):
+              want |= {f"etph_{v}_{arch}.ipk", f"etph-{v}_{arch}.apk"}
           missing = want - set(names)
           assert not missing, f"missing assets: {missing}"
           assert not r["draft"], "release is a draft"

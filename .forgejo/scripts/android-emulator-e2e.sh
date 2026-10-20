@@ -436,6 +436,32 @@ else
 fi
 client_stop
 
+# --- Router USB path: the built-in ADB host (no adb tool, no adb server) -----------
+# What an OpenWrt router runs (`etphonehome usb --native`): the client itself
+# speaks the ADB protocol to the phone's adbd -- CNXN, RSA AUTH with the
+# device's adb key, OPEN tcp:8888, WRTE/OKAY flow control. Here adbd is reached
+# over the emulator's TCP port (5555) instead of usbfs; the protocol is the same.
+adb logcat -c
+start_mode radioUsb
+wait_log "USB server listening" 20
+bridge_port 5555
+sleep 1
+client usbnative usb --adb-tcp 127.0.0.1:5555 --interface etph0 --reconnect --max-retries 0
+if wait_iface 60; then
+  pass "router USB path: tunnel up through the built-in ADB host (real adbd, no adb tool)"
+  grep -q "adb stream to tcp:8888 open" "$LOG/usbnative.log" && pass "router USB path: ADB stream opened by the client itself" || fail "router USB path: no ADB stream log"
+  CODE=$(D "curl -sS -m 30 -o /dev/null -w '%{http_code}' https://example.com/")
+  [ "$CODE" = 200 ] && pass "router USB path: public HTTPS 200 through the phone" || fail "router USB path: HTTPS ($CODE)"
+  want=$(sha256sum <"$SRV/big.bin" | cut -d' ' -f1)
+  got=$(D "curl -sS -m 300 http://$HOST_FROM_PHONE:8080/big.bin | sha256sum | cut -d' ' -f1")
+  [ "$want" = "$got" ] && pass "router USB path: 50 MiB download through the ADB stream, sha256 intact" || fail "router USB path: download ($got)"
+  grep -q "Phone: " "$LOG/usbnative.log" && pass "router USB path: phone named in the session ($(grep -o 'Phone: .*' "$LOG/usbnative.log" | head -1))" || fail "router USB path: phone name"
+else
+  tail -30 "$LOG/usbnative.log"
+  fail "router USB path: no tunnel through the built-in ADB host"
+fi
+client_stop
+
 # --- WiFi + TLS (Bouncy Castle on ART) --------------------------------------------
 if [ "$HAS_WIFI" = 1 ]; then
   adb logcat -c

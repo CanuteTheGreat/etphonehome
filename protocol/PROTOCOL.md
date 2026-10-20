@@ -74,11 +74,15 @@ suites check their encoders and decoders against that file.
 
 #### HANDSHAKE_RESP Payload
 ```
-+----------+---------------+------------+-----------+
-| Version  | Capabilities  | IP Address | DNS       |
-| 2 bytes  | 4 bytes       | 4 bytes    | 4 bytes   |
-+----------+---------------+------------+-----------+
++----------+---------------+------------+-----------+-------------+---------------+
+| Version  | Capabilities  | IP Address | DNS       | Name Length | Name (UTF-8)  |
+| 2 bytes  | 4 bytes       | 4 bytes    | 4 bytes   | 2 bytes     | N bytes       |
++----------+---------------+------------+-----------+-------------+---------------+
 ```
+The device name (app 0.8.0+, e.g. `samsung SM-N986U`, at most 64 bytes) is
+optional: phones before 0.8.0 send only the first 14 bytes, and desktops
+before 0.8.0 read only those and ignore the rest. A receiver ignores a
+malformed name (bad length, not UTF-8) instead of failing the handshake.
 
 ### 2. Data Transfer
 

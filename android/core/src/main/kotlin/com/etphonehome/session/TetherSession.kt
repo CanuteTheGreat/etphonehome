@@ -91,6 +91,7 @@ class TetherSession(
                         tokenVerifier = options.tokenVerifier,
                         refuseReason = options.refuseReason,
                         version = options.protocolVersion,
+                        deviceName = options.deviceName,
                     ).also {
                         if (!handshake.compareAndSet(HS_PENDING, HS_DONE)) {
                             throw ProtocolException("handshake finished after the deadline")
@@ -293,6 +294,8 @@ data class SessionOptions(
     /** Tear the transport down hard (the desktop is gone; nothing to say to
      *  it). Must unblock a read in progress. */
     val abortLink: () -> Unit = {},
+    /** This phone's name, sent to the desktop/router in the handshake. */
+    val deviceName: String? = null,
 )
 
 data class SessionInfo(val peer: String, val encrypted: Boolean, val authenticated: Boolean)

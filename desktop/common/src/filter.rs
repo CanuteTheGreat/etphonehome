@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
-use std::sync::atomic::{AtomicU64, Ordering};
+// portable-atomic: 32-bit MIPS routers have no native 64-bit atomics.
+use portable_atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 /// Traffic filter configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

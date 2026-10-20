@@ -10,10 +10,15 @@ name = "etphonehome"
 path = "src/main.rs"
 
 [dependencies]
-etphonehome-common = { path = "../common" }
+etphonehome-common = { path = "../common", default-features = false }
 
 tokio = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 libc = "0.2"
+
+[features]
+default = ["bluetooth"]
+# `--no-default-features` = the OpenWrt router build (no BlueZ/libdbus).
+bluetooth = ["etphonehome-common/bluetooth"]

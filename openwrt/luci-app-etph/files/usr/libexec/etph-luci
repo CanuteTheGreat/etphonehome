@@ -1,0 +1,219 @@
+#!/bin/sh
+# Backend for LuCI's "Phone uplink" page (luci-app-etph). Prints JSON.
+#
+#   etph-luci status
+#   etph-luci discover
+#   etph-luci retry <iface>
+#   etph-luci setup <iface> <usb|wifi> [phone-address] [port]   (token in $ETPH_PAIR_TOKEN)
+#   etph-luci settoken <iface>                                  (token in $ETPH_PAIR_TOKEN)
+#   etph-luci unpair <iface>
+#   etph-luci remove <iface>
+#   etph-luci keygen
+#
+# The pairing token comes in the environment, never in argv (keeps it out
+# of `ps` and rpcd's exec log; LuCI's fs.exec passes it as env).
+
+. /usr/share/libubox/jshn.sh
+
+ETPH=/usr/sbin/etphonehome
+export HOME=/etc/etph
+
+valid_name() {
+	case "$1" in
+	''|*[!A-Za-z0-9_]*) return 1 ;;
+	esac
+	[ ${#1} -le 15 ]
+}
+
+fail() {
+	json_init
+	json_add_boolean ok 0
+	json_add_string error "$1"
+	json_dump
+	exit 0
+}
+
+ok() {
+	json_init
+	json_add_boolean ok 1
+	[ -n "$1" ] && json_add_string message "$1"
+	json_dump
+	exit 0
+}
+
+etph_ifaces() {
+	uci -q show network | sed -n "s/^network\.\([^.]*\)\.proto='etph'$/\1/p"
+}
+
+cmd_status() {
+	local i st ifs
+	json_init
+	json_add_string version "$($ETPH --version 2>/dev/null | sed 's/^etphonehome //')"
+	json_add_boolean mwan3_installed "$([ -x /usr/sbin/mwan3 ] && echo 1 || echo 0)"
+	json_add_string adb_fingerprint "$($ETPH adb-fingerprint 2>/dev/null)"
+	json_add_boolean adb_key_pending "$([ -s /etc/etph/.android/adbkey ] && echo 0 || echo 1)"
+	json_add_string usb_phones "$($ETPH usb-list --json 2>/dev/null || echo '[]')"
+	json_add_array interfaces
+	for i in $(etph_ifaces); do
+		json_add_object
+		json_add_string name "$i"
+		json_add_string transport "$(uci -q get network.$i.transport || echo usb)"
+		json_add_string host "$(uci -q get network.$i.host)"
+		json_add_boolean paired "$([ -n "$(uci -q get network.$i.token)" ] && echo 1 || echo 0)"
+		json_add_boolean disabled "$([ "$(uci -q get network.$i.disabled)" = 1 ] && echo 1 || echo 0)"
+		json_add_boolean auto "$([ "$(uci -q get network.$i.auto)" = 0 ] && echo 0 || echo 1)"
+		json_add_string zone "$(fw_zone_of "$i")"
+		st=/var/run/etph/$i.json
+		[ -f "$st" ] && json_add_string session "$(cat "$st")"
+		ifs="$(ubus call network.interface.$i status 2>/dev/null)"
+		[ -n "$ifs" ] && json_add_string netifd "$ifs"
+		json_close_object
+	done
+	json_close_array
+	json_dump
+}
+
+fw_zone_of() {
+	local z
+	for z in $(uci -q show firewall | sed -n "s/^firewall\.\([^.]*\)=zone$/\1/p"); do
+		case " $(uci -q get firewall.$z.network) " in
+		*" $1 "*) uci -q get firewall.$z.name; return ;;
+		esac
+	done
+}
+
+cmd_discover() {
+	$ETPH discover-wifi --json --timeout 3 2>/dev/null || echo '[]'
+}
+
+cmd_retry() {
+	valid_name "$1" || fail "bad interface name"
+	local pid
+	pid=$(sed -n 's/^ *"pid": *\([0-9]*\).*/\1/p' "/var/run/etph/$1.json" 2>/dev/null)
+	[ -n "$pid" ] && kill -USR1 "$pid" 2>/dev/null && ok "retrying now"
+	ifup "$1"
+	ok "interface restarted"
+}
+
+read_token() {
+	printf '%s' "$ETPH_PAIR_TOKEN" | tr -d ' \r\n\t'
+}
+
+add_to_wan_zone() {
+	local z name
+	for z in $(uci -q show firewall | sed -n "s/^firewall\.\([^.]*\)=zone$/\1/p"); do
+		name=$(uci -q get firewall.$z.name)
+		[ "$name" = wan ] || continue
+		case " $(uci -q get firewall.$z.network) " in
+		*" $1 "*) ;;
+		*) uci add_list firewall.$z.network="$1" ;;
+		esac
+		uci commit firewall
+		return 0
+	done
+	return 1
+}
+
+cmd_setup() {
+	local iface="$1" transport="$2" host="$3" port="$4" token
+	valid_name "$iface" || fail "Interface name: letters, digits and _ only, at most 15"
+	case "$transport" in usb|wifi|auto) ;; *) fail "transport must be usb, wifi or auto" ;; esac
+	token="$(read_token)"
+	if [ "$transport" = wifi ]; then
+		[ -n "$host" ] || fail "Enter the phone's address (shown in the ETPH app in WiFi mode)"
+		[ -n "$token" ] || fail "Enter the pairing token shown in the ETPH app"
+		case "$host" in *[!A-Za-z0-9.:_-]*) fail "bad phone address" ;; esac
+	fi
+	case "$port" in ''|*[!0-9]*) port= ;; esac
+	local existing
+	existing=$(uci -q get network.$iface)
+	[ -z "$existing" ] || [ "$(uci -q get network.$iface.proto)" = etph ] ||
+		fail "network.$iface already exists and is not an ETPH uplink"
+	uci -q batch <<-EOF
+		set network.$iface=interface
+		set network.$iface.proto=etph
+		set network.$iface.transport=$transport
+		set network.$iface.metric=10
+	EOF
+	uci -q delete network.$iface.host
+	uci -q delete network.$iface.token
+	uci -q delete network.$iface.port
+	if [ "$transport" != usb ] && [ -n "$host" ]; then
+		case "$host" in *[!A-Za-z0-9.:_-]*) fail "bad phone address" ;; esac
+		uci set network.$iface.host="$host"
+		[ -n "$token" ] && uci set network.$iface.token="$token"
+	fi
+	[ -n "$port" ] && uci set network.$iface.port="$port"
+	uci commit network
+	add_to_wan_zone "$iface" || true
+	/etc/init.d/etph enable >/dev/null 2>&1
+	/etc/init.d/etph restart >/dev/null 2>&1
+	/etc/init.d/firewall reload >/dev/null 2>&1
+	if ubus call network get_proto_handlers 2>/dev/null | grep -q '"etph"'; then
+		/etc/init.d/network reload >/dev/null 2>&1
+		ifup "$iface"
+		ok "Phone uplink $iface set up"
+	fi
+	# First uplink after installing: netifd loads protocol handlers only
+	# when it starts. Restart it in the background (connections drop for a
+	# few seconds) so this request can still answer.
+	( sleep 1; /etc/init.d/network restart ) >/dev/null 2>&1 </dev/null &
+	ok "Phone uplink $iface set up; the network restarts once (a few seconds) to load the ETPH protocol"
+}
+
+cmd_settoken() {
+	valid_name "$1" || fail "bad interface name"
+	[ "$(uci -q get network.$1.proto)" = etph ] || fail "$1 is not an ETPH uplink"
+	local token
+	token="$(read_token)"
+	[ -n "$token" ] || fail "Enter the pairing token shown in the ETPH app"
+	uci set network.$1.token="$token"
+	uci commit network
+	ifup "$1"
+	ok "paired"
+}
+
+cmd_unpair() {
+	valid_name "$1" || fail "bad interface name"
+	[ "$(uci -q get network.$1.proto)" = etph ] || fail "$1 is not an ETPH uplink"
+	uci -q delete network.$1.token
+	uci commit network
+	ifdown "$1"
+	rm -f "/var/run/etph/$1.json"
+	ok "token removed; the router no longer connects to this phone over Wi-Fi"
+}
+
+cmd_remove() {
+	valid_name "$1" || fail "bad interface name"
+	[ "$(uci -q get network.$1.proto)" = etph ] || fail "$1 is not an ETPH uplink"
+	ifdown "$1"
+	local z
+	for z in $(uci -q show firewall | sed -n "s/^firewall\.\([^.]*\)=zone$/\1/p"); do
+		uci -q del_list firewall.$z.network="$1"
+	done
+	uci -q delete network.$1
+	uci commit network
+	uci commit firewall
+	rm -f "/var/run/etph/$1.json"
+	/etc/init.d/network reload >/dev/null 2>&1
+	/etc/init.d/firewall reload >/dev/null 2>&1
+	ok "removed"
+}
+
+cmd_keygen() {
+	/etc/init.d/etph enable >/dev/null 2>&1
+	/etc/init.d/etph restart >/dev/null 2>&1
+	ok "creating the router's adb key (up to a minute or two on small routers)"
+}
+
+case "$1" in
+status) cmd_status ;;
+discover) cmd_discover ;;
+retry) cmd_retry "$2" ;;
+setup) cmd_setup "$2" "$3" "$4" "$5" ;;
+settoken) cmd_settoken "$2" ;;
+unpair) cmd_unpair "$2" ;;
+remove) cmd_remove "$2" ;;
+keygen) cmd_keygen ;;
+*) fail "usage: etph-luci status|discover|retry|setup|settoken|unpair|remove|keygen" ;;
+esac

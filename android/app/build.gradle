@@ -29,8 +29,8 @@ android {
         // on by default (the app has no custom back handling, AppCompat routes back itself);
         // TetherService is a specialUse foreground service, which has no Android 15 time limit.
         targetSdk 36
-        versionCode 9
-        versionName "0.7.1"
+        versionCode 10
+        versionName "0.8.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }

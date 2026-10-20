@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-20
+
+### Added
+- **Routers: the phone as a router's internet (OpenWrt, GL.iNet).** New packages put the ETPH client on an OpenWrt router (official OpenWrt and GL.iNet firmware), so every device behind the router gets the phone's connection. Over a USB cable or Wi-Fi (TLS, the token the app shows), or `auto` (USB when a phone is plugged in, else Wi-Fi). For USB the client has its own ADB host (usbfs, no adb package or server, so it fits small routers); the phone's "Allow USB debugging?" prompt is the pairing, and LuCI says "Unlock your phone and tap Allow" while it waits. The uplink is a normal network interface, `option proto 'etph'`: netifd adds the default route with the interface's metric and gives dnsmasq the phone's DNS, so firewall zones and mwan3 failover/load balancing work as with any WAN. It reconnects by itself when the phone goes away and comes back, and right away when a phone is plugged into the router's USB port. LuCI page Network > Phone uplink: status (phone model, connection, speed, data), one-step setup into the wan zone, pairing/unpairing, USB phones and the router's adb key fingerprint. Packages: `.ipk` for OpenWrt 24.10 and older and GL.iNet 4.x, `.apk` for OpenWrt 25.x, for aarch64, ARMv7 (with FPU), MIPS 24Kc, MIPSel and x86_64; an installer script picks the right one. Guide: docs/OPENWRT.md.
+- Desktop client: `usb --native` (built-in ADB host on Linux: no adb tool needed), `usb --adb-tcp HOST:PORT`, `auto`, `usb-list`, `adb-keygen`, `--no-routes`, `--up-script`/`--down-script` (pppd-style hooks), `--status-file` (JSON status), `--tun-address`/`--tun-peer`, `--adb-serial`, `discover-wifi --json`, `adb-fingerprint`; the WiFi/Bluetooth token can come from `$ETPH_TOKEN` (keeps it out of `ps`); SIGUSR1 skips the reconnect wait; SIGTERM disconnects cleanly like Ctrl-C.
+- The phone tells the computer its name (e.g. "samsung SM-N986U") in the handshake; older desktops ignore it.
+
 ### Fixed
 - **Desktop: a large traffic filter put the connection in a reconnect loop.** A profile whose filter rules came to more than 65535 bytes (the most one message to the phone can carry) brought the tunnel up and dropped it straight away, then retried every second forever, with the default route coming and going each time. Such a profile, or an enabled filter with more than 1024 rules (the most the phone takes; it silently dropped the rest), is now refused before connecting, with an error that says why.
+- **Android: a router using the phone over the router's own Wi-Fi made traffic loop.** When the phone is joined to the Wi-Fi of a router whose internet is the phone, Android eventually treats that Wi-Fi as the phone's internet (its check passes through the tunnel), and the relay's connections went phone -> router -> phone. When the computer is the router of the Wi-Fi the phone is on, the relay now pins its sockets to another network (mobile data first), keeps mobile data up for it, and refuses connections rather than loop when there is no other network. A computer that is just another device on the phone's Wi-Fi is not affected.
+- The router build has no Bluetooth/D-Bus and uses only the ring TLS backend (no aws-lc), which also makes the desktop binary smaller.
 
 ## [0.7.1] - 2026-10-18
 

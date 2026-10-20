@@ -217,25 +217,48 @@ data class HandshakeResponse(
     val version: Short = Protocol.PROTOCOL_VERSION,
     val capabilities: Int,
     val ipAddress: Int,
-    val dns: Int
+    val dns: Int,
+    /** The phone's name ("samsung SM-N986U") for the desktop/router UI.
+     *  Sent after the 14 fixed bytes as u16 length + UTF-8 (app 0.8.0+);
+     *  desktops before 0.8.0 read only the fixed part and ignore it. */
+    val deviceName: String? = null,
 ) : Message() {
     override val type = Protocol.MSG_HANDSHAKE_RESP
 
     override fun toBytes(): ByteArray {
-        val payload = ByteBuffer.allocate(14)
+        val name = deviceName?.let { truncateUtf8(it, MAX_DEVICE_NAME) }
+        val payload = ByteBuffer.allocate(PAYLOAD_SIZE + (name?.let { 2 + it.size } ?: 0))
             .order(ByteOrder.BIG_ENDIAN)
             .putShort(version)
             .putInt(capabilities)
             .putInt(ipAddress)
             .putInt(dns)
-            .array()
-
-        return createHeader(payload.size) + payload
+        if (name != null) {
+            payload.putShort(name.size.toShort()).put(name)
+        }
+        return createHeader(payload.capacity()) + payload.array()
     }
 
     companion object {
         // Fixed payload size: 2 (version) + 4 (capabilities) + 4 (ipAddress) + 4 (dns).
         private const val PAYLOAD_SIZE = 14
+
+        /** Longest device name sent or accepted, in bytes (same as Rust's MAX_DEVICE_NAME). */
+        const val MAX_DEVICE_NAME = 64
+
+        /** [s] as UTF-8, cut to at most [max] bytes without splitting a character. */
+        fun truncateUtf8(s: String, max: Int): ByteArray {
+            val out = java.io.ByteArrayOutputStream()
+            var i = 0
+            while (i < s.length) {
+                val cp = s.codePointAt(i)
+                val bytes = String(Character.toChars(cp)).toByteArray(Charsets.UTF_8)
+                if (out.size() + bytes.size > max) break
+                out.write(bytes)
+                i += Character.charCount(cp)
+            }
+            return out.toByteArray()
+        }
 
         fun fromPayload(payload: ByteArray): HandshakeResponse {
             // Same bug class as ErrorMessage.fromPayload (see ProtocolTest):
@@ -251,12 +274,25 @@ data class HandshakeResponse(
                 )
             }
             val buffer = ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN)
-            return HandshakeResponse(
-                version = buffer.getShort(),
-                capabilities = buffer.getInt(),
-                ipAddress = buffer.getInt(),
-                dns = buffer.getInt()
-            )
+            val version = buffer.getShort()
+            val capabilities = buffer.getInt()
+            val ipAddress = buffer.getInt()
+            val dns = buffer.getInt()
+            // Optional trailing name: best effort, never fails the handshake.
+            var deviceName: String? = null
+            if (payload.size >= PAYLOAD_SIZE + 2) {
+                val n = buffer.getShort().toInt() and 0xFFFF
+                if (n in 1..MAX_DEVICE_NAME && payload.size >= PAYLOAD_SIZE + 2 + n) {
+                    val decoder = Charsets.UTF_8.newDecoder()
+                    deviceName = try {
+                        decoder.decode(ByteBuffer.wrap(payload, PAYLOAD_SIZE + 2, n)).toString()
+                            .filter { !it.isISOControl() }.trim().ifEmpty { null }
+                    } catch (e: java.nio.charset.CharacterCodingException) {
+                        null
+                    }
+                }
+            }
+            return HandshakeResponse(version, capabilities, ipAddress, dns, deviceName)
         }
     }
 }

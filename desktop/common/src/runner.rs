@@ -11,6 +11,7 @@
 use crate::config::{Config, ConnectionType, Profile};
 use crate::connection_service::{ConnectionService, ConnectionState};
 use crate::filter::FilterConfig;
+use crate::host::{self, HookInfo, HostIntegration};
 use crate::protocol::capabilities;
 use crate::session::{self, ConnectOptions, ForwardOptions, SessionEnd, Transport};
 use anyhow::{bail, Context, Result};
@@ -44,6 +45,12 @@ pub enum Target {
         address: String,
         token: Option<String>,
     },
+    /// Router: a phone on USB (built-in ADB host) when one is plugged in,
+    /// otherwise WiFi (if configured), decided again on every attempt.
+    Auto {
+        usb_port: u16,
+        wifi: Option<ConnectOptions>,
+    },
 }
 
 /// A fully-resolved description of one session.
@@ -52,6 +59,8 @@ pub struct SessionPlan {
     pub target: Target,
     pub tun_name: String,
     pub filter: FilterConfig,
+    /// Routes/DNS ownership, hook scripts, status file, TUN addresses.
+    pub host: HostIntegration,
 }
 
 /// Resolve `host:port`, accepting IP literals and hostnames.
@@ -134,6 +143,7 @@ pub async fn plan_for_profile(
         target,
         tun_name: tun_name.to_string(),
         filter: profile.filter.clone(),
+        host: HostIntegration::default(),
     })
 }
 
@@ -146,13 +156,28 @@ pub async fn plan_for_profile(
 /// "cannot bind listener: Address already in use", and if it ran first the
 /// app could not bind its port. Either way USB tethering never connected.
 pub fn setup_adb_forwarding(port: u16) -> Result<()> {
+    setup_adb_forwarding_for(port, None)
+}
+
+/// The `adb` arguments for forwarding `port`, optionally to one phone
+/// (`-s <serial>`) when several are plugged in.
+pub fn adb_forward_args(port: u16, serial: Option<&str>) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(s) = serial.filter(|s| !s.trim().is_empty()) {
+        args.push("-s".to_string());
+        args.push(s.trim().to_string());
+    }
+    args.push("forward".to_string());
+    args.push(format!("tcp:{}", port));
+    args.push(format!("tcp:{}", port));
+    args
+}
+
+/// [`setup_adb_forwarding`] for one phone (`adb -s <serial>`).
+pub fn setup_adb_forwarding_for(port: u16, serial: Option<&str>) -> Result<()> {
     info!("Setting up ADB port forwarding (tcp:{})...", port);
     let output = Command::new("adb")
-        .args([
-            "forward",
-            &format!("tcp:{}", port),
-            &format!("tcp:{}", port),
-        ])
+        .args(adb_forward_args(port, serial))
         .output()
         .context("ADB not found. Please install Android Debug Bridge (adb)")?;
     if !output.status.success() {
@@ -243,13 +268,38 @@ pub async fn discover_mdns(timeout: Duration) -> Result<Vec<DiscoveredDevice>> {
             Ok(Err(_)) | Err(_) => break,
         }
     }
-    let _ = mdns.shutdown();
+    // Wait for the daemon's goodbye: dropping its reply channel makes
+    // mdns-sd log a spurious "failed to send response of shutdown" error.
+    if let Ok(done) = mdns.shutdown() {
+        let _ = done.recv_timeout(Duration::from_secs(1));
+    }
     Ok(found)
+}
+
+/// The phones found by [`discover_mdns`] as a JSON array (`discover-wifi --json`).
+pub fn discovered_json(found: &[DiscoveredDevice]) -> String {
+    let list: Vec<serde_json::Value> = found
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "name": d.name,
+                "hostname": d.hostname,
+                "addresses": d.addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+                "port": d.port,
+            })
+        })
+        .collect();
+    serde_json::Value::Array(list).to_string()
 }
 
 /// Point the default route at the TUN link (lower priority than the
 /// existing default so we don't cut off the host's own uplink by surprise).
 pub fn setup_routing(tun_name: &str) -> Result<()> {
+    setup_routing_via(tun_name, TUN_PEER)
+}
+
+/// [`setup_routing`] with the TUN link's peer address.
+pub fn setup_routing_via(tun_name: &str, peer: &str) -> Result<()> {
     info!("Setting up routing for {}...", tun_name);
     #[cfg(target_os = "linux")]
     {
@@ -259,7 +309,7 @@ pub fn setup_routing(tun_name: &str) -> Result<()> {
         // network it is on, and it was never turned back off.
         let output = Command::new("ip")
             .args([
-                "route", "add", "default", "via", TUN_PEER, "dev", tun_name, "metric", "100",
+                "route", "add", "default", "via", peer, "dev", tun_name, "metric", "100",
             ])
             .output()
             .context("Failed to run `ip route` (is iproute2 installed?)")?;
@@ -275,7 +325,7 @@ pub fn setup_routing(tun_name: &str) -> Result<()> {
     {
         let output = Command::new("route")
             .args([
-                "add", "0.0.0.0", "mask", "0.0.0.0", TUN_PEER, "metric", "10",
+                "add", "0.0.0.0", "mask", "0.0.0.0", peer, "metric", "10",
             ])
             .output()
             .context("Failed to add route")?;
@@ -353,7 +403,17 @@ pub fn configure_dns(tun_name: &str, dns: &str) {
 
 /// Create the TUN device (async, so reads and writes run independently).
 pub fn create_tun(tun_name: &str) -> Result<tun::AsyncDevice> {
-    crate::tun_interface::create_async(tun_name, TUN_ADDRESS, TUN_NETMASK).context(format!(
+    create_tun_with(tun_name, &host::TunAddressing::default())
+}
+
+/// [`create_tun`] with explicit link addresses.
+pub fn create_tun_with(tun_name: &str, addr: &host::TunAddressing) -> Result<tun::AsyncDevice> {
+    crate::tun_interface::create_async(
+        tun_name,
+        &addr.local.to_string(),
+        &addr.netmask().to_string(),
+    )
+    .context(format!(
         "Failed to create TUN interface '{}'. Run as root/Administrator (sudo etphonehome ...), \
          make sure the tun module is loaded (sudo modprobe tun) and /dev/net/tun exists; on \
          Windows wintun.dll must be next to the executable. If the interface already exists, \
@@ -364,15 +424,104 @@ pub fn create_tun(tun_name: &str) -> Result<tun::AsyncDevice> {
 
 /// Open the transport for a plan (runs `adb forward` first for USB).
 pub async fn open_transport(target: &Target) -> Result<Transport> {
+    open_transport_with(target, &HostIntegration::default()).await
+}
+
+/// [`open_transport`] with the host's USB settings (adb serial, built-in
+/// ADB host).
+pub async fn open_transport_with(target: &Target, host: &HostIntegration) -> Result<Transport> {
     match target {
         Target::Tcp { opts, adb_port } => {
             if let Some(port) = adb_port {
-                setup_adb_forwarding(*port)?;
+                if host.usb_native || host.adb_tcp.is_some() {
+                    return open_native_usb(*port, host).await;
+                }
+                setup_adb_forwarding_for(*port, host.adb_serial.as_deref())?;
             }
             session::connect(opts).await
         }
         Target::Bluetooth { address, token } => connect_bluetooth(address, token.clone()).await,
+        Target::Auto { usb_port, wifi } => {
+            if host.adb_tcp.is_some() || usb_phone_present(host.adb_serial.as_deref()) {
+                info!("Phone on USB: using it");
+                return open_native_usb(*usb_port, host).await;
+            }
+            match wifi {
+                Some(w) => session::connect(w).await,
+                None => bail!(
+                    "no phone with USB debugging on the USB port (plug it in, unlock it, enable USB \
+                     debugging), and no WiFi phone configured"
+                ),
+            }
+        }
     }
+}
+
+/// Is a phone with USB debugging plugged in (Linux sysfs)?
+pub fn usb_phone_present(serial: Option<&str>) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        let devs = crate::adb::usb::find_devices(std::path::Path::new("/sys/bus/usb/devices"));
+        crate::adb::usb::pick(&devs, serial).is_ok()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = serial;
+        false
+    }
+}
+
+fn this_host_name() -> String {
+    let h = std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "router".into());
+    format!("etph@{h}")
+}
+
+/// USB through the built-in ADB host: the phone's adb interface via usbfs
+/// (or adbd over TCP with `adb_tcp`), authenticated with this device's adb
+/// key, then a stream to the app's loopback port -- no adb tool or server.
+async fn open_native_usb(port: u16, host: &HostIntegration) -> Result<Transport> {
+    let serial = host.adb_serial.clone();
+    let adb_tcp = host.adb_tcp.clone();
+    let status = host.status.clone();
+    let stream = tokio::task::spawn_blocking(move || -> Result<crate::adb::AdbStream> {
+        let key = crate::adb::key::AdbKey::load_or_create(&crate::adb::key::default_dir(), &this_host_name())?;
+        let link: std::sync::Arc<dyn crate::adb::Link> = match adb_tcp {
+            Some(addr) => std::sync::Arc::new(crate::adb::TcpLink::connect(&addr, Duration::from_secs(10))?),
+            None => {
+                #[cfg(target_os = "linux")]
+                {
+                    let devs = crate::adb::usb::find_devices(std::path::Path::new("/sys/bus/usb/devices"));
+                    let dev = crate::adb::usb::pick(&devs, serial.as_deref())?;
+                    info!("Phone on USB: {} (serial {})", dev.product, dev.serial);
+                    std::sync::Arc::new(crate::adb::usb::UsbLink::open(&dev).with_context(|| {
+                        format!("cannot open {} (run as root)", dev.dev_node.display())
+                    })?)
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    let _ = serial;
+                    bail!("the built-in ADB host needs Linux usbfs; use the adb tool on this platform")
+                }
+            }
+        };
+        let observer: &dyn crate::adb::AuthObserver = match &status {
+            Some(st) => &**st,
+            None => &crate::adb::NoObserver,
+        };
+        crate::adb::open_stream(link, &key, observer, Duration::from_secs(120), &format!("tcp:{port}"))
+    })
+    .await
+    .context("adb task failed")??;
+    let model = stream.connected.model();
+    let mut t = session::handshake_stream(stream.io, capabilities::USB, None, Duration::from_secs(30)).await?;
+    if t.handshake.device_name.is_none() {
+        t.handshake.device_name = model;
+    }
+    Ok(t)
 }
 
 /// The app's RFCOMM service UUID (`TetherService.BLUETOOTH_UUID` on the
@@ -408,7 +557,7 @@ pub fn pick_bluetooth_device<A: std::fmt::Display + Copy>(
 
 /// `--address` takes the phone's MAC address or its name as paired (the app
 /// can't show its own MAC: Android returns 02:00:00:00:00:00 to apps).
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "bluetooth"))]
 async fn resolve_bluetooth_device(
     adapter: &bluer::Adapter,
     wanted: &str,
@@ -438,13 +587,13 @@ async fn resolve_bluetooth_device(
 /// An RFCOMM stream BlueZ connected for our client profile. The profile
 /// registration lives as long as the stream (dropping it unregisters the
 /// profile, and BlueZ would tear the connection down).
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "bluetooth"))]
 struct ProfileStream {
     stream: bluer::rfcomm::Stream,
     _profile: Box<bluer::rfcomm::ProfileHandle>,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "bluetooth"))]
 impl tokio::io::AsyncRead for ProfileStream {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
@@ -455,7 +604,7 @@ impl tokio::io::AsyncRead for ProfileStream {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "bluetooth"))]
 impl tokio::io::AsyncWrite for ProfileStream {
     fn poll_write(
         self: std::pin::Pin<&mut Self>,
@@ -478,7 +627,7 @@ impl tokio::io::AsyncWrite for ProfileStream {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "bluetooth"))]
 async fn connect_bluetooth(address: &str, token: Option<String>) -> Result<Transport> {
     use futures::StreamExt;
     if token.is_none() {
@@ -551,13 +700,44 @@ async fn connect_bluetooth(address: &str, token: Option<String>) -> Result<Trans
     .await
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", feature = "bluetooth")))]
 async fn connect_bluetooth(address: &str, _token: Option<String>) -> Result<Transport> {
+    if cfg!(target_os = "linux") {
+        bail!(
+            "Bluetooth tethering to {} is not built into this client (the OpenWrt/router build \
+             has no BlueZ support). Use USB or WiFi.",
+            address
+        )
+    }
     bail!(
         "Bluetooth tethering to {} is only supported on Linux (BlueZ). Use USB or WiFi on \
          this platform.",
         address
     )
+}
+
+/// Short name of a plan's transport ("usb", "wifi", "bluetooth").
+pub fn transport_name(target: &Target) -> &'static str {
+    match target {
+        Target::Tcp {
+            adb_port: Some(_), ..
+        } => "usb",
+        Target::Tcp { .. } => "wifi",
+        Target::Bluetooth { .. } => "bluetooth",
+        Target::Auto { .. } => "auto",
+    }
+}
+
+/// Where a plan connects to, for logs and the status file.
+pub fn target_label(target: &Target) -> String {
+    match target {
+        Target::Tcp { opts, .. } => opts.addr.to_string(),
+        Target::Bluetooth { address, .. } => address.clone(),
+        Target::Auto { usb_port, wifi } => match wifi {
+            Some(w) => format!("USB (port {usb_port}) or {}", w.addr),
+            None => format!("USB (port {usb_port})"),
+        },
+    }
 }
 
 /// Run one session: connect, bring up TUN + routes, forward until done.
@@ -569,16 +749,44 @@ pub async fn run_session<F>(
 where
     F: Future<Output = ()> + Send,
 {
-    let transport = open_transport(&plan.target).await?;
-    let tun = create_tun(&plan.tun_name)?;
-    if let Err(e) = setup_routing(&plan.tun_name) {
-        warn!("Routing setup failed (connection may still work): {:#}", e);
+    let host = &plan.host;
+    let usb_now = match &plan.target {
+        Target::Tcp { adb_port, .. } => adb_port.is_some(),
+        Target::Auto { .. } => host.adb_tcp.is_some() || usb_phone_present(host.adb_serial.as_deref()),
+        Target::Bluetooth { .. } => false,
+    };
+    let transport = open_transport_with(&plan.target, host).await?;
+    let tun = create_tun_with(&plan.tun_name, &host.tun)?;
+    let dns = (transport.handshake.dns != 0)
+        .then(|| std::net::Ipv4Addr::from(transport.handshake.dns));
+    let device = transport.handshake.device_name.clone();
+    if host.manage_routes {
+        if let Err(e) = setup_routing_via(&plan.tun_name, &host.tun.peer.to_string()) {
+            warn!("Routing setup failed (connection may still work): {:#}", e);
+        }
+        if let Some(dns) = dns {
+            configure_dns(&plan.tun_name, &dns.to_string());
+        }
     }
-    if transport.handshake.dns != 0 {
-        configure_dns(
-            &plan.tun_name,
-            &crate::client::int_to_ip(transport.handshake.dns),
-        );
+    // USB is a cable: "encrypted" only describes TLS over WiFi.
+    let encrypted = match &plan.target {
+        Target::Tcp { opts, .. } => opts.tls,
+        Target::Bluetooth { .. } => true,
+        Target::Auto { wifi, .. } => !usb_now && wifi.as_ref().is_some_and(|w| w.tls),
+    };
+    let mut hook = HookInfo {
+        ifname: plan.tun_name.clone(),
+        transport: match &plan.target {
+            Target::Auto { .. } if usb_now => "usb".to_string(),
+            Target::Auto { .. } => "wifi".to_string(),
+            t => transport_name(t).to_string(),
+        },
+        dns,
+        device: device.clone(),
+        reason: None,
+    };
+    if let Some(d) = &device {
+        info!("Phone: {}", d);
     }
     info!("Tethering connection established on {}", plan.tun_name);
     if let Target::Tcp { opts, .. } = &plan.target {
@@ -591,12 +799,53 @@ where
             }
         );
     }
+    if let Some(script) = &host.up_script {
+        host::run_hook(script, "up", &host.tun, &hook);
+    }
+    // The status file needs live byte counters; the forwarding loop
+    // publishes them through a ConnectionService (the GUI's, or our own).
+    let service = service.or_else(|| host.status.as_ref().map(|_| ConnectionService::new()));
+    let status_pump = match (&host.status, &service) {
+        (Some(st), Some(svc)) => {
+            st.connected(device.clone(), encrypted);
+            let st = st.clone();
+            let svc = svc.clone();
+            Some(tokio::spawn(async move {
+                let mut tick = tokio::time::interval(host::STATUS_INTERVAL);
+                loop {
+                    tick.tick().await;
+                    let s = svc.stats();
+                    st.traffic(s.bytes_sent, s.bytes_received);
+                }
+            }))
+        }
+        _ => None,
+    };
     let opts = ForwardOptions {
         filter: plan.filter.clone(),
-        service,
+        service: service.clone(),
         ..Default::default()
     };
-    let (end, _) = session::forward(transport, tun, opts, shutdown).await?;
+    let result = session::forward(transport, tun, opts, shutdown).await;
+    if let Some(p) = status_pump {
+        p.abort();
+    }
+    // `forward` consumed the TUN device: it is gone by now, so the down
+    // hook sees the same state as pppd's ip-down.
+    hook.reason = Some(match &result {
+        Ok((end, _)) => format!("{:?}", end),
+        Err(e) => format!("{:#}", e),
+    });
+    if let Some(st) = &host.status {
+        if let Ok((_, stats)) = &result {
+            st.traffic(stats.bytes_sent, stats.bytes_received);
+        }
+        st.session_ended(hook.reason.as_deref().unwrap_or(""));
+    }
+    if let Some(script) = &host.down_script {
+        host::run_hook(script, "down", &host.tun, &hook);
+    }
+    let (end, _) = result?;
     Ok(end)
 }
 
@@ -617,14 +866,33 @@ pub async fn wait_shutdown(mut rx: watch::Receiver<bool>) {
     let _ = rx.wait_for(|v| *v).await;
 }
 
-/// Shutdown receiver wired to Ctrl-C.
+/// Shutdown receiver wired to Ctrl-C and (Unix) SIGTERM, which is how
+/// service managers stop the client (OpenWrt netifd/procd, systemd): the
+/// phone still gets a Disconnect instead of waiting for its idle timeout.
 pub fn ctrl_c_shutdown() -> watch::Receiver<bool> {
     let (tx, rx) = shutdown_channel();
     tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            info!("Ctrl-C received, disconnecting...");
-            let _ = tx.send(true);
-        }
+        #[cfg(unix)]
+        let what = {
+            use tokio::signal::unix::{signal, SignalKind};
+            match signal(SignalKind::terminate()) {
+                Ok(mut term) => tokio::select! {
+                    r = tokio::signal::ctrl_c() => match r { Ok(()) => "Ctrl-C", Err(_) => return },
+                    _ = term.recv() => "SIGTERM",
+                },
+                Err(_) => match tokio::signal::ctrl_c().await {
+                    Ok(()) => "Ctrl-C",
+                    Err(_) => return,
+                },
+            }
+        };
+        #[cfg(not(unix))]
+        let what = match tokio::signal::ctrl_c().await {
+            Ok(()) => "Ctrl-C",
+            Err(_) => return,
+        };
+        info!("{} received, disconnecting...", what);
+        let _ = tx.send(true);
     });
     rx
 }
@@ -746,6 +1014,7 @@ where
         }
         tokio::select! {
             _ = tokio::time::sleep(delay) => {}
+            _ = host::retry_requested() => info!("Retrying now"),
             _ = wait_shutdown(shutdown.clone()) => {
                 if let Some(svc) = &service { svc.set_state(ConnectionState::Disconnected); }
                 return Ok(());
@@ -777,11 +1046,16 @@ pub async fn run_plan(
     profile: Option<Profile>,
 ) -> Result<()> {
     let svc_outer = service.clone();
-    run_with_retry(policy, shutdown.clone(), service, |n| {
+    let status = plan.host.status.clone();
+    let result = run_with_retry(policy, shutdown.clone(), service, |n| {
         let svc = svc_outer.clone();
         let profile = profile.clone();
         let shutdown = shutdown.clone();
+        let status = status.clone();
         async move {
+            if let Some(st) = &status {
+                st.connecting(n);
+            }
             if let (Some(s), Some(p)) = (&svc, &profile) {
                 s.set_state(ConnectionState::Connecting {
                     profile: p.clone(),
@@ -799,10 +1073,21 @@ pub async fn run_plan(
                 }
                 wait_shutdown(shutdown).await
             };
-            run_session(plan, svc, connected).await
+            let r = run_session(plan, svc, connected).await;
+            if let (Some(st), Err(e)) = (&status, &r) {
+                st.failed(&format!("{:#}", e));
+            }
+            r
         }
     })
-    .await
+    .await;
+    if let Some(st) = &status {
+        match &result {
+            Ok(()) => st.stopped(None),
+            Err(e) => st.stopped(Some(&format!("{:#}", e))),
+        }
+    }
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -960,6 +1245,64 @@ mod tests {
         ));
         std::fs::create_dir_all(&d).unwrap();
         d.join("sub").join("config.toml")
+    }
+
+    #[test]
+    fn discovered_phones_as_json() {
+        let j = discovered_json(&[DiscoveredDevice {
+            name: "ET Phone Home._etphonehome._tcp.local.".into(),
+            hostname: "pixel.local.".into(),
+            addresses: vec!["192.168.8.153".parse().unwrap()],
+            port: 8888,
+        }]);
+        let v: serde_json::Value = serde_json::from_str(&j).unwrap();
+        assert_eq!(v[0]["addresses"][0], "192.168.8.153");
+        assert_eq!(v[0]["port"], 8888);
+        assert_eq!(discovered_json(&[]), "[]");
+    }
+
+    #[test]
+    fn adb_forward_targets_one_phone_when_asked() {
+        assert_eq!(
+            adb_forward_args(8888, None),
+            vec!["forward", "tcp:8888", "tcp:8888"]
+        );
+        assert_eq!(
+            adb_forward_args(9000, Some(" R5CR70PMMQR ")),
+            vec!["-s", "R5CR70PMMQR", "forward", "tcp:9000", "tcp:9000"]
+        );
+        assert_eq!(
+            adb_forward_args(8888, Some("")),
+            vec!["forward", "tcp:8888", "tcp:8888"]
+        );
+    }
+
+    #[test]
+    fn transport_names_for_status_and_hooks() {
+        let opts = ConnectOptions {
+            addr: "127.0.0.1:8888".parse().unwrap(),
+            capabilities: capabilities::USB,
+            token: None,
+            tls: false,
+            timeout: Duration::from_secs(1),
+        };
+        let usb = Target::Tcp {
+            opts: opts.clone(),
+            adb_port: Some(8888),
+        };
+        let wifi = Target::Tcp {
+            opts,
+            adb_port: None,
+        };
+        assert_eq!(transport_name(&usb), "usb");
+        assert_eq!(transport_name(&wifi), "wifi");
+        assert_eq!(target_label(&wifi), "127.0.0.1:8888");
+        let bt = Target::Bluetooth {
+            address: "Pixel".into(),
+            token: None,
+        };
+        assert_eq!(transport_name(&bt), "bluetooth");
+        assert_eq!(target_label(&bt), "Pixel");
     }
 
     #[test]

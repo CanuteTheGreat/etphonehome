@@ -1,0 +1,38 @@
+#!/bin/sh
+# Called by the ETPH client (etphonehome --up-script/--down-script) when a
+# session with the phone comes up or ends; hands the link to netifd the
+# way pppd's ip-up/ip-down do. Environment: INTERFACE (netifd interface,
+# from proto etph), ETPH_IFNAME, ETPH_LOCAL, ETPH_PREFIX, ETPH_PEER,
+# ETPH_DNS, ETPH_DEVICE, ETPH_TRANSPORT, ETPH_DEFAULTROUTE, ETPH_PEERDNS,
+# ETPH_DNS_OVERRIDE.
+
+. /lib/functions.sh
+. /lib/netifd/netifd-proto.sh
+
+[ -n "$INTERFACE" ] || exit 1
+
+case "$1" in
+up)
+	proto_init_update "$ETPH_IFNAME" 1 1
+	proto_add_ipv4_address "$ETPH_LOCAL" "${ETPH_PREFIX:-24}"
+	[ "${ETPH_DEFAULTROUTE:-1}" = 0 ] || proto_add_ipv4_route 0.0.0.0 0 "$ETPH_PEER"
+	if [ "${ETPH_PEERDNS:-1}" != 0 ] && [ -n "$ETPH_DNS" ]; then
+		proto_add_dns_server "$ETPH_DNS"
+	fi
+	for d in $ETPH_DNS_OVERRIDE; do
+		proto_add_dns_server "$d"
+	done
+	proto_add_data
+	json_add_string phone "$ETPH_DEVICE"
+	json_add_string transport "$ETPH_TRANSPORT"
+	proto_close_data
+	proto_send_update "$INTERFACE"
+	logger -t etph "$INTERFACE up on $ETPH_IFNAME via ${ETPH_DEVICE:-phone} ($ETPH_TRANSPORT)"
+	;;
+down)
+	proto_init_update "$ETPH_IFNAME" 0
+	proto_send_update "$INTERFACE"
+	logger -t etph "$INTERFACE down: ${ETPH_REASON:-session ended}"
+	;;
+esac
+exit 0

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-20
+
+### Added
+- **Free and Pro.** One app, two tiers. Free: sharing over USB with one computer, no speed cap, no time limit, started and stopped on the phone. **ETPH Pro**, a one-time in-app purchase in the Google Play app (no subscription), adds Wi-Fi and Bluetooth, routers, several computers and routers, auto-start when the computer asks over USB plus waiting for the computer after a disconnect, and a data usage history. "Upgrade to Pro" screen with the feature list and the Play price, Restore purchase; a quiet status line instead of pop-ups. Google Play Billing 9.1: purchases are acknowledged, restored on a reinstall or new phone, pending payments wait for Play, refunds and revocations take Pro away at the next check (every app start, every Start); purchase signatures are checked on the phone; no server (docs/pro.md).
+- **The phone enforces the split; computers and routers never need a licence.** The handshake now carries who the client is (a random client id and its host name; routers say they are routers) and whether the phone has Pro. A refused client gets "Pro required on the phone: ..." and the desktop/router client prints it with "nothing needs to be bought or licensed on this computer or router", keeps retrying once a minute (so buying Pro on the phone just works), the GUI shows it, and LuCI shows whether the phone has Pro. Older clients still connect over USB as one computer.
+- **Paired computers and routers** on the phone, each with Forget (Free works with the computer used last; forget it to switch).
+- **Auto-start on plug-in (Pro):** when the computer finds the phone on USB with nothing listening, it asks the phone to start sharing (`adb shell am start ... AutoStartActivity`, also through the routers' built-in ADB host), once per plug-in, so a Stop on the phone is respected until the cable is replugged. Switch "Start when the computer asks" on the phone.
+- **Data usage (Pro):** per computer/router (today, this month, 30 days) and by kind of traffic (web, QUIC, DNS, email, SSH, calls, VPN, NTP, ping), kept on the phone only.
+- Desktop: `--router` (set by OpenWrt's `proto etph`), `$ETPH_CLIENT_ID`/`$ETPH_CLIENT_NAME`; the status file has `phone_pro`.
+
+### Changed
+- Free: when the computer disconnects, sharing stops (tap Start again); Pro keeps waiting for it.
+
 ## [0.8.0] - 2026-10-20
 
 ### Added

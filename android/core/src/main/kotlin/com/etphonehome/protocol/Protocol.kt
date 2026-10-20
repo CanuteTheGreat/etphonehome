@@ -27,6 +27,10 @@ object Protocol {
     const val ERR_AUTH_FAILED: Byte = 0x03
     const val ERR_TIMEOUT: Byte = 0x04
     const val ERR_INTERNAL_ERROR: Byte = 0x05
+    /** The phone is on the free version and this session needs ETPH Pro there (Wi-Fi/Bluetooth,
+     *  a router, or a second computer). The message says which; the desktop shows it and stops
+     *  retrying. Clients before 0.9.0 map unknown codes to "internal error" but still print it. */
+    const val ERR_PRO_REQUIRED: Byte = 0x06
 
     // Protocol Version
     const val PROTOCOL_VERSION: Short = 0x0100 // v1.0
@@ -39,6 +43,10 @@ object Protocol {
     const val CAP_IPV6: Int = 1 shl 4
     const val CAP_TLS: Int = 1 shl 5
     const val CAP_TLS_PSK: Int = 1 shl 6
+    /** Request: the client is a router (OpenWrt/GL.iNet uplink, `proto etph`). Routers are Pro. */
+    const val CAP_ROUTER: Int = 1 shl 7
+    /** Response: this phone has ETPH Pro (Wi-Fi/Bluetooth, routers, several computers, auto-start). */
+    const val CAP_PRO: Int = 1 shl 8
 
     /**
      * Check whether a peer-advertised protocol version is compatible with
@@ -144,22 +152,42 @@ sealed class Message {
 
 /**
  * Handshake request from desktop to Android
+ *
+ * Since 0.9.0 the client may append who it is after the token field:
+ * u16 length + UTF-8 client id (a random id the client keeps, so the phone
+ * can tell "the same computer again" from "another computer"), then u16
+ * length + UTF-8 client name (its hostname, shown in the phone's device
+ * list). Older phones read only up to the token and ignore the rest; older
+ * clients send neither, and the phone treats them as one unnamed computer.
  */
 data class HandshakeRequest(
     val version: Short = Protocol.PROTOCOL_VERSION,
     val capabilities: Int,
-    val token: String? = null
+    val token: String? = null,
+    val clientId: String? = null,
+    val clientName: String? = null,
 ) : Message() {
     override val type = Protocol.MSG_HANDSHAKE_REQ
 
     override fun toBytes(): ByteArray {
         val tokenBytes = token?.toByteArray() ?: byteArrayOf()
-        val payload = ByteBuffer.allocate(6 + 2 + tokenBytes.size)
+        val identity = if (clientId != null || clientName != null) {
+            val id = HandshakeResponse.truncateUtf8(clientId ?: "", MAX_CLIENT_FIELD)
+            val name = HandshakeResponse.truncateUtf8(clientName ?: "", MAX_CLIENT_FIELD)
+            ByteBuffer.allocate(4 + id.size + name.size).order(ByteOrder.BIG_ENDIAN)
+                .putShort(id.size.toShort()).put(id)
+                .putShort(name.size.toShort()).put(name)
+                .array()
+        } else {
+            byteArrayOf()
+        }
+        val payload = ByteBuffer.allocate(6 + 2 + tokenBytes.size + identity.size)
             .order(ByteOrder.BIG_ENDIAN)
             .putShort(version)
             .putInt(capabilities)
             .putShort(tokenBytes.size.toShort())
             .put(tokenBytes)
+            .put(identity)
             .array()
 
         return createHeader(payload.size) + payload
@@ -169,6 +197,9 @@ data class HandshakeRequest(
         // Fixed minimum payload size: 2 (version) + 4 (capabilities). The
         // optional trailing token length/bytes are read defensively below.
         private const val PAYLOAD_SIZE = 6
+
+        /** Longest client id / client name accepted, in bytes. */
+        const val MAX_CLIENT_FIELD = 64
 
         fun fromPayload(payload: ByteArray): HandshakeRequest {
             // Same bug class as HandshakeResponse/StatsUpdate/ErrorMessage
@@ -187,25 +218,49 @@ data class HandshakeRequest(
             val version = buffer.getShort()
             val capabilities = buffer.getInt()
 
-            // Check for optional token
-            val token = if (buffer.remaining() >= 2) {
+            // Optional token, then (0.9.0+) optional client id and name.
+            var token: String? = null
+            var clientId: String? = null
+            var clientName: String? = null
+            if (buffer.remaining() >= 2) {
                 val tokenLength = buffer.getShort().toInt() and 0xFFFF
-                if (tokenLength > 0 && buffer.remaining() >= tokenLength) {
-                    val tokenBytes = ByteArray(tokenLength)
-                    buffer.get(tokenBytes)
-                    String(tokenBytes)
-                } else {
-                    null
+                if (buffer.remaining() >= tokenLength) {
+                    if (tokenLength > 0) {
+                        val tokenBytes = ByteArray(tokenLength)
+                        buffer.get(tokenBytes)
+                        token = String(tokenBytes)
+                    }
+                    clientId = readClientField(buffer)
+                    clientName = readClientField(buffer)
                 }
-            } else {
-                null
             }
 
             return HandshakeRequest(
                 version = version,
                 capabilities = capabilities,
-                token = token
+                token = token,
+                clientId = clientId,
+                clientName = clientName,
             )
+        }
+
+        /** One optional u16-length UTF-8 field; best effort (bad or oversized = null). */
+        private fun readClientField(buffer: ByteBuffer): String? {
+            if (buffer.remaining() < 2) return null
+            val n = buffer.getShort().toInt() and 0xFFFF
+            if (n > buffer.remaining()) {
+                buffer.position(buffer.limit())
+                return null
+            }
+            val bytes = ByteArray(n)
+            buffer.get(bytes)
+            if (n == 0 || n > MAX_CLIENT_FIELD) return null
+            return try {
+                Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString()
+                    .filter { !it.isISOControl() }.trim().ifEmpty { null }
+            } catch (e: java.nio.charset.CharacterCodingException) {
+                null
+            }
         }
     }
 }

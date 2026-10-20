@@ -41,7 +41,7 @@ check(title == app_name, f"Play title {title!r} == app_name {app_name!r}")
 check(0 < len(short) <= 80, f"short description is {len(short)} chars (Play max 80)")
 check(0 < len(full) <= 4000, f"full description is {len(full)} chars (Play max 4000)")
 for heading in re.findall(r"^([A-Z][A-Z ]{3,})$", full, re.M):
-    check(heading in {"HOW IT WORKS", "CONNECTION MODES", "ON THE PHONE", "PRIVACY", "OPEN SOURCE"},
+    check(heading in {"FREE AND PRO", "HOW IT WORKS", "CONNECTION MODES", "ON THE PHONE", "PRIVACY", "OPEN SOURCE"},
           f"full description section {heading!r} is a known one")
 
 contact = dict(l.split("=", 1) for l in rd("store/contact.txt").splitlines() if l and not l.startswith("#"))

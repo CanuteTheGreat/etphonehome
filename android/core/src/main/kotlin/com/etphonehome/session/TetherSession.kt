@@ -92,6 +92,7 @@ class TetherSession(
                         refuseReason = options.refuseReason,
                         version = options.protocolVersion,
                         deviceName = options.deviceName,
+                        admit = options.admit,
                     ).also {
                         if (!handshake.compareAndSet(HS_PENDING, HS_DONE)) {
                             throw ProtocolException("handshake finished after the deadline")
@@ -114,7 +115,12 @@ class TetherSession(
         this@TetherSession.relay = relay
         relay.start()
         Log.i(tag, "Relay started: desktop traffic now goes out through the phone's own network")
-        listener.onConnected(SessionInfo(options.peer, options.encrypted, request.token != null))
+        listener.onConnected(
+            SessionInfo(
+                options.peer, options.encrypted, request.token != null,
+                client = ClientIdentity.of(request),
+            ),
+        )
 
         fun snapshot() = SessionSnapshot(
             bytesToDesktop = relay.stats.bytesToDesktop.get(),
@@ -127,6 +133,7 @@ class TetherSession(
             packetsFiltered = relay.stats.packetsFiltered.get(),
             filterEnabled = filter.getConfig().enabled,
             filterRules = filter.getConfig().rules.size,
+            bytesByKind = relay.stats.kindSnapshot(),
         )
 
         try {
@@ -296,9 +303,37 @@ data class SessionOptions(
     val abortLink: () -> Unit = {},
     /** This phone's name, sent to the desktop/router in the handshake. */
     val deviceName: String? = null,
+    /** Free/Pro gate (see [com.etphonehome.pro.ProGate]): null admits the client, otherwise the
+     *  reason it needs ETPH Pro on the phone (sent as ERR_PRO_REQUIRED). Runs after the token check. */
+    val admit: ((HandshakeRequest) -> String?)? = null,
 )
 
-data class SessionInfo(val peer: String, val encrypted: Boolean, val authenticated: Boolean)
+data class SessionInfo(
+    val peer: String,
+    val encrypted: Boolean,
+    val authenticated: Boolean,
+    val client: ClientIdentity = ClientIdentity.UNKNOWN,
+)
+
+/**
+ * Which computer or router this is. [id] is the random id a 0.9.0+ client keeps (older clients
+ * send none and are all [LEGACY_ID]); [name] is its hostname.
+ */
+data class ClientIdentity(val id: String, val name: String, val router: Boolean) {
+    companion object {
+        const val LEGACY_ID = "legacy"
+        val UNKNOWN = ClientIdentity(LEGACY_ID, "Computer", false)
+
+        fun of(request: HandshakeRequest): ClientIdentity {
+            val router = request.capabilities and Protocol.CAP_ROUTER != 0
+            return ClientIdentity(
+                id = request.clientId ?: LEGACY_ID,
+                name = request.clientName ?: if (router) "Router" else "Computer",
+                router = router,
+            )
+        }
+    }
+}
 
 data class SessionSnapshot(
     val bytesToDesktop: Long,
@@ -311,6 +346,7 @@ data class SessionSnapshot(
     val packetsFiltered: Long,
     val filterEnabled: Boolean,
     val filterRules: Int,
+    val bytesByKind: Map<com.etphonehome.relay.TrafficKind, Long> = emptyMap(),
 )
 
 interface SessionListener {

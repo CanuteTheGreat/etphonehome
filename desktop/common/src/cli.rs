@@ -23,6 +23,11 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub config: Option<std::path::PathBuf>,
 
+    /// This client is a router's uplink (OpenWrt `proto etph` sets it; also
+    /// $ETPH_ROUTER=1). Routers need ETPH Pro on the phone, never a licence here.
+    #[arg(long, global = true)]
+    pub router: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -338,6 +343,9 @@ pub async fn main(platform: Platform) -> Result<()> {
 
 /// Run an already-parsed command line.
 pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
+    if cli.router {
+        crate::identity::set_router(true);
+    }
     if let Some(path) = &cli.config {
         std::env::set_var("ETPHONEHOME_CONFIG", path);
     }

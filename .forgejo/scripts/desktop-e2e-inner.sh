@@ -323,5 +323,70 @@ else
   fail "quick-start-linux.sh cleanup"
 fi
 
+# --- 11. ETPH Pro is enforced by the phone; the desktop says so clearly -----
+# Peer `usbfree` is a phone without Pro (the app's ProGate): the first computer
+# over USB is admitted, a second computer and any router are refused with
+# ERR_PRO_REQUIRED, and the client explains that Pro is bought on the phone.
+ETPH_CLIENT_ID=e2e-computer-a ETPH_CLIENT_NAME=laptop-a etphonehome usb --port 8891 --interface etph0 >"$LOGS/pro-free-a.log" 2>&1 &
+CLI=$!
+if wait_for_iface etph0 && curl -sS -m 20 -o /dev/null "http://$TARGET_IP:8080/blob.sha256"; then
+  sleep 1
+  grep -q "Phone: free version" "$LOGS/pro-free-a.log" \
+    && pass "pro: free phone gives the first computer USB internet (client logs 'Phone: free version')" \
+    || { dump "$LOGS/pro-free-a.log"; fail "pro: free phone tier not reported"; }
+else
+  dump "$LOGS/pro-free-a.log"; dump "$PEER/usbfree.log"
+  fail "pro: free phone refused its first computer"
+fi
+stop $CLI
+if ETPH_CLIENT_ID=e2e-computer-b ETPH_CLIENT_NAME=laptop-b timeout 30 etphonehome usb --port 8891 --interface etph0 >"$LOGS/pro-free-b.log" 2>&1; then
+  fail "pro: a second computer connected to a free phone"
+elif grep -q "Pro required on the phone: the free version works with one computer (\"laptop-a\")" "$LOGS/pro-free-b.log" \
+  && grep -q "nothing needs to be bought or licensed on this computer or router" "$LOGS/pro-free-b.log" && ! ip link show etph0 >/dev/null 2>&1; then
+  pass "pro: free phone refuses a second computer with 'Pro required on the phone', no TUN, no licence asked of the computer"
+else
+  dump "$LOGS/pro-free-b.log"; fail "pro: second computer refusal message"
+fi
+if ETPH_CLIENT_ID=e2e-router timeout 30 etphonehome --router usb --port 8891 --interface etph0 >"$LOGS/pro-free-router.log" 2>&1; then
+  fail "pro: a router connected to a free phone"
+elif grep -q "Pro required on the phone: routers are part of ETPH Pro" "$LOGS/pro-free-router.log"; then
+  pass "pro: free phone refuses a router (--router) with 'Pro required on the phone: routers are part of ETPH Pro'"
+else
+  dump "$LOGS/pro-free-router.log"; fail "pro: router refusal message"
+fi
+ETPH_CLIENT_ID=e2e-router etphonehome --router usb --port 8890 --interface etph0 >"$LOGS/pro-router.log" 2>&1 &
+CLI=$!
+if wait_for_iface etph0 && curl -sS -m 20 -o /dev/null "http://$TARGET_IP:8080/blob.sha256"; then
+  sleep 1
+  grep -q "Phone: ETPH Pro" "$LOGS/pro-router.log" && grep -q "client e2e-router\|admitted" "$PEER/usb2.log" \
+    && pass "pro: a phone with Pro admits the router (--router) and the client logs 'Phone: ETPH Pro'" \
+    || { dump "$LOGS/pro-router.log"; dump "$PEER/usb2.log"; fail "pro: Pro phone / router admitted log"; }
+else
+  dump "$LOGS/pro-router.log"; fail "pro: Pro phone refused a router"
+fi
+stop $CLI
+
+# Auto-start on plug-in: nothing listens on the phone -> the client asks the phone
+# once per plug-in (`adb shell am start ... AutoStartActivity`); unplug + replug asks again.
+: >/e2e/adb-calls.log
+etphonehome usb --port 8899 --interface etph0 --reconnect --max-retries 0 >"$LOGS/autostart.log" 2>&1 &
+CLI=$!
+sleep 12
+N1=$(grep -c "shell am start -n solutions.errant.etph/com.etphonehome.AutoStartActivity" /e2e/adb-calls.log)
+touch /e2e/unplugged
+kill -USR1 $CLI 2>/dev/null   # retry now: this attempt finds no phone
+sleep 3
+rm -f /e2e/unplugged
+kill -USR1 $CLI 2>/dev/null   # plugged back in
+sleep 10
+N2=$(grep -c "shell am start -n solutions.errant.etph/com.etphonehome.AutoStartActivity" /e2e/adb-calls.log)
+kill -INT $CLI 2>/dev/null; wait $CLI 2>/dev/null
+if [ "$N1" = 1 ] && [ "$N2" = 2 ]; then
+  pass "auto-start: the client asks the phone to start ETPH once per plug-in (adb shell am start AutoStartActivity: $N1 then $N2 after a replug)"
+else
+  cat /e2e/adb-calls.log; dump "$LOGS/autostart.log"
+  fail "auto-start requests: $N1 before, $N2 after the replug (want 1, 2)"
+fi
+
 echo "e2e summary: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

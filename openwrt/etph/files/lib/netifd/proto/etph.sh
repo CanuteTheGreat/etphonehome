@@ -63,7 +63,8 @@ proto_etph_setup() {
 		return 1
 	}
 
-	set -- /usr/sbin/etphonehome
+	# --router: the phone counts this as a router (ETPH Pro on the phone).
+	set -- /usr/sbin/etphonehome --router
 	case "${transport:-usb}" in
 	usb)
 		# The client's built-in ADB host (usbfs): no adb package or server.

@@ -63,6 +63,32 @@
             </intent-filter>
         </activity>
 
+        <!-- ETPH Pro screen (Upgrade to Pro). -->
+        <activity
+            android:name=".UpgradeActivity"
+            android:exported="false"
+            android:label="@string/pro_title"
+            android:theme="@style/Theme.ETPhoneHome" />
+
+        <!-- Auto-start on plug-in (Pro): the computer runs `adb shell am start -n
+             solutions.errant.etph/com.etphonehome.AutoStartActivity` over USB debugging. Exported
+             so the shell can start it; it only ever starts USB sharing (loopback, behind adb
+             forward), checks who started it on Android 14+, and the phone's Free/Pro gate decides. -->
+        <activity
+            android:name=".AutoStartActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- Emulator e2e builds only (-PbillingTestHooks=true): force Free/Pro. Disabled in every
+             other build (and TestHookReceiver checks BuildConfig.BILLING_TEST_HOOKS too). -->
+        <receiver
+            android:name=".billing.TestHookReceiver"
+            android:enabled="${billingTestHooks}"
+            android:exported="true"
+            tools:ignore="ExportedReceiver" />
+
         <!-- Tethering service: listens for the desktop and relays its
              traffic through ordinary phone sockets (no VPN, no root). -->
         <service

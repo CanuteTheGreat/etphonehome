@@ -45,6 +45,10 @@ pub enum ErrorCode {
     AuthFailed = 0x03,
     Timeout = 0x04,
     InternalError = 0x05,
+    /// The phone is on the free version and this session needs ETPH Pro on the
+    /// PHONE (Wi-Fi/Bluetooth, a router, or a second computer). Never a licence
+    /// on this computer or router: the message says what to do on the phone.
+    ProRequired = 0x06,
 }
 
 /// Protocol version
@@ -59,6 +63,10 @@ pub mod capabilities {
     pub const IPV6: u32 = 1 << 4;
     pub const TLS: u32 = 1 << 5;
     pub const TLS_PSK: u32 = 1 << 6;
+    /// Request: this client is a router (OpenWrt `proto etph` uplink). Routers need ETPH Pro on the phone.
+    pub const ROUTER: u32 = 1 << 7;
+    /// Response: the phone has ETPH Pro.
+    pub const PRO: u32 = 1 << 8;
 }
 
 /// Protocol errors
@@ -209,11 +217,30 @@ impl Message {
 }
 
 /// Handshake request
+///
+/// Since 0.9.0 the client appends who it is after the token field: a u16
+/// length and the UTF-8 client id (a random id kept in the config dir, so the
+/// phone can tell "the same computer again" from "another computer"), then a
+/// u16 length and the UTF-8 client name (the hostname, shown in the phone's
+/// device list). Older phones read only up to the token and ignore the rest.
 #[derive(Debug, Clone)]
 pub struct HandshakeRequest {
     pub version: u16,
     pub capabilities: u32,
     pub token: Option<String>,
+    pub client_id: Option<String>,
+    pub client_name: Option<String>,
+}
+
+/// Longest client id / client name sent or accepted (bytes).
+pub const MAX_CLIENT_FIELD: usize = 64;
+
+fn truncate_utf8(s: &str, max: usize) -> &str {
+    let mut end = s.len().min(max);
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 impl HandshakeRequest {
@@ -222,14 +249,36 @@ impl HandshakeRequest {
             version: PROTOCOL_VERSION,
             capabilities,
             token: None,
+            client_id: None,
+            client_name: None,
         }
     }
 
     pub fn with_token(capabilities: u32, token: String) -> Self {
         Self {
-            version: PROTOCOL_VERSION,
-            capabilities,
             token: Some(token),
+            ..Self::new(capabilities)
+        }
+    }
+
+    /// The request this client sends: its identity (id, hostname) and the
+    /// ROUTER capability when it runs as a router uplink.
+    pub fn for_this_client(capabilities: u32, token: Option<String>) -> Self {
+        Self::for_identity(capabilities, token, &crate::identity::current())
+    }
+
+    /// [`Self::for_this_client`] for a given identity.
+    pub fn for_identity(
+        capabilities: u32,
+        token: Option<String>,
+        id: &crate::identity::ClientIdentity,
+    ) -> Self {
+        Self {
+            version: PROTOCOL_VERSION,
+            capabilities: capabilities | if id.router { capabilities::ROUTER } else { 0 },
+            token,
+            client_id: Some(id.id.clone()),
+            client_name: Some(id.name.clone()),
         }
     }
 
@@ -248,6 +297,14 @@ impl HandshakeRequest {
             buf.extend_from_slice(&0u16.to_be_bytes());
         }
 
+        if self.client_id.is_some() || self.client_name.is_some() {
+            for field in [&self.client_id, &self.client_name] {
+                let v = truncate_utf8(field.as_deref().unwrap_or(""), MAX_CLIENT_FIELD).as_bytes();
+                buf.extend_from_slice(&(v.len() as u16).to_be_bytes());
+                buf.extend_from_slice(v);
+            }
+        }
+
         buf
     }
 
@@ -260,17 +317,18 @@ impl HandshakeRequest {
         let capabilities = u32::from_be_bytes([data[2], data[3], data[4], data[5]]);
 
         // Check for optional token
+        let mut rest: &[u8] = &[];
         let token = if data.len() > 6 {
             if data.len() < 8 {
                 return Err(ProtocolError::MessageTooShort);
             }
             let token_len = u16::from_be_bytes([data[6], data[7]]) as usize;
+            if data.len() < 8 + token_len {
+                return Err(ProtocolError::MessageTooShort);
+            }
+            rest = &data[8 + token_len..];
             if token_len > 0 {
-                if data.len() < 8 + token_len {
-                    return Err(ProtocolError::MessageTooShort);
-                }
-                let token_str = String::from_utf8(data[8..8 + token_len].to_vec())?;
-                Some(token_str)
+                Some(String::from_utf8(data[8..8 + token_len].to_vec())?)
             } else {
                 None
             }
@@ -278,10 +336,39 @@ impl HandshakeRequest {
             None
         };
 
+        // Optional client id and name: best effort, never fail the handshake.
+        fn field(rest: &mut &[u8]) -> Option<String> {
+            if rest.len() < 2 {
+                return None;
+            }
+            let n = u16::from_be_bytes([rest[0], rest[1]]) as usize;
+            if rest.len() < 2 + n {
+                *rest = &[];
+                return None;
+            }
+            let v = &rest[2..2 + n];
+            *rest = &rest[2 + n..];
+            (n > 0 && n <= MAX_CLIENT_FIELD)
+                .then(|| std::str::from_utf8(v).ok())
+                .flatten()
+                .map(|s| {
+                    s.chars()
+                        .filter(|c| !c.is_control())
+                        .collect::<String>()
+                        .trim()
+                        .to_string()
+                })
+                .filter(|s| !s.is_empty())
+        }
+        let client_id = field(&mut rest);
+        let client_name = field(&mut rest);
+
         Ok(Self {
             version,
             capabilities,
             token,
+            client_id,
+            client_name,
         })
     }
 }
@@ -346,6 +433,11 @@ impl HandshakeResponse {
             dns: u32::from_be_bytes([data[10], data[11], data[12], data[13]]),
             device_name,
         })
+    }
+
+    /// Whether the phone has ETPH Pro (Wi-Fi/Bluetooth, routers, several computers).
+    pub fn phone_has_pro(&self) -> bool {
+        (self.capabilities & capabilities::PRO) != 0
     }
 
     /// Check if the server supports root mode
@@ -510,6 +602,7 @@ impl ErrorMessage {
             0x03 => ErrorCode::AuthFailed,
             0x04 => ErrorCode::Timeout,
             0x05 => ErrorCode::InternalError,
+            0x06 => ErrorCode::ProRequired,
             _ => ErrorCode::InternalError,
         };
 

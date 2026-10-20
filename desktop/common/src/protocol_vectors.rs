@@ -33,7 +33,7 @@ fn decode(b: &[u8]) -> Message {
 #[test]
 fn every_message_matches_the_shared_vectors() {
     let v = vectors();
-    assert_eq!(v.len(), 10, "vector file changed; update both test suites");
+    assert_eq!(v.len(), 13, "vector file changed; update both test suites");
 
     let req = Message::HandshakeReq(HandshakeRequest::with_token(
         capabilities::WIFI,
@@ -141,6 +141,52 @@ fn every_message_matches_the_shared_vectors() {
             assert!(matches!(e.error_code, ErrorCode::AuthFailed));
             assert_eq!(e.message, "nope!");
         }
+        m => panic!("{:?}", m),
+    }
+}
+
+#[test]
+fn pro_vectors_client_identity_pro_flag_and_pro_required() {
+    let v = vectors();
+    let req = Message::HandshakeReq(HandshakeRequest {
+        client_id: Some("c0ffee".into()),
+        client_name: Some("laptop".into()),
+        ..HandshakeRequest::new(capabilities::USB | capabilities::ROUTER)
+    });
+    assert_eq!(encode(&req), v["handshake_req_identity"]);
+    match decode(&v["handshake_req_identity"]) {
+        Message::HandshakeReq(r) => {
+            assert_eq!(r.token, None);
+            assert_eq!(r.client_id.as_deref(), Some("c0ffee"));
+            assert_eq!(r.client_name.as_deref(), Some("laptop"));
+            assert_ne!(r.capabilities & capabilities::ROUTER, 0);
+        }
+        m => panic!("{:?}", m),
+    }
+    let resp = Message::HandshakeResp(HandshakeResponse {
+        version: PROTOCOL_VERSION,
+        capabilities: capabilities::USB | capabilities::PRO,
+        ip_address: 0x0a000002,
+        dns: 0x08080808,
+        device_name: None,
+    });
+    assert_eq!(encode(&resp), v["handshake_resp_pro"]);
+    match decode(&v["handshake_resp_pro"]) {
+        Message::HandshakeResp(r) => assert!(r.phone_has_pro()),
+        m => panic!("{:?}", m),
+    }
+    let err = Message::Error(ErrorMessage {
+        error_code: ErrorCode::ProRequired,
+        message: "pro".into(),
+    });
+    assert_eq!(encode(&err), v["error_pro_required"]);
+    match decode(&v["error_pro_required"]) {
+        Message::Error(e) => assert!(matches!(e.error_code, ErrorCode::ProRequired)),
+        m => panic!("{:?}", m),
+    }
+    // A phone without Pro answers without the flag.
+    match decode(&v["handshake_resp"]) {
+        Message::HandshakeResp(r) => assert!(!r.phone_has_pro()),
         m => panic!("{:?}", m),
     }
 }

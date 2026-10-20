@@ -181,6 +181,7 @@ class UserspaceRelay(
     private fun send(packet: ByteArray) {
         stats.bytesToDesktop.addAndGet(packet.size.toLong())
         stats.packetsToDesktop.incrementAndGet()
+        stats.countKind(packet, toDesktop = true)
         try {
             toDesktop(packet)
         } catch (e: Exception) {
@@ -192,6 +193,7 @@ class UserspaceRelay(
     private fun onDesktopPacket(p: ByteArray) {
         stats.bytesFromDesktop.addAndGet(p.size.toLong())
         stats.packetsFromDesktop.incrementAndGet()
+        stats.countKind(p, toDesktop = false)
         val ip = Ipv4Packet.parse(p) ?: return
         val filter = packetFilter
         if (filter != null && !filter(p)) {
@@ -841,6 +843,18 @@ class RelayStats {
     val tcpWindowProbes = AtomicLong()
     val activeTcp = AtomicInteger()
     val activeUdp = AtomicInteger()
+
+    /** Bytes (both directions) per [TrafficKind], for the Pro data-usage view. */
+    val bytesByKind = java.util.concurrent.ConcurrentHashMap<TrafficKind, AtomicLong>()
+
+    /** Count [packet] under its kind of traffic: the remote side's port (the source port of a
+     *  packet going to the desktop, the destination port of one coming from it). */
+    internal fun countKind(packet: ByteArray, toDesktop: Boolean) {
+        val kind = TrafficKind.ofPacket(packet, toDesktop)
+        bytesByKind.getOrPut(kind) { AtomicLong() }.addAndGet(packet.size.toLong())
+    }
+
+    fun kindSnapshot(): Map<TrafficKind, Long> = bytesByKind.mapValues { it.value.get() }
 }
 
 data class FlowKey(val srcIp: Int, val srcPort: Int, val dstIp: Int, val dstPort: Int) {

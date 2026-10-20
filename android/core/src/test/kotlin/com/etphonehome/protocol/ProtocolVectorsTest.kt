@@ -30,7 +30,7 @@ class ProtocolVectorsTest {
 
     @Test
     fun vectorFileIsComplete() {
-        assertEquals(10, vectors.size)
+        assertEquals(13, vectors.size)
     }
 
     @Test
@@ -104,5 +104,30 @@ class ProtocolVectorsTest {
         val err = ErrorMessage(Protocol.ERR_AUTH_FAILED, "nope!")
         assertArrayEquals(vectors["error_auth_failed"], err.toBytes())
         assertEquals(err, Message.fromBytes(vectors["error_auth_failed"]!!))
+    }
+
+    @Test
+    fun handshakeRequestWithClientIdentity() {
+        val msg = HandshakeRequest(
+            capabilities = Protocol.CAP_USB or Protocol.CAP_ROUTER,
+            clientId = "c0ffee",
+            clientName = "laptop",
+        )
+        assertArrayEquals(vectors["handshake_req_identity"], msg.toBytes())
+        val parsed = Message.fromBytes(vectors["handshake_req_identity"]!!) as HandshakeRequest
+        assertNull(parsed.token)
+        assertEquals("c0ffee", parsed.clientId)
+        assertEquals("laptop", parsed.clientName)
+        assertEquals(Protocol.CAP_ROUTER, parsed.capabilities and Protocol.CAP_ROUTER)
+    }
+
+    @Test
+    fun handshakeResponseProAndProRequiredError() {
+        val msg = HandshakeResponse(capabilities = Protocol.CAP_USB or Protocol.CAP_PRO, ipAddress = 0x0a000002, dns = 0x08080808)
+        assertArrayEquals(vectors["handshake_resp_pro"], msg.toBytes())
+        assertEquals(msg, Message.fromBytes(vectors["handshake_resp_pro"]!!))
+        val err = ErrorMessage(Protocol.ERR_PRO_REQUIRED, "pro")
+        assertArrayEquals(vectors["error_pro_required"], err.toBytes())
+        assertEquals(err, Message.fromBytes(vectors["error_pro_required"]!!))
     }
 }

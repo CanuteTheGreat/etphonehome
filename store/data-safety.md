@@ -26,6 +26,12 @@ PSL_SUPPORTED_ACCOUNT_CREATION_METHODS", tag set-play-data-safety-1). SSHerpa an
 only because it does collect data (and there Play requires PSL_DATA_DELETION_URL). The claims
 check fails if any row besides the collection question is answered while it says "No".
 
+ETPH Pro (0.9.0): the purchase goes through Google Play Billing. The app checks the purchase on
+the phone (signature + content) and sends nothing about it to Errant Solutions (there is no
+server); the purchase data Play itself handles as the store is Google's, not data this app
+collects. The paired-device list and data usage history never leave the phone (and are excluded
+from Android backup). So the answer stays "No data collected".
+
 Why the relayed traffic is not "collected": the app forwards the user's own computer's
 connections to the destinations that computer chose, on the user's request, and keeps nothing.
 Nothing reaches the developer. Pairing tokens (WiFi/Bluetooth) are generated and stored on the

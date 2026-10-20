@@ -5,6 +5,7 @@ pub mod config;
 pub mod connection_service;
 pub mod filter;
 pub mod host;
+pub mod identity;
 pub mod protocol;
 pub mod runner;
 pub mod session;

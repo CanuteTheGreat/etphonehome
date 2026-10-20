@@ -68,6 +68,34 @@ require the token shown in the Android app; a wrong or missing token is
 answered with an ERROR message (code 0x03, AUTH_FAILED) and the connection is
 closed.
 
+Since 0.9.0 the client appends who it is after the token (optional; phones
+before 0.9.0 stop reading after the token):
+
+```
++-----------+-------------------+-------------+---------------------+
+| Id Length | Client id (UTF-8) | Name Length | Client name (UTF-8) |
+| 2 bytes   | N bytes (<= 64)   | 2 bytes     | N bytes (<= 64)     |
++-----------+-------------------+-------------+---------------------+
+```
+The client id is a random id the client keeps (so the phone can tell the same
+computer from another one); the name is its host name. A client running as a
+router's uplink sets capability bit 7 (ROUTER). The phone (ETPH Pro gate, after
+the token check) may answer ERROR 0x06 PRO_REQUIRED, whose text starts with
+"Pro required on the phone: ". The HANDSHAKE_RESP capabilities carry bit 8
+(PRO) when the phone has ETPH Pro. See [docs/pro.md](../docs/pro.md).
+
+| Capability bit | Name | Meaning |
+|---|---|---|
+| 0 | USB | |
+| 1 | WIFI | |
+| 2 | BLUETOOTH | |
+| 3 | ROOT | (unused) |
+| 4 | IPV6 | (unused) |
+| 5 | TLS | |
+| 6 | TLS_PSK | |
+| 7 | ROUTER | request: the client is a router uplink |
+| 8 | PRO | response: the phone has ETPH Pro |
+
 Byte-exact examples of every message type are in
 [`test-vectors.txt`](test-vectors.txt); both the Rust and the Kotlin test
 suites check their encoders and decoders against that file.
@@ -155,6 +183,7 @@ Uses Bluetooth RFCOMM sockets with a predefined UUID.
 | 0x03 | AUTH_FAILED         | Authentication failed                 |
 | 0x04 | TIMEOUT             | Operation timed out                   |
 | 0x05 | INTERNAL_ERROR      | Internal error occurred               |
+| 0x06 | PRO_REQUIRED        | This needs ETPH Pro on the phone (0.9.0+) |
 
 ### Error Message Payload
 

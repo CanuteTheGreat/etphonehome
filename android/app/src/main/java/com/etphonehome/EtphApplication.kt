@@ -16,5 +16,7 @@ class EtphApplication : Application() {
                 Log.Level.ERROR -> android.util.Log.e(tag, message, error)
             }
         }
+        // ETPH Pro: remembered purchase now, then ask Google Play (every app start).
+        com.etphonehome.billing.Pro.init(this)
     }
 }

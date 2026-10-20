@@ -27,13 +27,30 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 
 ## ✨ Features
 
-### Current Features (v0.8.0)
+### Free and Pro
+
+One app, two tiers. **Free** shares the phone's internet over USB with one computer, with no speed cap and no time limit; you start and stop it on the phone. **ETPH Pro** is a one-time in-app purchase in the Google Play app (no subscription) that adds Wi-Fi and Bluetooth, routers, several computers and routers, auto-start when the computer asks plus waiting for it to come back (auto-reconnect), and a data usage history. The phone enforces the split: desktops and routers never need a licence of their own, and when something needs Pro the phone says so in the handshake, so the client prints "Pro required on the phone". How purchases are checked (no server): [docs/pro.md](docs/pro.md).
+
+| | Free | ETPH Pro |
+|---|---|---|
+| USB to one computer, unlimited speed and time | yes | yes |
+| Wi-Fi (TLS 1.3) and Bluetooth | - | yes |
+| Routers (OpenWrt / GL.iNet uplink) | - | yes |
+| Several computers and routers | one computer | yes |
+| Auto-start on plug-in, keeps waiting after a disconnect | start/stop by hand | yes |
+| Data usage per computer/router and kind of traffic | live numbers only | yes |
+
+### Current Features (v0.9.0)
+- ✅ **Free: USB to one computer** - no speed cap and no time limit; a second computer or a router is refused by the phone with "Pro required on the phone", and the phone lists paired computers with Forget
+- ✅ **ETPH Pro is enforced by the phone** - one-time Google Play purchase (Play Billing, acknowledged, restored on reinstall or a new phone, pending purchases and refunds handled); the handshake tells computers and routers whether the phone has Pro, nothing is ever licensed on them
+- ✅ **Auto-start on plug-in (Pro)** - the computer asks the phone over USB debugging to start sharing (once per plug-in); the phone keeps waiting for the computer after a disconnect
+- ✅ **Data usage (Pro)** - history per computer/router (today, this month, 30 days) and by kind of traffic (web, DNS, email, calls...), kept on the phone only
 
 - ✅ **Real internet for the computer, no root** - the app relays the computer's TCP, UDP (DNS included) and ping traffic through ordinary phone sockets (a userspace relay). Verified in CI against public HTTPS and on a real phone (Samsung, Android 13)
 - ✅ **The phone keeps its internet** - no phone VPN is used, so the phone's own apps are never affected
 - ✅ **USB Tethering** - via `adb forward`, fastest and most reliable
-- ✅ **WiFi Tethering** - token-authenticated and **encrypted by default** (TLS 1.3, certificate pinned to the pairing token, fails closed)
-- ✅ **Bluetooth Tethering** - RFCOMM, Linux (BlueZ) desktop only; the Windows client has no Bluetooth. Verified with real internet on a real phone (Samsung, Android 13); CI has no Bluetooth radio, so it checks the session code and that app and desktop agree on the service
+- ✅ **WiFi Tethering** (Pro) - token-authenticated and **encrypted by default** (TLS 1.3, certificate pinned to the pairing token, fails closed)
+- ✅ **Bluetooth Tethering** (Pro) - RFCOMM, Linux (BlueZ) desktop only; the Windows client has no Bluetooth. Verified with real internet on a real phone (Samsung, Android 13); CI has no Bluetooth radio, so it checks the session code and that app and desktop agree on the service
 - ✅ **Cross-Platform desktop** - Windows and Linux CLI, Linux GUI
 - ✅ **DNS set up for you** - the desktop points DNS for the tunnel at the phone's DNS server (systemd-resolved on Linux, verified in CI; `netsh` on Windows, not yet exercised in CI)
 - ✅ **Live statistics on the phone** - connected desktop, data each way, open connections, uptime; the status only says "connected" once a desktop really is
@@ -41,7 +58,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 - ✅ **Auto-Reconnect** - exponential backoff retry
 - ✅ **mDNS Discovery**, **IP Discovery** (ADB), **Connection Profiles**
 - ✅ **Open Protocol** - documented binary protocol, shared test vectors between the Rust and Kotlin sides
-- ✅ **Routers (OpenWrt, GL.iNet)** - the phone becomes a router's internet (WAN) for every device behind it, over USB (built-in ADB host, no adb package) or Wi-Fi: packages for OpenWrt 24.10 (opkg, also GL.iNet 4.x) and 25.x (apk) on aarch64, armv7, mips, mipsel and x86_64, a normal network interface (`proto etph`: firewall zones, metrics, mwan3 failover) and a LuCI page with status and pairing. Tested in CI on real OpenWrt 24.10 and 25.12 VMs. See [docs/OPENWRT.md](docs/OPENWRT.md)
+- ✅ **Routers (OpenWrt, GL.iNet)** (Pro) - the phone becomes a router's internet (WAN) for every device behind it, over USB (built-in ADB host, no adb package) or Wi-Fi: packages for OpenWrt 24.10 (opkg, also GL.iNet 4.x) and 25.x (apk) on aarch64, armv7, mips, mipsel and x86_64, a normal network interface (`proto etph`: firewall zones, metrics, mwan3 failover) and a LuCI page with status and pairing. Tested in CI on real OpenWrt 24.10 and 25.12 VMs. See [docs/OPENWRT.md](docs/OPENWRT.md)
 
 ### Planned Features
 
@@ -49,8 +66,7 @@ See the [Setup Guide](docs/SETUP.md) for detailed instructions.
 - 🔲 Bluetooth in the Windows client
 - 🔲 macOS client
 - 🔲 IPv6 through the tunnel (IPv4 only today)
-- 🔲 Multi-device support
-- 🔲 Mobile data usage tracking
+- 🔲 Several computers at the same time (Pro pairs several, but the phone serves one at a time)
 
 ## 📋 Requirements
 
@@ -432,4 +448,4 @@ You are free to use, modify, and distribute this software for any purpose, inclu
 
 ---
 
-**Note:** Current version is v0.8.0 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK, OpenWrt router packages): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.
+**Note:** Current version is v0.9.0 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK, OpenWrt router packages): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.

@@ -3,6 +3,8 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def billingTestHooks = project.findProperty('billingTestHooks') == 'true'
+
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
 def hasReleaseSigning = keystorePropertiesFile.exists()
@@ -29,8 +31,23 @@ android {
         // on by default (the app has no custom back handling, AppCompat routes back itself);
         // TetherService is a specialUse foreground service, which has no Android 15 time limit.
         targetSdk 36
-        versionCode 10
-        versionName "0.8.0"
+        versionCode 11
+        versionName "0.9.0"
+
+        // ETPH Pro (one-time in-app product, owner decision 2026-10-20).
+        buildConfigField "String", "PRO_PRODUCT_ID", '"etph_pro_lifetime"'
+        // The app's Play licence key (Play Console > Monetize with Play > Monetization setup >
+        // Licensing): the PUBLIC half of the RSA key Play signs every purchase with. Public by
+        // design, so it is committed in play-license-key.txt; while that file is missing the app
+        // can't check purchase signatures and trusts Google Play's answer as-is (docs/pro.md).
+        def licenseKeyFile = file('play-license-key.txt')
+        def licenseKey = licenseKeyFile.exists() ? licenseKeyFile.text.replaceAll('\\s', '') : ''
+        buildConfigField "String", "PLAY_LICENSE_KEY", "\"${licenseKey}\""
+        // -PbillingTestHooks=true (emulator e2e only): enables TestHookReceiver, which forces Free
+        // or Pro without Google Play. Off (receiver disabled in the manifest AND the code refuses)
+        // in every other build; publish-play.yml refuses a bundle with it enabled.
+        buildConfigField "boolean", "BILLING_TEST_HOOKS", "${billingTestHooks}"
+        manifestPlaceholders = [billingTestHooks: billingTestHooks.toString()]
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -116,6 +133,9 @@ dependencies {
     // Platform-independent core (protocol, session, userspace relay, filter,
     // TLS): android/core, a composite build also run by the CI stand-in.
     implementation 'com.etphonehome:core'
+
+    // Google Play Billing (ETPH Pro one-time purchase). The Java API, not billing-ktx.
+    implementation 'com.android.billingclient:billing:9.1.0'
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

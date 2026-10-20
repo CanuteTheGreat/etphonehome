@@ -79,6 +79,10 @@ object ServerHandshake {
      *   mismatch (after sending ERR_PROTOCOL_VERSION).
      * @throws SecurityException when the token is rejected (after sending
      *   ERR_AUTH_FAILED).
+     * @param admit runs after the token check (so only an authenticated
+     *   client learns anything): returns null to let the client in, or the
+     *   reason it needs ETPH Pro on the phone, which is sent as
+     *   ERR_PRO_REQUIRED before throwing [ProRequiredException].
      */
     fun perform(
         stream: MessageStream,
@@ -89,6 +93,7 @@ object ServerHandshake {
         refuseReason: String? = null,
         version: Short = Protocol.PROTOCOL_VERSION,
         deviceName: String? = null,
+        admit: ((HandshakeRequest) -> String?)? = null,
     ): HandshakeRequest {
         val request = stream.read() as? HandshakeRequest
             ?: throw ProtocolException("Expected HandshakeRequest")
@@ -120,6 +125,11 @@ object ServerHandshake {
             throw SecurityException("Authentication failed")
         }
 
+        admit?.invoke(request)?.let { reason ->
+            stream.write(ErrorMessage(errorCode = Protocol.ERR_PRO_REQUIRED, message = reason))
+            throw ProRequiredException(reason)
+        }
+
         stream.write(
             HandshakeResponse(
                 version = version,
@@ -132,3 +142,6 @@ object ServerHandshake {
         return request
     }
 }
+
+/** The client was refused because the phone is on the free version (see [ServerHandshake.perform]'s `admit`). */
+class ProRequiredException(message: String) : SecurityException(message)

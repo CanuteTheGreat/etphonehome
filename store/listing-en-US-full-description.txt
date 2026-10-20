@@ -2,25 +2,36 @@ Errant Solutions ETPH (ET Phone Home) lets your computer use your Android phone'
 
 You need the free ETPH desktop client on the computer (Linux or Windows), from https://errant.solutions/etphonehome/
 
+FREE AND PRO
+Free: share over USB with one computer, with no speed cap and no time limit. You start and stop sharing on the phone.
+ETPH Pro, a one-time purchase in the app (no subscription), adds:
+- WiFi and Bluetooth sharing
+- Routers: the phone as the internet uplink of an OpenWrt or GL.iNet router
+- Several computers and routers instead of one
+- Auto-start: sharing starts when the computer asks over USB, and the phone keeps waiting for the computer after a disconnect
+- Data usage history per computer/router and by kind of traffic (web, DNS, email, calls)
+Pro is bought once on the phone and comes back on a reinstall or a new phone with the same Google account. Computers and routers never need a licence: when something needs Pro, they say "Pro required on the phone".
+
 HOW IT WORKS
 The desktop client creates a network adapter on the computer and sends its traffic to this app. The app opens ordinary connections from the phone for it (TCP, UDP including DNS, and ping) and sends the replies back. Your phone's own apps are never affected.
 
 CONNECTION MODES
 - USB: the fastest and most reliable mode, through adb port forwarding (USB debugging).
-- WiFi: token-authenticated and encrypted by default with TLS 1.3 pinned to the pairing token. Unencrypted connections are refused unless you switch that off.
-- Bluetooth: works with the Linux client (the Windows client has no Bluetooth).
+- WiFi (Pro): token-authenticated and encrypted by default with TLS 1.3 pinned to the pairing token. Unencrypted connections are refused unless you switch that off.
+- Bluetooth (Pro): works with the Linux client (the Windows client has no Bluetooth).
 
 ON THE PHONE
-- Live status: whether a desktop is connected, how, and whether the link is encrypted.
+- Live status: whether a computer is connected, how, and whether the link is encrypted.
 - Live statistics: data each way, open connections and uptime.
+- A list of paired computers and routers, each with Forget.
 - A notification with a Stop button while sharing is on.
 - Allow/block traffic rules set on the desktop are enforced on the phone too.
 
 PRIVACY
-The app collects nothing: no account, no ads, no analytics, no crash reporting. Your computer's traffic goes straight from the phone to where it is headed and never passes through our servers. The pairing tokens stay on the phone.
+The app collects nothing: no account, no ads, no analytics, no crash reporting. Your computer's traffic goes straight from the phone to where it is headed and never passes through our servers. The pairing tokens, the device list and the usage history stay on the phone. The Pro purchase is handled by Google Play and checked on the phone; nothing about it is sent to us.
 
 OPEN SOURCE
-Free and open source (MIT license): https://git.canutethegreat.com/CanuteTheGreat/etphonehome
+Open source (MIT license): https://git.canutethegreat.com/CanuteTheGreat/etphonehome
 
 Your mobile plan's tethering rules still apply: check with your carrier if you're not sure tethering is allowed.
 

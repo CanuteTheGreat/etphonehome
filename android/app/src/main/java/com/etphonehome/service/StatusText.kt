@@ -25,7 +25,12 @@ object StatusText {
         is TetherState.Connected -> {
             val s = state.stats
             buildString {
-                appendLine("Desktop: ${state.info.peer}")
+                val c = state.info.client
+                if (c.id == com.etphonehome.session.ClientIdentity.LEGACY_ID) {
+                    appendLine("Desktop: ${state.info.peer}")
+                } else {
+                    appendLine("${if (c.router) "Router" else "Desktop"}: ${c.name} (${state.info.peer})")
+                }
                 if (s == null) {
                     append("Starting…")
                 } else {

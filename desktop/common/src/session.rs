@@ -85,10 +85,7 @@ pub async fn client_handshake<S: AsyncRead + AsyncWrite + Unpin + ?Sized>(
     capabilities: u32,
     token: Option<String>,
 ) -> Result<HandshakeResponse, ProtocolError> {
-    let request = match token {
-        Some(t) => HandshakeRequest::with_token(capabilities, t),
-        None => HandshakeRequest::new(capabilities),
-    };
+    let request = HandshakeRequest::for_this_client(capabilities, token);
     write_message(stream, &Message::HandshakeReq(request)).await?;
     match read_message(stream).await? {
         Message::HandshakeResp(resp) => {
@@ -200,6 +197,11 @@ fn log_handshake(resp: &HandshakeResponse) {
         crate::client::int_to_ip(resp.ip_address)
     );
     info!("  DNS: {}", crate::client::int_to_ip(resp.dns));
+    if resp.phone_has_pro() {
+        info!("  Phone: ETPH Pro");
+    } else {
+        info!("  Phone: free version (USB to one computer; Wi-Fi, Bluetooth, routers and more computers need ETPH Pro on the phone)");
+    }
 }
 
 /// Why a forwarding session ended.

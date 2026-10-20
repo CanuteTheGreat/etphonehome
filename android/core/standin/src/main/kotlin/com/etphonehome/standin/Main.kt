@@ -27,6 +27,10 @@ import kotlin.system.exitProcess
  *   standin --listen 127.0.0.1:8888 [--token T] [--require-tls]
  *           [--keepalive-secs N] [--stats-secs N] [--disconnect-after-secs N]
  *           [--advertise-version 0xMMmm] [--stats-log] [--device-name NAME] [--quiet]
+ *           [--free]
+ *
+ * --free plays a phone WITHOUT ETPH Pro (ProGate, as the app does): one computer, no routers,
+ * nothing but USB (a --token listener counts as Wi-Fi). By default the stand-in is a Pro phone.
  *
  * --stats-log prints the relay's live counters (the numbers the app shows)
  * every --stats-secs, so tests can check flows are cleaned up.
@@ -42,6 +46,8 @@ fun main(args: Array<String>) {
     var statsLog = false
     var deviceName: String? = "ETPH stand-in"
     var i = 0
+    var free = false
+    var paired = emptyList<com.etphonehome.pro.PairedDevice>()
     fun value(): String = args.getOrNull(++i) ?: usage("missing value for ${args[i - 1]}")
     while (i < args.size) {
         when (args[i]) {
@@ -55,6 +61,7 @@ fun main(args: Array<String>) {
             "--stats-log" -> statsLog = true
             "--device-name" -> deviceName = value().ifEmpty { null }
             "--quiet" -> Log.debugEnabled = false
+            "--free" -> free = true
             else -> usage("unknown argument ${args[i]}")
         }
         i++
@@ -76,7 +83,9 @@ fun main(args: Array<String>) {
             session = { sock ->
                 Log.i("standin", "connection from ${sock.remoteSocketAddress}")
                 val link = TcpLink.accept(sock, expected)
-                val caps = Protocol.CAP_USB or Protocol.CAP_WIFI or (if (expected != null) Protocol.CAP_TLS else 0)
+                val caps = Protocol.CAP_USB or Protocol.CAP_WIFI or (if (expected != null) Protocol.CAP_TLS else 0) or
+                    (if (free) 0 else Protocol.CAP_PRO)
+                val mode = if (expected != null) com.etphonehome.pro.ProGate.MODE_WIFI else com.etphonehome.pro.ProGate.MODE_USB
                 TetherSession(
                     link.stream,
                     SessionOptions(
@@ -96,6 +105,20 @@ fun main(args: Array<String>) {
                         onForcedDisconnect = { link.close() },
                         abortLink = { link.abort() },
                         deviceName = deviceName,
+                        admit = { req ->
+                            val client = com.etphonehome.session.ClientIdentity.of(req)
+                            when (val a = com.etphonehome.pro.ProGate.admit(!free, mode, client, paired)) {
+                                is com.etphonehome.pro.Admission.Refuse -> {
+                                    Log.i("standin", "refused ${client.name}: ${a.reason}")
+                                    a.reason
+                                }
+                                com.etphonehome.pro.Admission.Admit -> {
+                                    paired = com.etphonehome.pro.PairedDevices.seen(paired, client, System.currentTimeMillis())
+                                    Log.i("standin", "client ${client.name} (${if (client.router) "router" else "computer"}) admitted")
+                                    null
+                                }
+                            }
+                        },
                     ),
                     if (statsLog) StatsLogger(statsSecs * 1000) else SessionListener.NONE,
                 ).run()
@@ -129,7 +152,7 @@ private fun usage(msg: String): Nothing {
     System.err.println("standin: $msg")
     System.err.println(
         "usage: standin --listen HOST:PORT [--token T] [--require-tls] [--keepalive-secs N] " +
-            "[--stats-secs N] [--disconnect-after-secs N] [--advertise-version 0xMMmm] [--stats-log] [--device-name NAME] [--quiet]",
+            "[--stats-secs N] [--disconnect-after-secs N] [--advertise-version 0xMMmm] [--stats-log] [--device-name NAME] [--quiet] [--free]",
     )
     exitProcess(2)
 }

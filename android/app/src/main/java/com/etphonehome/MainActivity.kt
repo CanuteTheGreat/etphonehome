@@ -22,15 +22,20 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.etphonehome.billing.Pro
+import com.etphonehome.pro.ProGate
 import com.etphonehome.service.StatusText
 import com.etphonehome.service.TetherService
 import com.etphonehome.service.TetherState
 import com.etphonehome.service.TetherStatus
 import com.etphonehome.util.BluetoothText
 import com.etphonehome.util.LegacyApp
+import com.etphonehome.util.ProText
 import com.etphonehome.util.Settings
 import com.etphonehome.util.TokenManager
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 /**
  * Main screen: pick USB / WiFi / Bluetooth, start or stop sharing, and see
@@ -50,6 +55,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bluetoothInfoText: TextView
     private lateinit var requireEncryptionSwitch: SwitchCompat
     private lateinit var legacyAppBanner: View
+    private lateinit var proStatusText: TextView
+    private lateinit var upgradeButton: Button
+    private lateinit var proRequiredPanel: View
+    private lateinit var proRequiredText: TextView
+    private lateinit var autoStartSwitch: SwitchCompat
+    private lateinit var pairedHint: TextView
+    private lateinit var pairedList: android.widget.LinearLayout
+    private lateinit var usageText: TextView
 
     private var selectedConnectionMode = TetherService.CONNECTION_USB
 
@@ -91,6 +104,25 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.legacyAppButton).setOnClickListener {
             startActivity(LegacyApp.settingsIntent())
         }
+        proStatusText = findViewById(R.id.proStatusText)
+        upgradeButton = findViewById(R.id.upgradeButton)
+        proRequiredPanel = findViewById(R.id.proRequiredPanel)
+        proRequiredText = findViewById(R.id.proRequiredText)
+        autoStartSwitch = findViewById(R.id.autoStartSwitch)
+        pairedHint = findViewById(R.id.pairedHint)
+        pairedList = findViewById(R.id.pairedList)
+        usageText = findViewById(R.id.usageText)
+        upgradeButton.setOnClickListener { openUpgrade() }
+        findViewById<Button>(R.id.proRequiredButton).setOnClickListener { openUpgrade() }
+        autoStartSwitch.isChecked = Pro.store.autoStart
+        autoStartSwitch.setOnCheckedChangeListener { v, checked ->
+            if (Pro.isPro) {
+                Pro.store.autoStart = checked
+            } else if (checked) {
+                v.isChecked = false
+                openUpgrade()
+            }
+        }
 
         selectedConnectionMode = Settings.connectionMode(this, TetherService.CONNECTION_USB)
         connectionModeGroup.check(
@@ -125,10 +157,43 @@ class MainActivity : AppCompatActivity() {
                 TetherStatus.state.collect { render(it) }
             }
         }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(Pro.state, Pro.store.paired, Pro.store.usageVersion) { e, _, _ -> e }.collect { renderPro() }
+            }
+        }
+    }
+
+    private fun openUpgrade() {
+        startActivity(Intent(this, UpgradeActivity::class.java))
+    }
+
+    /** Free/Pro line, the Pro note for Wi-Fi/Bluetooth, auto-start, paired devices, usage. */
+    private fun renderPro() {
+        val e = Pro.state.value
+        val pro = e.isPro
+        proStatusText.text = ProText.statusLine(e)
+        upgradeButton.visibility = if (pro) View.GONE else View.VISIBLE
+        showModeInfo()
+        autoStartSwitch.text = getString(if (pro) R.string.auto_start else R.string.auto_start_pro)
+        autoStartSwitch.isChecked = pro && Pro.store.autoStart
+        val paired = Pro.store.paired.value
+        pairedHint.text = ProText.pairedHint(pro, paired)
+        pairedList.removeAllViews()
+        val now = System.currentTimeMillis()
+        for (d in paired) {
+            val row = layoutInflater.inflate(R.layout.row_paired, pairedList, false)
+            row.findViewById<TextView>(R.id.pairedName).text = ProText.pairedRow(d, pro, paired, now)
+            row.findViewById<Button>(R.id.pairedForget).setOnClickListener { Pro.store.forget(d.id) }
+            pairedList.addView(row)
+        }
+        usageText.text = Pro.store.usage { ProText.usage(pro, it, paired, LocalDate.now()) }
     }
 
     override fun onResume() {
         super.onResume()
+        // Re-ask Google Play whenever the app comes back (refunds, a purchase made elsewhere).
+        Pro.refreshAsync()
         // Re-checked on every return, so the banner goes away once the old app is uninstalled.
         legacyAppBanner.visibility =
             if (LegacyApp.shouldWarn(packageName) { LegacyApp.isInstalled(packageManager, it) }) View.VISIBLE else View.GONE
@@ -145,6 +210,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestPermissionsAndStart() {
+        if (ProGate.transportRefusal(Pro.isPro, selectedConnectionMode) != null) {
+            openUpgrade()
+            return
+        }
         val needed = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             !granted(Manifest.permission.POST_NOTIFICATIONS)
@@ -174,8 +243,12 @@ class MainActivity : AppCompatActivity() {
     private fun showModeInfo() {
         wifiIpText.visibility = View.GONE
         bluetoothInfoText.visibility = View.GONE
+        val refusal = ProGate.transportRefusal(Pro.isPro, selectedConnectionMode)
+        proRequiredPanel.visibility = if (refusal != null) View.VISIBLE else View.GONE
+        proRequiredText.text = refusal ?: ""
         requireEncryptionSwitch.visibility =
-            if (selectedConnectionMode == TetherService.CONNECTION_WIFI) View.VISIBLE else View.GONE
+            if (selectedConnectionMode == TetherService.CONNECTION_WIFI && refusal == null) View.VISIBLE else View.GONE
+        if (refusal != null) return
         when (selectedConnectionMode) {
             TetherService.CONNECTION_WIFI -> showWifiInfo()
             TetherService.CONNECTION_BLUETOOTH -> showBluetoothInfo()

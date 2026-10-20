@@ -243,22 +243,45 @@ pub fn open_stream(
     allow_wait: Duration,
     service: &str,
 ) -> Result<AdbStream> {
+    open_stream_with_auto_start(link, key, observer, allow_wait, service, None)
+}
+
+/// [`open_stream`]; when nothing listens on `service` and `auto_start` is
+/// set, run that shell command on the phone first (ETPH Pro's auto-start:
+/// `am start -n .../AutoStartActivity`), wait for the app, and try once more.
+pub fn open_stream_with_auto_start(
+    link: Arc<dyn Link>,
+    key: &key::AdbKey,
+    observer: &dyn AuthObserver,
+    allow_wait: Duration,
+    service: &str,
+    auto_start: Option<&str>,
+) -> Result<AdbStream> {
     let connected = handshake(&*link, key, observer, allow_wait)?;
-    let mut svc = service.as_bytes().to_vec();
-    svc.push(0);
-    link.send(&Header::new(A_OPEN, LOCAL_ID, 0, &svc), &svc)?;
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let remote = loop {
-        if Instant::now() > deadline {
-            bail!("the phone did not answer opening {service}");
-        }
-        let Some((h, _)) = link.recv()? else { continue };
-        match h.command {
-            A_OKAY if h.arg1 == LOCAL_ID => break h.arg0,
-            A_CLSE => bail!(
-                "the phone refused {service}: is ETPH started in USB mode? (nothing listens on that port)"
-            ),
-            _ => {}
+    let remote = match open_service(&*link, service, LOCAL_ID) {
+        Ok(r) => r,
+        Err(e) => {
+            let Some(cmd) = auto_start else { return Err(e) };
+            info!("nothing listens on {service}: asking the phone to start ETPH ({cmd})");
+            let out = run_shell(&*link, cmd)?;
+            info!("phone: {}", out.trim());
+            // The app starts its USB server within a second or two.
+            let mut last = e;
+            let mut opened = None;
+            for _ in 0..8 {
+                std::thread::sleep(Duration::from_millis(750));
+                match open_service(&*link, service, LOCAL_ID) {
+                    Ok(r) => {
+                        opened = Some(r);
+                        break;
+                    }
+                    Err(e) => last = e,
+                }
+            }
+            match opened {
+                Some(r) => r,
+                None => return Err(last.context("auto-start requested; the phone did not start sharing (ETPH Pro and \"Start when the computer asks\" are needed on the phone)")),
+            }
         }
     };
     info!("adb stream to {} open (USB, no adb server)", service);
@@ -266,6 +289,50 @@ pub fn open_stream(
         io: bridge(link, remote, connected.max_data),
         connected,
     })
+}
+
+/// OPEN `service` as `local` and wait for the phone's OKAY (its stream id).
+fn open_service(link: &dyn Link, service: &str, local: u32) -> Result<u32> {
+    let mut svc = service.as_bytes().to_vec();
+    svc.push(0);
+    link.send(&Header::new(A_OPEN, local, 0, &svc), &svc)?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if Instant::now() > deadline {
+            bail!("the phone did not answer opening {service}");
+        }
+        let Some((h, _)) = link.recv()? else { continue };
+        match h.command {
+            A_OKAY if h.arg1 == local => return Ok(h.arg0),
+            A_CLSE if h.arg1 == local || h.arg1 == 0 => bail!(
+                "the phone refused {service}: is ETPH started in USB mode? (nothing listens on that port)"
+            ),
+            _ => {}
+        }
+    }
+}
+
+/// Run `shell:<cmd>` on the phone and return its output (ADB "shell" service).
+pub fn run_shell(link: &dyn Link, cmd: &str) -> Result<String> {
+    const SHELL_ID: u32 = 2;
+    let remote = open_service(link, &format!("shell:{cmd}"), SHELL_ID)?;
+    let mut out = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        let Some((h, data)) = link.recv()? else {
+            continue;
+        };
+        match h.command {
+            A_WRTE if h.arg1 == SHELL_ID => {
+                out.extend_from_slice(&data);
+                link.send(&Header::new(A_OKAY, SHELL_ID, remote, &[]), &[])?;
+            }
+            A_CLSE if h.arg1 == SHELL_ID => break,
+            _ => {}
+        }
+    }
+    let _ = link.send(&Header::new(A_CLSE, SHELL_ID, remote, &[]), &[]);
+    Ok(String::from_utf8_lossy(&out).into_owned())
 }
 
 /// Pump bytes between an ADB stream (local id 1 <-> `remote`) and one end

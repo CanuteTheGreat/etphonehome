@@ -61,3 +61,34 @@ routers	README.md	Routers (OpenWrt, GL.iNet)	android/core/src/test/kotlin/com/et
 routers	README.md	Routers (OpenWrt, GL.iNet)	.forgejo/scripts/android-emulator-e2e.sh	router USB path: tunnel up through the built-in ADB host (real adbd, no adb tool)
 routers	README.md	Routers (OpenWrt, GL.iNet)	desktop/common/src/adb/tests.rs	new_key_is_offered_for_the_allow_prompt
 routers	README.md	Routers (OpenWrt, GL.iNet)	desktop/common/src/adb/usb.rs	finds_the_adb_interface_in_sysfs
+free-usb	README.md	Free: USB to one computer	android/core/src/test/kotlin/com/etphonehome/pro/ProGateTest.kt	fun freeAdmitsTheFirstComputerAndThenOnlyThatOne
+free-usb	README.md	Free: USB to one computer	.forgejo/scripts/desktop-e2e-inner.sh	pro: free phone gives the first computer USB internet
+free-usb	README.md	Free: USB to one computer	.forgejo/scripts/desktop-e2e-inner.sh	pro: free phone refuses a second computer with 'Pro required on the phone'
+free-usb	README.md	Free: USB to one computer	.forgejo/scripts/android-emulator-e2e.sh	free: a second computer is refused
+free-usb	README.md	the phone lists paired computers with Forget	android/app/src/test/java/com/etphonehome/util/ProTextTest.kt	fun freeMarksTheOneFreeComputerAndWhatNeedsPro
+free-usb	README.md	the phone lists paired computers with Forget	android/core/src/test/kotlin/com/etphonehome/pro/ProGateTest.kt	fun forgettingTheComputerLetsAnotherOneIn
+pro-phone	README.md	ETPH Pro is enforced by the phone	android/core/src/test/kotlin/com/etphonehome/pro/EntitlementEngineTest.kt	fun purchaseUnlocksProAndIsAcknowledgedOnce
+pro-phone	README.md	ETPH Pro is enforced by the phone	android/core/src/test/kotlin/com/etphonehome/pro/EntitlementEngineTest.kt	fun restoreOnANewPhoneIsJustAQuery
+pro-phone	README.md	ETPH Pro is enforced by the phone	android/core/src/test/kotlin/com/etphonehome/pro/EntitlementEngineTest.kt	fun pendingPurchaseStaysFreeUntilPlayConfirms
+pro-phone	README.md	ETPH Pro is enforced by the phone	android/core/src/test/kotlin/com/etphonehome/pro/EntitlementEngineTest.kt	fun refundOrRevocationTakesProAwayAndDropsTheCache
+pro-phone	README.md	ETPH Pro is enforced by the phone	android/core/src/test/kotlin/com/etphonehome/pro/PurchaseVerifierTest.kt	fun editedJsonOrForeignSignatureIsRejected
+pro-phone	README.md	ETPH Pro is enforced by the phone	desktop/common/src/protocol_vectors.rs	fn pro_vectors_client_identity_pro_flag_and_pro_required
+pro-phone	README.md	ETPH Pro is enforced by the phone	.forgejo/scripts/desktop-e2e-inner.sh	pro: free phone refuses a router (--router)
+pro-phone	README.md	ETPH Pro is enforced by the phone	.forgejo/scripts/android-emulator-e2e.sh	free: Start in Wi-Fi mode opens the Upgrade to Pro screen
+pro-phone	README.md	ETPH Pro is enforced by the phone	.forgejo/scripts/android-emulator-e2e.sh	router USB path (Pro phone): the router (--router) was admitted
+auto-start	README.md	Auto-start on plug-in (Pro)	.forgejo/scripts/android-emulator-e2e.sh	pro: auto-start: 'am start AutoStartActivity'
+auto-start	README.md	Auto-start on plug-in (Pro)	.forgejo/scripts/android-emulator-e2e.sh	free: auto-start request from the computer refused
+auto-start	README.md	Auto-start on plug-in (Pro)	.forgejo/scripts/desktop-e2e-inner.sh	auto-start: the client asks the phone to start ETPH once per plug-in
+auto-start	README.md	the phone keeps waiting for the computer after a disconnect	.forgejo/scripts/android-emulator-e2e.sh	pro: after the computer disconnects the phone keeps waiting for it
+auto-start	README.md	the phone keeps waiting for the computer after a disconnect	.forgejo/scripts/android-emulator-e2e.sh	free: when the computer disconnects, sharing stops
+usage	README.md	Data usage (Pro)	android/core/src/test/kotlin/com/etphonehome/pro/UsageLedgerTest.kt	fun cumulativeSnapshotsAddOnlyTheDifference
+usage	README.md	Data usage (Pro)	android/core/src/test/kotlin/com/etphonehome/relay/TrafficKindTest.kt	fun classifiesByTheRemotePortInBothDirections
+usage	README.md	Data usage (Pro)	.forgejo/scripts/android-emulator-e2e.sh	pro: data usage per computer and by kind of traffic
+listing-free-pro	store/listing-en-US-full-description.txt	Free: share over USB with one computer, with no speed cap and no time limit.	.forgejo/scripts/desktop-e2e-inner.sh	pro: free phone gives the first computer USB internet
+listing-free-pro	store/listing-en-US-full-description.txt	- WiFi and Bluetooth sharing	android/core/src/test/kotlin/com/etphonehome/pro/ProGateTest.kt	fun freeAllowsUsbButNotWifiOrBluetooth
+listing-free-pro	store/listing-en-US-full-description.txt	- Routers: the phone as the internet uplink of an OpenWrt or GL.iNet router	android/core/src/test/kotlin/com/etphonehome/pro/ProGateTest.kt	fun freeRefusesRoutersEvenAsTheOnlyDevice
+listing-free-pro	store/listing-en-US-full-description.txt	- Several computers and routers instead of one	android/core/src/test/kotlin/com/etphonehome/pro/ProGateTest.kt	fun proAdmitsSeveralComputersAndRouters
+listing-free-pro	store/listing-en-US-full-description.txt	- Auto-start: sharing starts when the computer asks over USB	.forgejo/scripts/android-emulator-e2e.sh	pro: auto-start: 'am start AutoStartActivity'
+listing-free-pro	store/listing-en-US-full-description.txt	- Data usage history per computer/router and by kind of traffic	.forgejo/scripts/android-emulator-e2e.sh	pro: data usage per computer and by kind of traffic
+listing-free-pro	store/listing-en-US-full-description.txt	comes back on a reinstall or a new phone with the same Google account	android/core/src/test/kotlin/com/etphonehome/pro/EntitlementEngineTest.kt	fun restoreOnANewPhoneIsJustAQuery
+listing-free-pro	store/listing-en-US-full-description.txt	Computers and routers never need a licence	.forgejo/scripts/desktop-e2e-inner.sh	no licence asked of the computer

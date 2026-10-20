@@ -13,4 +13,7 @@
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="etphonehome_tokens.xml" />
+    <!-- ETPH Pro state: the purchase comes back from Google Play on a new phone (restore),
+         never from a backup; paired devices/usage belong to this phone. -->
+    <exclude domain="sharedpref" path="etph_pro.xml" />
 </full-backup-content>

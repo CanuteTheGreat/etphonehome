@@ -10,8 +10,10 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="etphonehome_tokens.xml" />
+        <exclude domain="sharedpref" path="etph_pro.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="etphonehome_tokens.xml" />
+        <exclude domain="sharedpref" path="etph_pro.xml" />
     </device-transfer>
 </data-extraction-rules>

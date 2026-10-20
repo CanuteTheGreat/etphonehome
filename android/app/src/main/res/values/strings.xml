@@ -26,4 +26,23 @@
     <string name="btn_stop">Stop Tethering</string>
     <string name="statistics">Statistics</string>
     <string name="no_data">No data</string>
+
+    <!-- ETPH Pro (one-time in-app purchase). Quiet: one status line, no pop-ups. -->
+    <string name="pro_status_free">Free: USB to one computer</string>
+    <string name="pro_status_pro">ETPH Pro</string>
+    <string name="pro_upgrade_link">Upgrade to Pro</string>
+    <string name="pro_see">See ETPH Pro</string>
+    <string name="pro_title">ETPH Pro</string>
+    <string name="pro_subtitle">A one-time purchase that unlocks the rest of ETPH on this phone. No subscription, and nothing to buy for your computers or routers.</string>
+    <string name="pro_free_stays">Stays free: sharing over USB with one computer, with no speed cap and no time limit.</string>
+    <string name="pro_buy_loading">Checking Google Play…</string>
+    <string name="pro_buy">Buy ETPH Pro for %1$s</string>
+    <string name="pro_restore">Restore purchase</string>
+    <string name="pro_owned">You have ETPH Pro. Thank you!</string>
+    <string name="pro_fine_print">Bought with the Google account on this phone. A new phone or a reinstall gets Pro back automatically (or tap Restore purchase). Refunds go through Google Play.</string>
+    <string name="auto_start">Start when the computer asks (USB)</string>
+    <string name="auto_start_pro">Start when the computer asks (USB) · Pro</string>
+    <string name="paired_title">Paired computers and routers</string>
+    <string name="paired_forget">Forget</string>
+    <string name="usage_title">Data usage</string>
 </resources>

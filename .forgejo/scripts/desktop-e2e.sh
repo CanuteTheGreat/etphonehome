@@ -25,6 +25,8 @@ start_peer wifi-tls --listen 0.0.0.0:9002 --token TlsTok456 --require-tls --stat
 # USB (no token; reached through the adb-forward shim)
 start_peer usb --listen 0.0.0.0:8888
 start_peer usb2 --listen 0.0.0.0:8890
+# A phone WITHOUT ETPH Pro (ProGate): one computer over USB, no routers.
+start_peer usbfree --listen 0.0.0.0:8891 --free
 # The phone hangs up after 3 s (auto-reconnect scenarios)
 start_peer hangup --listen 0.0.0.0:9003 --token RecTok --disconnect-after-secs 3
 wait_peers wifi-open wifi-tls usb usb2 hangup

@@ -18,6 +18,11 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.etphonehome.MainActivity
 import com.etphonehome.R
+import com.etphonehome.billing.Pro
+import com.etphonehome.pro.Admission
+import com.etphonehome.pro.ProGate
+import com.etphonehome.protocol.HandshakeRequest
+import com.etphonehome.session.ClientIdentity
 import com.etphonehome.filter.FilterConfig
 import com.etphonehome.log.Log
 import com.etphonehome.protocol.MessageStream
@@ -39,6 +44,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.Closeable
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -78,6 +84,8 @@ class TetherService : Service() {
         const val ACTION_STOP = "com.etphonehome.action.STOP"
         const val EXTRA_CONNECTION_TYPE = "connection_type"
         const val EXTRA_PORT = "port"
+        /** Started by AutoStartActivity (the computer asked over USB), not by the Start button. */
+        const val EXTRA_AUTO_START = "auto_start"
         const val DEFAULT_PORT = 8888
 
         const val CONNECTION_USB = "usb"
@@ -90,6 +98,9 @@ class TetherService : Service() {
         // (runner::BLUETOOTH_SERVICE_UUID) asks BlueZ to find its RFCOMM
         // channel over SDP: Android assigns channels dynamically.
         private val BLUETOOTH_UUID: UUID = UUID.fromString("6b1c0f53-4e3a-4d7e-9c5b-455450484f4e")
+
+        const val FREE_SESSION_ENDED =
+            "The computer disconnected. Tap Start to share again (ETPH Pro keeps waiting for it to come back)."
 
         fun modeLabel(mode: String) = when (mode) {
             CONNECTION_USB -> "USB"
@@ -116,6 +127,7 @@ class TetherService : Service() {
             return START_NOT_STICKY
         }
         running = true
+        hadSession = false
         mode = intent.getStringExtra(EXTRA_CONNECTION_TYPE) ?: CONNECTION_USB
         val port = intent.getIntExtra(EXTRA_PORT, DEFAULT_PORT)
         Log.i(tag, "Starting tethering: mode=$mode port=$port")
@@ -124,8 +136,19 @@ class TetherService : Service() {
         startInForeground()
         acquireWakeLock()
 
+        val auto = intent.getBooleanExtra(EXTRA_AUTO_START, false)
         scope.launch {
             try {
+                // Ask Google Play now (refunds/revocations show up here), but never block a
+                // start for long on it: an offline phone falls back to the remembered purchase.
+                Pro.init(this@TetherService)
+                withTimeoutOrNull(5000) { Pro.refresh() }
+                ProGate.transportRefusal(Pro.isPro, mode)?.let { refusal ->
+                    Log.i(tag, "Not starting $mode: $refusal")
+                    shutdown(refusal)
+                    return@launch
+                }
+                if (auto) Log.i(tag, "Started by the computer (auto-start, ETPH Pro)")
                 when (mode) {
                     CONNECTION_USB -> serveUsb(port)
                     CONNECTION_WIFI -> serveWifi(port)
@@ -258,10 +281,11 @@ class TetherService : Service() {
                             null
                         },
                         capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI or
-                            (if (token != null) Protocol.CAP_TLS else 0),
+                            (if (token != null) Protocol.CAP_TLS else 0) or proCapability(),
                         abortLink = { link.abort() },
                         relayConfig = relayConfig,
                         deviceName = deviceName(),
+                        admit = ::admitClient,
                     ),
                 )
             },
@@ -297,7 +321,8 @@ class TetherService : Service() {
                         // RFCOMM between paired devices is link-encrypted by Bluetooth.
                         encrypted = true,
                         tokenVerifier = { presented -> TokenManager.verifyBluetoothToken(this, presented) },
-                        capabilities = Protocol.CAP_BLUETOOTH,
+                        capabilities = Protocol.CAP_BLUETOOTH or proCapability(),
+                        admit = ::admitClient,
                         abortLink = {
                             try {
                                 sock.close()
@@ -315,19 +340,48 @@ class TetherService : Service() {
         loop.run()
     }
 
+    private fun proCapability() = if (Pro.isPro) Protocol.CAP_PRO else 0
+
+    /** The Free/Pro gate at the handshake (after the token check): see ProGate. */
+    private fun admitClient(request: HandshakeRequest): String? {
+        val client = ClientIdentity.of(request)
+        return when (val a = ProGate.admit(Pro.isPro, mode, client, Pro.store.paired.value)) {
+            is Admission.Refuse -> {
+                Log.i(tag, "Refused ${client.name}: ${a.reason}")
+                TetherStatus.set(TetherState.Waiting(modeLabel(mode), "$waitingHint\n\nRefused \"${client.name}\": ${a.reason.removePrefix(ProGate.PREFIX)}"))
+                refreshNotification()
+                a.reason
+            }
+            Admission.Admit -> {
+                Pro.store.deviceSeen(client)
+                null
+            }
+        }
+    }
+
+    /** Set once a session got past the handshake; Free stops sharing after such a session. */
+    @Volatile private var hadSession = false
+
     private suspend fun runSession(stream: MessageStream, options: SessionOptions) {
         val label = modeLabel(mode)
+        val sessionKey = Any()
+        var client = ClientIdentity.UNKNOWN
+        var last: SessionSnapshot? = null
         TetherSession(
             stream,
             options,
             object : SessionListener {
                 override fun onConnected(info: SessionInfo) {
+                    hadSession = true
+                    client = info.client
                     TetherStatus.sessionsServed++
                     TetherStatus.set(TetherState.Connected(label, info))
                     refreshNotification()
                 }
 
                 override fun onStats(stats: SessionSnapshot) {
+                    last = stats
+                    Pro.store.record(sessionKey, client, stats)
                     TetherStatus.update { s -> if (s is TetherState.Connected) s.copy(stats = stats) else s }
                     refreshNotification()
                 }
@@ -337,6 +391,7 @@ class TetherService : Service() {
                 }
             },
         ).run()
+        last?.let { Pro.store.record(sessionKey, client, it, final = true) }
     }
 
     private var waitingHint = ""
@@ -355,10 +410,16 @@ class TetherService : Service() {
     private fun endSession() {
         activeConnection = null
         upstream?.releaseCellular()
-        if (running) {
-            Log.i(tag, "Session ended, waiting for the next desktop connection")
-            waiting(waitingHint)
+        if (!running) return
+        if (hadSession && !ProGate.keepListeningAfterSession(Pro.isPro)) {
+            // Free: sharing is started and stopped by hand. Pro keeps waiting (auto-reconnect).
+            Log.i(tag, "Session ended; free version: sharing stopped (Pro keeps waiting for the computer)")
+            scope.launch { shutdown(FREE_SESSION_ENDED) }
+            return
         }
+        hadSession = false
+        Log.i(tag, "Session ended, waiting for the next desktop connection")
+        waiting(waitingHint)
     }
 
     // ---------------------------------------------------------------

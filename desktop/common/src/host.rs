@@ -245,6 +245,8 @@ pub struct Status {
     pub connected_since: Option<u64>,
     pub last_error: Option<String>,
     pub last_end: Option<String>,
+    /// Whether the phone has ETPH Pro (null until a phone answered).
+    pub phone_pro: Option<bool>,
     pub bytes_sent: u64,
     pub bytes_received: u64,
     /// Bytes per second over the last update interval.
@@ -343,6 +345,10 @@ impl StatusFile {
             s.rate_received = 0;
             s.sessions += 1;
         });
+    }
+
+    pub fn phone_pro(&self, pro: bool) {
+        self.update(|s| s.phone_pro = Some(pro));
     }
 
     /// Byte counters of the running session; rates come from the change

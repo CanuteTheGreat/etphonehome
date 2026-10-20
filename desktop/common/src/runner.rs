@@ -420,6 +420,55 @@ pub fn create_tun_with(tun_name: &str, addr: &host::TunAddressing) -> Result<tun
     ))
 }
 
+/// ETPH Pro auto-start: what the computer runs on the phone (over USB
+/// debugging) when it finds nothing listening. The phone decides: Pro with
+/// "Start when the computer asks" on starts USB sharing; free says no.
+pub const AUTO_START_CMD: &str =
+    "am start -n solutions.errant.etph/com.etphonehome.AutoStartActivity";
+
+/// Auto-start is requested once per plug-in: on the first attempt of this
+/// process, and again only after an attempt found no phone on USB (it was
+/// unplugged and plugged back). So tapping Stop on the phone with the cable
+/// still in is respected: the computer doesn't start it again by itself.
+static AUTO_START_ARMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+fn take_auto_start() -> bool {
+    AUTO_START_ARMED.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
+/// An attempt found no phone on USB: the next time it is there counts as a plug-in.
+fn phone_absent() {
+    AUTO_START_ARMED.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The `adb` arguments for the auto-start request.
+pub fn adb_auto_start_args(serial: Option<&str>) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(s) = serial.filter(|s| !s.trim().is_empty()) {
+        args.push("-s".to_string());
+        args.push(s.trim().to_string());
+    }
+    args.push("shell".to_string());
+    args.extend(AUTO_START_CMD.split(' ').map(String::from));
+    args
+}
+
+/// adb forward is up but the phone closed the stream at once: nothing listens.
+fn nothing_listening(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| {
+        c.downcast_ref::<std::io::Error>().is_some_and(|io| {
+            matches!(
+                io.kind(),
+                std::io::ErrorKind::UnexpectedEof
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::BrokenPipe
+            )
+        }) || c
+            .downcast_ref::<crate::protocol::ProtocolError>()
+            .is_some_and(|p| matches!(p, crate::protocol::ProtocolError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof))
+    })
+}
+
 /// Open the transport for a plan (runs `adb forward` first for USB).
 pub async fn open_transport(target: &Target) -> Result<Transport> {
     open_transport_with(target, &HostIntegration::default()).await
@@ -434,7 +483,35 @@ pub async fn open_transport_with(target: &Target, host: &HostIntegration) -> Res
                 if host.usb_native || host.adb_tcp.is_some() {
                     return open_native_usb(*port, host).await;
                 }
-                setup_adb_forwarding_for(*port, host.adb_serial.as_deref())?;
+                if let Err(e) = setup_adb_forwarding_for(*port, host.adb_serial.as_deref()) {
+                    phone_absent();
+                    return Err(e);
+                }
+                let armed = take_auto_start();
+                return match session::connect(opts).await {
+                    Err(e) if armed && nothing_listening(&e) => {
+                        info!("Nothing listens on the phone: asking it to start ETPH (auto-start, ETPH Pro)");
+                        let r = Command::new("adb")
+                            .args(adb_auto_start_args(host.adb_serial.as_deref()))
+                            .output();
+                        if let Ok(o) = &r {
+                            info!("phone: {}", String::from_utf8_lossy(&o.stdout).trim());
+                        }
+                        let mut last = e;
+                        for _ in 0..8 {
+                            tokio::time::sleep(Duration::from_millis(750)).await;
+                            match session::connect(opts).await {
+                                Ok(t) => return Ok(t),
+                                Err(e) => last = e,
+                            }
+                        }
+                        Err(last.context(
+                            "auto-start requested; the phone did not start sharing (ETPH Pro and \"Start when \
+                             the computer asks\" are needed on the phone, otherwise tap Start)",
+                        ))
+                    }
+                    r => r,
+                };
             }
             session::connect(opts).await
         }
@@ -494,7 +571,7 @@ async fn open_native_usb(port: u16, host: &HostIntegration) -> Result<Transport>
                 #[cfg(target_os = "linux")]
                 {
                     let devs = crate::adb::usb::find_devices(std::path::Path::new("/sys/bus/usb/devices"));
-                    let dev = crate::adb::usb::pick(&devs, serial.as_deref())?;
+                    let dev = crate::adb::usb::pick(&devs, serial.as_deref()).inspect_err(|_| phone_absent())?;
                     info!("Phone on USB: {} (serial {})", dev.product, dev.serial);
                     std::sync::Arc::new(crate::adb::usb::UsbLink::open(&dev).with_context(|| {
                         format!("cannot open {} (run as root)", dev.dev_node.display())
@@ -512,7 +589,15 @@ async fn open_native_usb(port: u16, host: &HostIntegration) -> Result<Transport>
             Some(st) => &**st,
             None => &crate::adb::NoObserver,
         };
-        crate::adb::open_stream(link, &key, observer, Duration::from_secs(120), &format!("tcp:{port}"))
+        let auto = take_auto_start().then_some(AUTO_START_CMD);
+        crate::adb::open_stream_with_auto_start(
+            link,
+            &key,
+            observer,
+            Duration::from_secs(120),
+            &format!("tcp:{port}"),
+            auto,
+        )
     })
     .await
     .context("adb task failed")??;
@@ -764,6 +849,7 @@ where
     let dns =
         (transport.handshake.dns != 0).then(|| std::net::Ipv4Addr::from(transport.handshake.dns));
     let device = transport.handshake.device_name.clone();
+    let phone_pro = transport.handshake.phone_has_pro();
     if host.manage_routes {
         if let Err(e) = setup_routing_via(&plan.tun_name, &host.tun.peer.to_string()) {
             warn!("Routing setup failed (connection may still work): {:#}", e);
@@ -812,6 +898,7 @@ where
     let status_pump = match (&host.status, &service) {
         (Some(st), Some(svc)) => {
             st.connected(device.clone(), encrypted);
+            st.phone_pro(phone_pro);
             let st = st.clone();
             let svc = svc.clone();
             Some(tokio::spawn(async move {
@@ -918,6 +1005,28 @@ pub fn is_permanent(e: &anyhow::Error) -> bool {
     })
 }
 
+/// The phone refused us because it needs ETPH Pro (Wi-Fi/Bluetooth, a router,
+/// or a second computer on the free version). Returns the phone's message.
+/// Not permanent: buying Pro on the phone, or forgetting the other computer
+/// there, fixes it without touching this client, so it keeps retrying slowly.
+pub fn pro_required(e: &anyhow::Error) -> Option<String> {
+    use crate::protocol::{ErrorCode, ProtocolError};
+    e.chain()
+        .find_map(|c| match c.downcast_ref::<ProtocolError>() {
+            Some(ProtocolError::PeerError {
+                code: ErrorCode::ProRequired,
+                message,
+            }) => Some(message.clone()),
+            // Phones that predate this client's error code table still say it in words.
+            Some(ProtocolError::PeerError { message, .. })
+                if message.starts_with("Pro required on the phone") =>
+            {
+                Some(message.clone())
+            }
+            _ => None,
+        })
+}
+
 /// Run `attempt` with auto-reconnect and exponential backoff (1, 2, 4 ...
 /// capped at 60 s). Stops on shutdown, on a cancelled session, or when the
 /// retry budget is used up (returning the last error, if the last attempt
@@ -964,6 +1073,17 @@ where
                     failed = 0;
                     end.should_reconnect()
                 }
+                Err(e) if pro_required(e).is_some() => {
+                    let hint =
+                        crate::identity::pro_required_hint(&pro_required(e).unwrap_or_default());
+                    error!("{}", hint);
+                    if let Some(svc) = &service {
+                        svc.set_state(ConnectionState::Error { message: hint });
+                    }
+                    // Slow retries: it starts working once Pro is bought on the phone.
+                    failed += 1;
+                    true
+                }
                 Err(e) if is_permanent(e) => {
                     error!("Connection failed: {:#}", e);
                     error!(
@@ -996,7 +1116,12 @@ where
                 Err(e) => Err(e),
             };
         }
-        let delay = ConnectionService::calculate_retry_delay(failed);
+        let waiting_for_pro = matches!(&result, Err(e) if pro_required(e).is_some());
+        let delay = if waiting_for_pro {
+            Duration::from_secs(60)
+        } else {
+            ConnectionService::calculate_retry_delay(failed)
+        };
         info!(
             "Reconnecting in {}s (attempt {} of {})...",
             delay.as_secs(),
@@ -1007,7 +1132,7 @@ where
                 policy.max_retries.to_string()
             }
         );
-        if let Some(svc) = &service {
+        if let (Some(svc), false) = (&service, waiting_for_pro) {
             if let Some(profile) = svc.current_profile() {
                 svc.set_state(ConnectionState::Reconnecting {
                     profile,
@@ -1872,5 +1997,84 @@ mod tests {
             .unwrap_or_else(|| panic!("advertised service not discovered: {:?}", found));
         assert_eq!(me.port, 8888);
         assert!(!me.addresses.is_empty());
+    }
+
+    #[test]
+    fn pro_required_is_recognised_and_retried_slowly_not_given_up() {
+        use crate::protocol::{ErrorCode, ProtocolError};
+        let e = anyhow::Error::new(ProtocolError::PeerError {
+            code: ErrorCode::ProRequired,
+            message: "Pro required on the phone: routers are part of ETPH Pro.".into(),
+        })
+        .context("handshake with Android device failed");
+        assert_eq!(
+            pro_required(&e).as_deref(),
+            Some("Pro required on the phone: routers are part of ETPH Pro.")
+        );
+        assert!(!is_permanent(&e));
+        // An older phone build's text with another code is still recognised.
+        let old = anyhow::Error::new(ProtocolError::PeerError {
+            code: ErrorCode::InternalError,
+            message: "Pro required on the phone: x".into(),
+        });
+        assert!(pro_required(&old).is_some());
+        assert!(pro_required(&anyhow::anyhow!("connection refused")).is_none());
+    }
+
+    #[tokio::test]
+    async fn pro_required_keeps_retrying_with_the_slowest_backoff() {
+        use crate::protocol::{ErrorCode, ProtocolError};
+        tokio::time::pause();
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        let attempts = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let a = attempts.clone();
+        let r = run_with_retry(
+            RetryPolicy {
+                reconnect: true,
+                max_retries: 3,
+            },
+            rx,
+            None,
+            move |_| {
+                let a = a.clone();
+                async move {
+                    a.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Err::<SessionEnd, _>(anyhow::Error::new(ProtocolError::PeerError {
+                        code: ErrorCode::ProRequired,
+                        message:
+                            "Pro required on the phone: the free version works with one computer"
+                                .into(),
+                    }))
+                }
+            },
+        )
+        .await;
+        assert!(r.is_err());
+        // 3 attempts within the budget (not one and give up as for a wrong token).
+        assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn auto_start_asks_the_phone_through_adb_shell() {
+        assert_eq!(
+            adb_auto_start_args(Some("R5CR70")),
+            vec![
+                "-s",
+                "R5CR70",
+                "shell",
+                "am",
+                "start",
+                "-n",
+                "solutions.errant.etph/com.etphonehome.AutoStartActivity"
+            ]
+        );
+        assert_eq!(adb_auto_start_args(None)[0], "shell");
+        let eof = anyhow::Error::new(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "early eof",
+        ))
+        .context("handshake with Android device failed");
+        assert!(nothing_listening(&eof));
+        assert!(!nothing_listening(&anyhow::anyhow!("timed out")));
     }
 }

@@ -66,12 +66,10 @@ impl Client {
         info!("Performing handshake...");
 
         // Send handshake request with token if available
-        let request = if let Some(token) = &self.token {
+        if self.token.is_some() {
             info!("Using authentication token");
-            HandshakeRequest::with_token(self.capabilities, token.clone())
-        } else {
-            HandshakeRequest::new(self.capabilities)
-        };
+        }
+        let request = HandshakeRequest::for_this_client(self.capabilities, self.token.clone());
         let msg = Message::HandshakeReq(request);
 
         {
@@ -243,7 +241,7 @@ pub async fn connect_tls_async(
     // Application-level handshake, sent/received over the now-encrypted
     // stream -- same wire format as the plaintext path, just carried inside
     // TLS records instead of raw TCP segments.
-    let request = HandshakeRequest::with_token(capabilities, token);
+    let request = HandshakeRequest::for_this_client(capabilities, Some(token));
     let msg = Message::HandshakeReq(request);
     let mut buf = Vec::new();
     msg.write_to(&mut buf)?;

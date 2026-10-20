@@ -209,4 +209,63 @@ class ServerHandshakeTest {
         }
         assertEquals(writers * perWriter, count)
     }
+
+    @Test
+    fun proGateRefusesAfterTheTokenCheckWithProRequired() {
+        val result = pool.submit<HandshakeRequest> {
+            server.accept().use { s ->
+                val stream = MessageStream(s.getInputStream(), s.getOutputStream())
+                ServerHandshake.perform(
+                    stream, Protocol.CAP_USB, 0x0a000002, 0x08080808, { it == "right" },
+                    admit = { req -> if (req.capabilities and Protocol.CAP_ROUTER != 0) "Pro required on the phone: routers" else null },
+                )
+            }
+        }
+        val (sock, client) = connect()
+        sock.use {
+            client.write(HandshakeRequest(capabilities = Protocol.CAP_USB or Protocol.CAP_ROUTER, token = "right", clientId = "r1", clientName = "slate"))
+            val err = client.read() as ErrorMessage
+            assertEquals(Protocol.ERR_PRO_REQUIRED, err.errorCode)
+            assertEquals("Pro required on the phone: routers", err.message)
+        }
+        val e = assertThrows(java.util.concurrent.ExecutionException::class.java) { result.get(5, TimeUnit.SECONDS) }
+        assertTrue(e.cause is ProRequiredException)
+    }
+
+    @Test
+    fun wrongTokenIsRefusedBeforeTheProGateRuns() {
+        var admitCalled = false
+        val result = pool.submit<HandshakeRequest> {
+            server.accept().use { s ->
+                val stream = MessageStream(s.getInputStream(), s.getOutputStream())
+                ServerHandshake.perform(stream, Protocol.CAP_WIFI, 0, 0, { it == "right" }, admit = { admitCalled = true; "no" })
+            }
+        }
+        val (sock, client) = connect()
+        sock.use {
+            client.write(HandshakeRequest(capabilities = Protocol.CAP_WIFI, token = "wrong"))
+            assertEquals(Protocol.ERR_AUTH_FAILED, (client.read() as ErrorMessage).errorCode)
+        }
+        assertThrows(java.util.concurrent.ExecutionException::class.java) { result.get(5, TimeUnit.SECONDS) }
+        assertTrue(!admitCalled)
+    }
+
+    @Test
+    fun admittedClientGetsItsIdentityThrough() {
+        val result = pool.submit<HandshakeRequest> {
+            server.accept().use { s ->
+                val stream = MessageStream(s.getInputStream(), s.getOutputStream())
+                ServerHandshake.perform(stream, Protocol.CAP_USB or Protocol.CAP_PRO, 0x0a000002, 0x08080808, null, admit = { null })
+            }
+        }
+        val (sock, client) = connect()
+        sock.use {
+            client.write(HandshakeRequest(capabilities = Protocol.CAP_USB, clientId = "id-1", clientName = "laptop"))
+            val resp = client.read() as HandshakeResponse
+            assertEquals(Protocol.CAP_PRO, resp.capabilities and Protocol.CAP_PRO)
+        }
+        val req = result.get(5, TimeUnit.SECONDS)
+        assertEquals("id-1", req.clientId)
+        assertEquals("laptop", req.clientName)
+    }
 }

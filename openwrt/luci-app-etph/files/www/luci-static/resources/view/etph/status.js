@@ -71,6 +71,8 @@ return view.extend({
 		var rows = [
 			[ _('Status'), E('strong', { 'id': 'etph-state-' + u.name, 'style': up ? 'color:green' : '' }, stateLabel(sess, nif)) ],
 			[ _('Phone'), (sess && sess.device) || '-' ],
+			[ _('ETPH Pro on the phone'), !sess || sess.phone_pro == null ? '-' : (sess.phone_pro ? _('yes')
+				: _('no (free version: routers need ETPH Pro, bought once in the ETPH app on the phone; nothing to buy for the router)')) ],
 			[ _('Connection'), (sess && sess.state == 'connected' && sess.encrypted) || u.transport == 'wifi'
 				? _('Wi-Fi to %s, %s').format(u.host || '?', sess && sess.encrypted ? _('encrypted') : _('not encrypted'))
 				: (u.transport == 'auto' ? _('USB cable when plugged in, else Wi-Fi to %s').format(u.host || '-') : _('USB cable')) ],
@@ -82,7 +84,8 @@ return view.extend({
 				? nif['ipv4-address'][0].address + '/' + nif['ipv4-address'][0].mask : '-' ]
 		];
 		if (sess && sess.last_error && !up)
-			rows.push([ _('Last error'), E('code', sess.last_error) ]);
+			rows.push([ (sess.last_error.indexOf('Pro required on the phone') >= 0) ? _('ETPH Pro needed on the phone') : _('Last error'),
+				E('code', sess.last_error) ]);
 		if (sess && sess.last_end && !up)
 			rows.push([ _('Last session ended'), sess.last_end ]);
 

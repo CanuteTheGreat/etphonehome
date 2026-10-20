@@ -42,7 +42,7 @@ jobs:
       - name: Build this release APK and the desktop client
         run: |
           export ANDROID_HOME="$HOME/android-sdk"
-          (cd android && for attempt in 1 2 3; do ./gradlew --no-daemon --max-workers=2 assembleRelease && break; [ "$attempt" -eq 3 ] && exit 1; sleep 20; done; ./gradlew --stop)
+          (cd android && for attempt in 1 2 3; do ./gradlew --no-daemon --max-workers=2 -PbillingTestHooks=true assembleRelease && break; [ "$attempt" -eq 3 ] && exit 1; sleep 20; done; ./gradlew --stop)
           bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
           ls -l android/app/build/outputs/apk/release/
       - name: Previous release APK

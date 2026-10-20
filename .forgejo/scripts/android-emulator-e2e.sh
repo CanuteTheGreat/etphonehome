@@ -18,6 +18,12 @@
 #               leftovers; relaunch + Start: desktop reconnects by itself
 #   Stop        the UI Stop button ends the session and the service
 #   WiFi TLS    (images with WiFi) token from the UI, TLS 1.3 on ART
+#   Free/Pro    (APK built with -PbillingTestHooks=true; no Play Store on these images, so the
+#               app is Free): Pro line, Wi-Fi refused with the Pro note + the Upgrade screen,
+#               free stops sharing when the computer leaves, refuses a router and a second
+#               computer, refuses auto-start; then the test hook makes it Pro: auto-start,
+#               keeps waiting after a session (auto-reconnect), router + second computer
+#               admitted, data usage per computer and kind of traffic
 #   upgrade     (with a previous APK) install it, note the pairing token,
 #               upgrade in place to this build: token kept, app works.
 #               A previous release from before the app-id change
@@ -159,6 +165,8 @@ text_of() { # id -> text; scrolls down when the view is off screen (WiFi mode's 
   return 1
 }
 launch() { adb shell am start -W -n "$ACT" >/dev/null; sleep 2; }
+# Test builds only (-PbillingTestHooks=true): force Pro (true), Free (false) or ask Play (clear).
+pro_hook() { adb shell am broadcast -n "$PKG/com.etphonehome.billing.TestHookReceiver" --es pro "$1" >/dev/null 2>&1; sleep 2; }
 wait_log() { # pattern seconds
   local n=$(($2 * 2))
   for _ in $(seq 1 $n); do adb logcat -d -s ETPhoneHome:* 2>/dev/null | grep -q "$1" && return 0; sleep 0.5; done
@@ -277,8 +285,11 @@ if [ -n "$PREV_APK" ]; then
     TOK1=$(text_of wifiIpText | grep -o 'Auth Token: [^ ]*' | head -1 | cut -d' ' -f3)
     if adb install -r "$APK" >"$LOG/install-up.log" 2>&1; then
       NEWV=$(adb shell dumpsys package $PKG | grep -m1 versionName | tr -d ' \r')
+      # Wi-Fi (and its token panel) is Pro since 0.9.0: look at the token as a Pro user would.
+      pro_hook true
       launch; tap radioWifi; sleep 1
       TOK2=$(text_of wifiIpText | grep -o 'Auth Token: [^ ]*' | head -1 | cut -d' ' -f3)
+      pro_hook clear
       pass "upgrade in place: $OLDV -> $NEWV installed over the previous release (adb install -r)"
       if [ "$HAS_WIFI" = 1 ]; then
         [ -n "$TOK1" ] && [ "$TOK1" = "$TOK2" ] && pass "upgrade kept the pairing token (saved desktops keep working)" \
@@ -436,6 +447,129 @@ else
 fi
 client_stop
 
+
+# --- Free vs Pro (the phone enforces the split) ------------------------------------
+# These images have no Play Store, so Google Play billing is unavailable and the app is Free;
+# the APK is built with -PbillingTestHooks=true so TestHookReceiver can make it Pro later.
+launch
+PS=$(text_of proStatusText)
+[ "$PS" = "Free: USB to one computer" ] && pass "free: the app says 'Free: USB to one computer' (no Play Store, no purchase)" || fail "free: Pro status line ('$PS')"
+# Free: the computer leaves -> sharing stops (manual start/stop; Pro keeps waiting).
+adb logcat -c
+start_mode radioUsb
+wait_log "USB server listening" 20
+adb forward tcp:8888 tcp:8888 >/dev/null
+client freeleave usb --interface etph0
+if wait_iface 30; then
+  client_stop
+  wait_log "free version: sharing stopped" 15 && no_service_within 10 \
+    && pass "free: when the computer disconnects, sharing stops (manual start/stop; auto-reconnect is Pro)" \
+    || fail "free: service still running after the computer left"
+  ST=$(text_of statusText)
+  grep -q "Tap Start to share again" <<<"$ST" && pass "free: the phone says 'Tap Start to share again' ($ST)" || fail "free: stopped status ('$ST')"
+else
+  tail -20 "$LOG/freeleave.log"; fail "free: USB session for the leave check"
+  client_stop
+fi
+# Free: a router (--router) and a second computer are refused with Pro required on the phone.
+adb logcat -c
+start_mode radioUsb
+wait_log "USB server listening" 20
+adb forward tcp:8888 tcp:8888 >/dev/null
+if ip netns exec "$NS" env PATH="/tmp/etph-shim:$PATH" ETPH_CLIENT_ID=e2e-router timeout 40 "$BIN" --router usb --interface etph0 >"$LOG/free-router.log" 2>&1; then
+  fail "free: a router got a session"
+else
+  grep -q "Pro required on the phone: routers are part of ETPH Pro" "$LOG/free-router.log" && ! iface_up \
+    && pass "free: router refused, the router client says 'Pro required on the phone: routers are part of ETPH Pro'" \
+    || { tail -5 "$LOG/free-router.log"; fail "free: router refusal"; }
+fi
+if ip netns exec "$NS" env PATH="/tmp/etph-shim:$PATH" ETPH_CLIENT_ID=e2e-second-computer ETPH_CLIENT_NAME=second timeout 40 "$BIN" usb --interface etph0 >"$LOG/free-second.log" 2>&1; then
+  fail "free: a second computer got a session"
+else
+  grep -q "Pro required on the phone: the free version works with one computer" "$LOG/free-second.log" \
+    && pass "free: a second computer is refused ('the free version works with one computer')" \
+    || { tail -5 "$LOG/free-second.log"; fail "free: second computer refusal"; }
+fi
+SX=$(text_of statsText)
+grep -q "Refused \"second\"" <<<"$SX" && pass "free: the phone shows who it refused and why" || fail "free: refusal not shown on the phone ('$SX')"
+launch
+tap stopButton
+wait_log "Stopping tethering" 15
+no_service_within 10
+# Free: Wi-Fi shows the Pro note; Start opens the Upgrade screen (with no Play Store it says so).
+launch
+tap radioWifi
+sleep 1
+PR=$(text_of proRequiredText)
+grep -q "Wi-Fi sharing is part of ETPH Pro" <<<"$PR" && pass "free: Wi-Fi shows 'Wi-Fi sharing is part of ETPH Pro' instead of a token" || fail "free: Wi-Fi Pro note ('$PR')"
+tap startButton
+sleep 3
+dump
+if ui upgradeTitle >/dev/null && grep -q "Routers: Use the phone as the internet uplink" "$LOG/ui.xml"; then
+  pass "free: Start in Wi-Fi mode opens the Upgrade to Pro screen listing the Pro features"
+else
+  fail "free: Upgrade screen not shown (see ui.xml)"
+fi
+UST=$(text_of upgradeStatus)
+grep -qi "isn't available" <<<"$UST" && pass "free: without Google Play the Upgrade screen says billing isn't available ($UST)" || fail "free: Upgrade status ('$UST')"
+no_service_within 3 && pass "free: Wi-Fi sharing was not started" || fail "free: Wi-Fi sharing started"
+adb shell input keyevent KEYCODE_BACK
+launch
+tap radioUsb
+# Free: the computer's auto-start request is refused on the phone.
+adb logcat -c
+adb shell am start -n "$PKG/com.etphonehome.AutoStartActivity" >/dev/null
+wait_log "Auto-start refused: Auto-start is part of ETPH Pro" 15 && no_service_within 3 \
+  && pass "free: auto-start request from the computer refused ('Auto-start is part of ETPH Pro')" \
+  || fail "free: auto-start not refused"
+
+# --- Pro (test hook) ----------------------------------------------------------------
+adb logcat -c
+pro_hook true
+wait_log "ETPH Pro: TEST_PRO" 15 && pass "pro: test hook switched the app to Pro" || fail "pro: test hook"
+launch
+PS=$(text_of proStatusText)
+grep -q "ETPH Pro" <<<"$PS" && pass "pro: the app says '$PS'" || fail "pro: status line ('$PS')"
+adb shell am force-stop $PKG
+adb logcat -c
+adb shell am start -n "$PKG/com.etphonehome.AutoStartActivity" >/dev/null
+if wait_log "USB server listening" 20; then
+  pass "pro: auto-start: 'am start AutoStartActivity' (what the computer runs) started USB sharing with the app closed"
+else
+  fail "pro: auto-start did not start USB sharing"
+fi
+adb forward tcp:8888 tcp:8888 >/dev/null
+client proleave usb --interface etph0
+if wait_iface 30; then
+  client_stop
+  wait_log "Session ended, waiting for the next desktop connection" 15 && [ "$(service_count)" != 0 ] \
+    && pass "pro: after the computer disconnects the phone keeps waiting for it (auto-reconnect)" \
+    || fail "pro: sharing stopped after the session"
+else
+  tail -20 "$LOG/proleave.log"; fail "pro: USB session after auto-start"
+fi
+export ETPH_CLIENT_ID=e2e-second-computer ETPH_CLIENT_NAME=second
+client prosecond usb --interface etph0
+if wait_iface 30; then
+  CODE=$(D "curl -sS -m 30 -o /dev/null -w '%{http_code}' https://example.com/")
+  pass "pro: a second computer is admitted (HTTPS $CODE through the phone)"
+else
+  tail -5 "$LOG/prosecond.log"; fail "pro: second computer refused"
+fi
+client_stop
+unset ETPH_CLIENT_ID ETPH_CLIENT_NAME
+launch
+PH=$(text_of pairedHint)
+grep -q "All of these can use this phone" <<<"$PH" && pass "pro: paired computers list ('$PH')" || fail "pro: paired list hint ('$PH')"
+UT=$(text_of usageText)
+grep -q "this month" <<<"$UT" && grep -q "Web (HTTPS/HTTP)" <<<"$UT" \
+  && pass "pro: data usage per computer and by kind of traffic: $(tr '\n' ' ' <<<"$UT" | cut -c1-140)" \
+  || fail "pro: data usage ('$UT')"
+launch
+tap stopButton
+wait_log "Stopping tethering" 15
+no_service_within 10
+
 # --- Router USB path: the built-in ADB host (no adb tool, no adb server) -----------
 # What an OpenWrt router runs (`etphonehome usb --native`): the client itself
 # speaks the ADB protocol to the phone's adbd -- CNXN, RSA AUTH with the
@@ -446,7 +580,7 @@ start_mode radioUsb
 wait_log "USB server listening" 20
 bridge_port 5555
 sleep 1
-client usbnative usb --adb-tcp 127.0.0.1:5555 --interface etph0 --reconnect --max-retries 0
+client usbnative --router usb --adb-tcp 127.0.0.1:5555 --interface etph0 --reconnect --max-retries 0
 if wait_iface 60; then
   pass "router USB path: tunnel up through the built-in ADB host (real adbd, no adb tool)"
   grep -q "adb stream to tcp:8888 open" "$LOG/usbnative.log" && pass "router USB path: ADB stream opened by the client itself" || fail "router USB path: no ADB stream log"
@@ -455,6 +589,7 @@ if wait_iface 60; then
   want=$(sha256sum <"$SRV/big.bin" | cut -d' ' -f1)
   got=$(D "curl -sS -m 300 http://$HOST_FROM_PHONE:8080/big.bin | sha256sum | cut -d' ' -f1")
   [ "$want" = "$got" ] && pass "router USB path: 50 MiB download through the ADB stream, sha256 intact" || fail "router USB path: download ($got)"
+  grep -q "Phone: ETPH Pro" "$LOG/usbnative.log" && pass "router USB path (Pro phone): the router (--router) was admitted and logs 'Phone: ETPH Pro'" || fail "router USB path: Pro not reported"
   grep -q "Phone: " "$LOG/usbnative.log" && pass "router USB path: phone named in the session ($(grep -o 'Phone: .*' "$LOG/usbnative.log" | head -1))" || fail "router USB path: phone name"
 else
   tail -30 "$LOG/usbnative.log"

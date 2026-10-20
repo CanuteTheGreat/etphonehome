@@ -419,7 +419,7 @@ fn home_from_passwd(user: &str, passwd: &str) -> Option<PathBuf> {
 }
 
 #[cfg(unix)]
-fn chown_to_sudo_user(path: &Path) {
+pub(crate) fn chown_to_sudo_user(path: &Path) {
     let (Ok(uid), Ok(gid)) = (std::env::var("SUDO_UID"), std::env::var("SUDO_GID")) else {
         return;
     };

@@ -231,15 +231,25 @@ data class PortRange(
                 if (trimmed.contains("-")) {
                     val pieces = trimmed.split("-")
                     if (pieces.size != 2) return@mapNotNull null
-                    val start = pieces[0].trim().toIntOrNull() ?: return@mapNotNull null
-                    val end = pieces[1].trim().toIntOrNull() ?: return@mapNotNull null
+                    val start = port(pieces[0]) ?: return@mapNotNull null
+                    val end = port(pieces[1]) ?: return@mapNotNull null
                     PortRange(start, end)
                 } else {
-                    val port = trimmed.toIntOrNull() ?: return@mapNotNull null
-                    PortRange(port)
+                    PortRange(port(trimmed) ?: return@mapNotNull null)
                 }
             }
         }
+
+        /**
+         * One port number, or null. Above 65535 is not a port: the desktop
+         * parses ports as u16 and drops such an entry, so "8000-80000" never
+         * matched there, while here it was accepted as 8000..80000 (in effect
+         * 8000-65535) -- the same rule blocked or allowed traffic on the
+         * phone only. (A sign can't reach here: '-' splits the entry.)
+         */
+        private fun port(s: String): Int? = s.trim().toIntOrNull()?.takeIf { it <= MAX_PORT }
+
+        private const val MAX_PORT = 65535
     }
 
     /**

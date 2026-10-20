@@ -171,9 +171,19 @@ pub struct IpRange {
 }
 
 impl IpRange {
-    /// Parse CIDR notation (e.g., "192.168.1.0/24")
+    /// Parse CIDR notation (e.g., "192.168.1.0/24").
+    ///
+    /// Surrounding whitespace is ignored and more than one '/' is rejected,
+    /// the same as the phone's `IpRange.parse` (android/.../FilterRule.kt),
+    /// which enforces the same rule set from the `ConfigUpdate`. Before,
+    /// " 10.0.0.0/24" never matched here but matched on the phone, and
+    /// "10.0.0.0/24/8" was read here as 10.0.0.0/24 (the extra part was
+    /// ignored) while the phone dropped the rule.
     pub fn parse(cidr: &str) -> Option<Self> {
-        let parts: Vec<&str> = cidr.split('/').collect();
+        let parts: Vec<&str> = cidr.trim().split('/').collect();
+        if parts.len() > 2 {
+            return None;
+        }
         let address = parts[0].parse::<Ipv4Addr>().ok()?;
         let prefix_len = if parts.len() > 1 {
             parts[1].parse().ok()?
@@ -424,6 +434,17 @@ impl FilterEngine {
     }
 
     fn matches_rule(&self, packet: &ParsedPacket, rule: &FilterRule) -> bool {
+        // A blank address/port spec (`dest_ip = ""` in the config) means "no
+        // restriction", like an absent one. The wire format can't tell them
+        // apart (`to_config_update` sends "" for None), so the phone already
+        // read a blank field as "any". Here it used to be a spec that parsed
+        // to nothing, so the rule never matched: a BLOCK rule with a blank
+        // dest_ip blocked on the phone but not on the desktop, and an ALLOW
+        // rule with one let traffic through on one side only.
+        fn spec(s: &Option<String>) -> Option<&str> {
+            s.as_deref().map(str::trim).filter(|t| !t.is_empty())
+        }
+
         // Protocol check
         if let Some(proto) = rule.protocol {
             if proto != Protocol::Any && proto != packet.protocol {
@@ -444,7 +465,7 @@ impl FilterEngine {
         // range parsed => `.any()` is false => rule doesn't match). Mirror
         // that fail-closed behavior here: treat an unparseable spec as "rule
         // doesn't match" rather than "restriction doesn't apply".
-        if let Some(ref ip_spec) = rule.dest_ip {
+        if let Some(ip_spec) = spec(&rule.dest_ip) {
             match IpRange::parse(ip_spec) {
                 Some(ip_range) => {
                     if !ip_range.contains(packet.dst_ip) {
@@ -456,7 +477,7 @@ impl FilterEngine {
         }
 
         // Destination port check
-        if let Some(ref port_spec) = rule.dest_port {
+        if let Some(port_spec) = spec(&rule.dest_port) {
             if let Some(port) = packet.dst_port {
                 let ranges = PortRange::parse_all(port_spec);
                 if !ranges.iter().any(|r| r.contains(port)) {
@@ -468,7 +489,7 @@ impl FilterEngine {
         }
 
         // Source IP check (same fail-closed rationale as dest_ip above)
-        if let Some(ref ip_spec) = rule.source_ip {
+        if let Some(ip_spec) = spec(&rule.source_ip) {
             match IpRange::parse(ip_spec) {
                 Some(ip_range) => {
                     if !ip_range.contains(packet.src_ip) {
@@ -480,7 +501,7 @@ impl FilterEngine {
         }
 
         // Source port check
-        if let Some(ref port_spec) = rule.source_port {
+        if let Some(port_spec) = spec(&rule.source_port) {
             if let Some(port) = packet.src_port {
                 let ranges = PortRange::parse_all(port_spec);
                 if !ranges.iter().any(|r| r.contains(port)) {
@@ -588,6 +609,91 @@ mod tests {
         assert_eq!(ranges.len(), 2);
         assert!(ranges[0].contains(22));
         assert!(ranges[1].contains(8080));
+    }
+
+    #[test]
+    fn ip_range_parse_trims_and_rejects_a_second_slash_like_the_phone() {
+        let range = IpRange::parse(" 192.168.1.0/24\t").expect("surrounding whitespace is ignored");
+        assert!(range.contains(Ipv4Addr::new(192, 168, 1, 9)));
+        assert!(!range.contains(Ipv4Addr::new(192, 168, 2, 9)));
+        assert!(IpRange::parse("10.0.0.0/24/8").is_none());
+        assert!(IpRange::parse("10.0.0.0/8/").is_none());
+        // One slash is still fine, and a bare address is a /32.
+        assert_eq!(IpRange::parse("10.0.0.0/8").unwrap().prefix_len, 8);
+        assert_eq!(IpRange::parse("10.0.0.7").unwrap().prefix_len, 32);
+    }
+
+    /// One BLOCK rule on port 443 whose four address/port fields are set
+    /// from `fields` (dest_ip, dest_port, source_ip, source_port).
+    fn engine_with_block_rule(fields: [Option<&str>; 4]) -> FilterEngine {
+        let s = |f: Option<&str>| f.map(str::to_string);
+        FilterEngine::new(FilterConfig {
+            enabled: true,
+            mode: FilterMode::Blacklist,
+            rules: vec![FilterRule {
+                id: "r".to_string(),
+                enabled: true,
+                action: FilterAction::Block,
+                protocol: Some(Protocol::Tcp),
+                dest_ip: s(fields[0]),
+                dest_port: s(fields[1]),
+                source_ip: s(fields[2]),
+                source_port: s(fields[3]),
+                description: None,
+            }],
+            log_blocked: false,
+        })
+    }
+
+    #[test]
+    fn a_blank_address_or_port_spec_means_any_like_on_the_phone() {
+        let pkt = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 443);
+        let other_port = build_tcp_packet([10, 0, 0, 1], [1, 1, 1, 1], 55000, 80);
+        let to_443 = Some("443");
+        for blank in ["", "  "] {
+            let b = Some(blank);
+            for (name, fields) in [
+                ("dest_ip", [b, to_443, None, None]),
+                ("source_ip", [None, to_443, b, None]),
+                ("source_port", [None, to_443, None, b]),
+            ] {
+                let engine = engine_with_block_rule(fields);
+                assert!(
+                    !engine.should_allow(&pkt),
+                    "blank {name} {blank:?} must not stop the rule matching"
+                );
+                assert!(
+                    engine.should_allow(&other_port),
+                    "blank {name}: the dest_port restriction still applies"
+                );
+            }
+            // A blank dest_port alone: the rule covers every TCP port.
+            let engine = engine_with_block_rule([None, b, None, None]);
+            assert!(!engine.should_allow(&pkt));
+            assert!(!engine.should_allow(&other_port));
+        }
+        // A non-blank spec that doesn't parse still fails closed (no match).
+        for (name, fields) in [
+            ("dest_ip", [Some("nope"), to_443, None, None]),
+            ("source_ip", [None, to_443, Some("nope"), None]),
+            ("source_port", [None, to_443, None, Some("nope")]),
+            ("dest_port", [None, Some("nope"), None, None]),
+        ] {
+            let engine = engine_with_block_rule(fields);
+            assert!(
+                engine.should_allow(&pkt),
+                "an unparseable {name} must not match"
+            );
+        }
+        // Whitespace around a real spec is ignored, not treated as garbage.
+        let engine = engine_with_block_rule([
+            Some(" 1.1.1.0/24 "),
+            to_443,
+            Some(" 10.0.0.1 "),
+            Some(" 55000 "),
+        ]);
+        assert!(!engine.should_allow(&pkt));
+        assert!(engine.should_allow(&build_tcp_packet([10, 0, 0, 1], [1, 1, 2, 1], 55000, 443)));
     }
 
     #[test]

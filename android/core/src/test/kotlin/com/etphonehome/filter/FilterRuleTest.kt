@@ -123,6 +123,20 @@ class FilterRuleTest {
     }
 
     @Test
+    fun `PortRange parse drops entries above 65535 like the desktop`() {
+        assertEquals(listOf(PortRange(65535), PortRange(22)), PortRange.parse("65535,65536,22"))
+        assertEquals(listOf(PortRange(1, 65535)), PortRange.parse("8000-80000,65536-70000,1-65535"))
+        assertEquals(listOf(PortRange(0, 443)), PortRange.parse("0-443,99999-100000"))
+    }
+
+    @Test
+    fun `a wire rule whose only port entry is above 65535 is dropped`() {
+        assertNull(parseWireRule("r|true|block|tcp||70000||"))
+        assertNull(parseWireRule("r|true|block|tcp||||8000-80000"))
+        assertEquals(listOf(PortRange(443)), parseWireRule("r|true|block|tcp||443,70000||")!!.allDestPorts)
+    }
+
+    @Test
     fun `PortRange parse still handles well-formed specs`() {
         val ranges = PortRange.parse("80, 443, 8000-8080")
         assertEquals(listOf(PortRange(80), PortRange(443), PortRange(8000, 8080)), ranges)

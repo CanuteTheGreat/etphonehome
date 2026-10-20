@@ -191,6 +191,12 @@ def main():
     ap.add_argument("--work", required=True)
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
+    # Belt and braces: whatever runs in the laptop netns, the runner's own
+    # resolver is put back at the end.
+    try:
+        host_resolv = open("/etc/resolv.conf").read()
+    except OSError:
+        host_resolv = None
     rel = resolve_release(a.release)
     apk = int(rel.split(".")[0]) >= 25
     os.makedirs(a.work, exist_ok=True)
@@ -219,6 +225,14 @@ def main():
         sh(c, check_rc=False)
     sh("ip link add etphbr type bridge && ip link set etphbr up && ip addr add 192.168.1.2/24 dev etphbr")
     sh("ip tuntap add dev etphtap mode tap && ip link set etphtap master etphbr && ip link set etphtap up")
+    # The laptop gets its own resolv.conf (`ip netns exec` bind-mounts
+    # /etc/netns/<ns>/resolv.conf). Without it dhclient in the netns rewrote
+    # the job container's /etc/resolv.conf to the VM router (192.168.1.1), so
+    # every later lookup on the runner failed once the VM was gone (the second
+    # VM run and the artifact upload both died on name resolution).
+    os.makedirs("/etc/netns/etphlan", exist_ok=True)
+    with open("/etc/netns/etphlan/resolv.conf", "w") as f:
+        f.write("nameserver 192.168.1.1\n")
     sh("ip netns add etphlan && ip link add etphv0 type veth peer name etphv1 && "
        "ip link set etphv0 master etphbr && ip link set etphv0 up && ip link set etphv1 netns etphlan && "
        "ip netns exec etphlan ip link set lo up && ip netns exec etphlan ip link set etphv1 up")
@@ -321,7 +335,7 @@ def main():
         r = sh(f"ip netns exec etphlan {dh}", check_rc=False)
         r2 = sh("ip netns exec etphlan ip -4 addr show etphv1; ip netns exec etphlan ip route", check_rc=False)
         check("192.168.1." in r2.stdout and "default" in r2.stdout, "LAN laptop got DHCP from the router", r.stdout + r.stderr + r2.stdout)
-        # Use the router's DNS explicitly (the netns shares the container's resolv.conf).
+        # Use the router's DNS explicitly (whatever dhclient wrote).
         r = sh("ip netns exec etphlan sh -c \"IP=\\$(nslookup example.com 192.168.1.1 2>/dev/null | awk '/^Address/ && !/#/ {print \\$2; exit}'); "
                "echo resolved=\\$IP; curl -s -m 30 --resolve example.com:443:\\$IP https://example.com\"", check_rc=False)
         check("Example Domain" in r.stdout, "LAN laptop: router DNS + HTTPS through router -> phone", (r.stdout + r.stderr)[-600:])
@@ -446,6 +460,14 @@ def main():
         if not a.keep:
             for c in ["ip netns del etphlan", "ip link del etphbr", "ip link del etphtap"]:
                 sh(c, check_rc=False)
+        if host_resolv is not None:
+            try:
+                if open("/etc/resolv.conf").read() != host_resolv:
+                    log("note: /etc/resolv.conf was changed during the test; restoring it")
+                    with open("/etc/resolv.conf", "w") as f:
+                        f.write(host_resolv)
+            except OSError as e:
+                log(f"note: could not check/restore /etc/resolv.conf: {e}")
     log(f"== OpenWrt {rel}: {len(FAILS)} failure(s)")
     for f in FAILS:
         log("  - " + f)

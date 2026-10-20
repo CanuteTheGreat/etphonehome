@@ -175,61 +175,39 @@ impl Config {
     /// on the process umask, which commonly leaves new files group/world-readable (0644) --
     /// that would let any other local user read the device's WiFi/Bluetooth auth tokens
     /// straight off disk.
+    ///
+    /// The new content goes to a private (0600) temp file next to the config, which is
+    /// fsync'd and then renamed over it. This used to cut the existing file to zero length
+    /// and rewrite it in place, and only chmod it afterwards. That had two problems:
+    /// - an existing file with looser permissions (one copied from config.example.toml,
+    ///   or written by an older binary) held the new tokens while still world-readable
+    ///   until the chmod landed, and a reader that opened it in that window kept access;
+    /// - a crash or full disk part-way through the rewrite left an empty or partial
+    ///   config, losing every saved profile.
+    ///
+    /// A symlinked config (dotfile setups) is followed, so the link stays a link and its
+    /// target is replaced. If the directory isn't writable (an `ETPHONEHOME_CONFIG` file
+    /// in a directory we can't create files in), it falls back to rewriting the file in
+    /// place, restricting its permissions before anything is written.
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let path = path.as_ref();
         let content = toml::to_string_pretty(self).context("Failed to serialize config")?;
+        let failed = || format!("Failed to write config file: {}", path.display());
 
-        // On Unix, open the file with mode 0600 from the moment it's created instead of
-        // writing it with the default umask (commonly 0644) and chmod'ing afterwards --
-        // the write-then-chmod sequence has a real TOCTOU race where any other local user
-        // can read the plaintext wifi/bluetooth auth tokens during the window between
-        // creation and the permission fix landing. Opening with the restrictive mode up
-        // front via OpenOptions closes that window entirely (the mode only applies when
-        // the file is newly created; an existing file's permissions are left as-is until
-        // explicitly reset below, matching the previous behavior for pre-existing files).
-        #[cfg(unix)]
-        {
-            use std::io::Write;
-            use std::os::unix::fs::OpenOptionsExt;
-            use std::os::unix::fs::PermissionsExt;
-
-            let mut file = fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(path.as_ref())
-                .context(format!(
-                    "Failed to open config file: {}",
-                    path.as_ref().display()
-                ))?;
-            file.write_all(content.as_bytes()).context(format!(
-                "Failed to write config file: {}",
-                path.as_ref().display()
-            ))?;
-
-            // Belt-and-suspenders: if the file already existed with looser permissions
-            // (e.g. created by an older binary before this fix), explicitly tighten them
-            // too, since `mode()` on OpenOptions only governs newly-created files.
-            fs::set_permissions(path.as_ref(), fs::Permissions::from_mode(0o600)).context(
-                format!(
-                    "Failed to restrict permissions on config file: {}",
-                    path.as_ref().display()
-                ),
-            )?;
-
-            // Written via `sudo etphonehome ...`: give it back to the user
-            // whose config dir it lives in (see `default_path`).
-            if sudo_invoking_user_home().is_some_and(|h| path.as_ref().starts_with(h)) {
-                chown_to_sudo_user(path.as_ref());
+        let target = resolve_symlinks(path).with_context(failed)?;
+        match replace_file(&target, content.as_bytes()) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                write_in_place(&target, content.as_bytes()).with_context(failed)?;
             }
+            Err(e) => return Err(e).with_context(failed),
         }
 
-        #[cfg(not(unix))]
-        {
-            fs::write(path.as_ref(), content).context(format!(
-                "Failed to write config file: {}",
-                path.as_ref().display()
-            ))?;
+        // Written via `sudo etphonehome ...`: give it back to the user
+        // whose config dir it lives in (see `default_path`).
+        #[cfg(unix)]
+        if sudo_invoking_user_home().is_some_and(|h| path.starts_with(h)) {
+            chown_to_sudo_user(&target);
         }
 
         Ok(())
@@ -325,6 +303,94 @@ impl Config {
     pub fn list_profiles(&self) -> Vec<String> {
         self.profiles.iter().map(|p| p.name.clone()).collect()
     }
+}
+
+/// Follow `path` through any symlinks to the file that should actually be written.
+/// Unlike `fs::canonicalize` this works for a dangling link (its target is created).
+fn resolve_symlinks(path: &Path) -> std::io::Result<PathBuf> {
+    let mut p = path.to_path_buf();
+    for _ in 0..40 {
+        match fs::symlink_metadata(&p) {
+            Ok(m) if m.file_type().is_symlink() => {
+                let link = fs::read_link(&p)?;
+                p = match p.parent() {
+                    Some(dir) if link.is_relative() => dir.join(link),
+                    _ => link,
+                };
+            }
+            _ => return Ok(p),
+        }
+    }
+    Err(std::io::Error::other("too many levels of symbolic links"))
+}
+
+/// Temp file used by `replace_file` for `target`: hidden, in the same directory
+/// (so the rename stays on one filesystem), unique per process.
+fn temp_path_for(target: &Path) -> std::io::Result<PathBuf> {
+    let Some(name) = target.file_name() else {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    };
+    let mut tmp = std::ffi::OsString::from(".");
+    tmp.push(name);
+    tmp.push(format!(".tmp-{}", std::process::id()));
+    Ok(target.with_file_name(tmp))
+}
+
+/// Open a file readable and writable by its owner only (0600 on Unix,
+/// whatever the umask or the existing file's mode). Never cuts its length.
+fn open_private(path: &Path, create_new: bool) -> std::io::Result<fs::File> {
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).truncate(false);
+    if create_new {
+        opts.create_new(true);
+    } else {
+        opts.create(true);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let file = opts.open(path)?;
+    #[cfg(unix)]
+    {
+        // `mode` only applies to a newly created file, and the umask can still
+        // clear bits from it: set the exact permissions on the open handle.
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
+}
+
+/// Atomically replace `target` with `content`: write a private temp file in the
+/// same directory, fsync it, rename it over `target`. Readers see the old file
+/// or the new one, never a partial write. The temp file is removed on failure.
+fn replace_file(target: &Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let tmp = temp_path_for(target)?;
+    // A leftover from a crashed save by an earlier process with the same pid.
+    let _ = fs::remove_file(&tmp);
+    // The handle is closed before the rename (Windows can't rename an open file).
+    let result = open_private(&tmp, true)
+        .and_then(|mut file| {
+            file.write_all(content)?;
+            file.sync_all()
+        })
+        .and_then(|()| fs::rename(&tmp, target));
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
+/// Rewrite `target` in place, for when its directory doesn't allow creating the
+/// temp file. Its permissions are restricted before any content is written.
+fn write_in_place(target: &Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut file = open_private(target, false)?;
+    file.set_len(0)?;
+    file.write_all(content)?;
+    file.sync_all()
 }
 
 /// Home directory of the user who invoked `sudo`, if we are running under it.
@@ -461,6 +527,124 @@ mod tests {
             mode, 0o600,
             "config file containing auth tokens must be owner-only"
         );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A unique empty scratch directory for a save test.
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "etph-config-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn config_with_token(token: &str) -> Config {
+        let mut config = Config::default();
+        config.auth.wifi_token = token.to_string();
+        config
+    }
+
+    #[test]
+    fn save_replaces_an_existing_config_and_leaves_no_temp_file() {
+        let dir = scratch_dir("replace");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "[default]\nauto_reconnect = false\n").unwrap();
+
+        config_with_token("new-token").save(&path).unwrap();
+
+        let back = Config::load(&path).unwrap();
+        assert_eq!(back.auth.wifi_token, "new-token");
+        assert!(back.default.auto_reconnect, "old content must be gone");
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("config.toml")]);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn save_never_writes_tokens_into_a_world_readable_file() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        // A config copied from config.example.toml with the umask's 0644. Saving used to
+        // rewrite this file (same inode) with the tokens in it and chmod it only after.
+        let dir = scratch_dir("perms");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let old_inode = std::fs::metadata(&path).unwrap().ino();
+
+        config_with_token("secret-token").save(&path).unwrap();
+
+        let meta = std::fs::metadata(&path).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, 0o600);
+        assert_ne!(
+            meta.ino(),
+            old_inode,
+            "the tokens must land in a fresh 0600 file, not in the old 0644 one"
+        );
+        assert_eq!(Config::load(&path).unwrap().auth.wifi_token, "secret-token");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn save_through_a_symlink_keeps_the_link_and_updates_its_target() {
+        let dir = scratch_dir("symlink");
+        std::fs::create_dir_all(dir.join("dotfiles")).unwrap();
+        let real = dir.join("dotfiles").join("etphonehome.toml");
+        std::fs::write(&real, "").unwrap();
+        let link = dir.join("config.toml");
+        std::os::unix::fs::symlink("dotfiles/etphonehome.toml", &link).unwrap();
+
+        config_with_token("linked-token").save(&link).unwrap();
+
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(Config::load(&real).unwrap().auth.wifi_token, "linked-token");
+
+        // A dangling link gets its target created.
+        let dangling = dir.join("dangling.toml");
+        std::os::unix::fs::symlink("dotfiles/new.toml", &dangling).unwrap();
+        config_with_token("t2").save(&dangling).unwrap();
+        assert!(std::fs::symlink_metadata(&dangling)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        let created = dir.join("dotfiles").join("new.toml");
+        assert_eq!(Config::load(&created).unwrap().auth.wifi_token, "t2");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn in_place_fallback_restricts_permissions_and_replaces_content() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = scratch_dir("inplace");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "a much longer old content that must not survive\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_in_place(&path, b"short\n").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "short\n");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
 
         std::fs::remove_dir_all(&dir).ok();
     }

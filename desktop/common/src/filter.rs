@@ -108,7 +108,50 @@ impl FilterConfig {
         }
         crate::protocol::ConfigUpdate { config }
     }
+
+    /// Why this filter can't be handed to the phone, or `None` if it can.
+    ///
+    /// Every session starts by sending [`Self::to_config_update`], and two
+    /// limits apply to it:
+    /// - A protocol frame carries at most 65535 payload bytes. A bigger
+    ///   `ConfigUpdate` failed in the writer (`PayloadTooLarge`) right after
+    ///   the TUN device and routes came up, so the session ended at once.
+    ///   It had connected, so auto-reconnect reset its retry budget and
+    ///   backoff and tried again a second later, forever, with the default
+    ///   route coming and going each time. This applies whether or not the
+    ///   filter is enabled, because the rules are sent either way.
+    /// - The phone takes at most [`MAX_WIRE_RULES`] rules and drops the rest
+    ///   without saying so (`applyUpdate` in FilterConfig.kt). The desktop
+    ///   enforced all of them, so in whitelist mode traffic allowed by a rule
+    ///   past the limit got through the desktop and was then blocked by the
+    ///   phone.
+    ///
+    /// Checked before connecting (`runner::plan_for_profile`), so the user
+    /// gets one clear error instead.
+    pub fn wire_problem(&self) -> Option<String> {
+        if self.enabled && self.rules.len() > MAX_WIRE_RULES {
+            return Some(format!(
+                "the filter has {} rules, but the phone accepts at most {}; merge rules \
+                 (dest_port takes a list such as \"80,443,8000-8080\") or remove some",
+                self.rules.len(),
+                MAX_WIRE_RULES
+            ));
+        }
+        let msg = crate::protocol::Message::ConfigUpdate(self.to_config_update());
+        match msg.write_to(&mut std::io::sink()) {
+            Err(crate::protocol::ProtocolError::PayloadTooLarge(n)) => Some(format!(
+                "the filter rules take {} bytes to send to the phone, more than the 65535 \
+                 one message can carry; use shorter rule ids, merge rules or remove some",
+                n
+            )),
+            _ => None,
+        }
+    }
 }
+
+/// Most rules the phone takes from one `ConfigUpdate` (`MAX_WIRE_RULES` in
+/// android/core/.../filter/FilterConfig.kt).
+pub const MAX_WIRE_RULES: usize = 1024;
 
 /// Filter mode determines default behavior
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -603,6 +646,61 @@ mod tests {
         assert_eq!(m["filter.rule.1"], "rule-1|true|block|any|10.0.0.0/8|||");
         assert_eq!(m["filter.rule.2"], "rule-2|true|block|any|10.0.0.0/8|||");
         assert_eq!(m["filter.rule.3"], "_|true|block|any|10.0.0.0/8|||");
+    }
+
+    #[test]
+    fn wire_problem_reports_more_rules_than_the_phone_takes_or_than_one_message_holds() {
+        let rule = |id: String| FilterRule {
+            id,
+            enabled: true,
+            action: FilterAction::Allow,
+            protocol: Some(Protocol::Tcp),
+            dest_ip: Some("10.0.0.0/8".into()),
+            dest_port: Some("443".into()),
+            source_ip: None,
+            source_port: None,
+            description: None,
+        };
+        let filter = |enabled: bool, rules: Vec<FilterRule>| FilterConfig {
+            enabled,
+            mode: FilterMode::Whitelist,
+            log_blocked: true,
+            rules,
+        };
+        let short = |n: usize| (0..n).map(|i| rule(format!("r{}", i))).collect::<Vec<_>>();
+
+        assert_eq!(filter(true, Vec::new()).wire_problem(), None);
+        assert_eq!(filter(true, short(MAX_WIRE_RULES)).wire_problem(), None);
+        let too_many = filter(true, short(MAX_WIRE_RULES + 1))
+            .wire_problem()
+            .expect("1025 enabled rules is more than the phone takes");
+        assert!(too_many.contains("1025 rules"), "{}", too_many);
+        assert!(too_many.contains("at most 1024"), "{}", too_many);
+        // A disabled filter enforces nothing on either side, so the count
+        // doesn't matter, as long as the message still fits.
+        assert_eq!(
+            filter(false, short(MAX_WIRE_RULES + 1)).wire_problem(),
+            None
+        );
+
+        // Few rules, but too big for one frame: refused enabled or not,
+        // because the rules are sent either way.
+        let long = || -> Vec<FilterRule> {
+            (0..10)
+                .map(|i| rule(format!("{}{}", i, "x".repeat(7000))))
+                .collect()
+        };
+        for enabled in [true, false] {
+            let cfg = filter(enabled, long());
+            let mut frame = Vec::new();
+            assert!(
+                crate::protocol::Message::ConfigUpdate(cfg.to_config_update())
+                    .write_to(&mut frame)
+                    .is_err()
+            );
+            let big = cfg.wire_problem().expect("over 65535 bytes can't be sent");
+            assert!(big.contains("65535"), "{}", big);
+        }
     }
 
     #[test]

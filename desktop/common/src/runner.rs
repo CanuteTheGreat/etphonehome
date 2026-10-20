@@ -127,6 +127,9 @@ pub async fn plan_for_profile(
             token: non_empty(&config.auth.bluetooth_token),
         },
     };
+    if let Some(problem) = profile.filter.wire_problem() {
+        bail!("Profile '{}' can't be used: {}", profile.name, problem);
+    }
     Ok(SessionPlan {
         target,
         tun_name: tun_name.to_string(),
@@ -1187,6 +1190,30 @@ mod tests {
             ..wifi.clone()
         };
         assert!(plan_for_profile(&cfg, &no_host, "etph0").await.is_err());
+
+        // A filter the phone can't take is refused before connecting, rather
+        // than ending every session as soon as it starts.
+        let mut big_filter = wifi.clone();
+        big_filter.filter.enabled = true;
+        big_filter.filter.rules = (0..=crate::filter::MAX_WIRE_RULES)
+            .map(|i| crate::filter::FilterRule {
+                id: format!("r{}", i),
+                enabled: true,
+                action: crate::filter::FilterAction::Block,
+                protocol: None,
+                dest_ip: Some("10.0.0.1".into()),
+                dest_port: None,
+                source_ip: None,
+                source_port: None,
+                description: None,
+            })
+            .collect();
+        let err = plan_for_profile(&cfg, &big_filter, "etph0")
+            .await
+            .expect_err("1025 rules is more than the phone takes");
+        let msg = format!("{:#}", err);
+        assert!(msg.contains("Profile 'w'"), "{}", msg);
+        assert!(msg.contains("at most 1024"), "{}", msg);
     }
 
     #[tokio::test]

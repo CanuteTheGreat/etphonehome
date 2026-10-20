@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Desktop: a large traffic filter put the connection in a reconnect loop.** A profile whose filter rules came to more than 65535 bytes (the most one message to the phone can carry) brought the tunnel up and dropped it straight away, then retried every second forever, with the default route coming and going each time. Such a profile, or an enabled filter with more than 1024 rules (the most the phone takes; it silently dropped the rest), is now refused before connecting, with an error that says why.
+
 ## [0.7.1] - 2026-10-18
 
 ### Changed

@@ -330,7 +330,8 @@ def main():
                          "uci set mwan3.phone.family=ipv4; uci set mwan3.phone_m1=member; uci set mwan3.phone_m1.interface=phone; "
                          "uci set mwan3.phone_m1.metric=1; uci set mwan3.phone_m1.weight=1; "
                          "uci set mwan3.phone_only=policy; uci add_list mwan3.phone_only.use_member=phone_m1; "
-                         "uci set mwan3.default_rule_v4.use_policy=phone_only; uci commit mwan3; /etc/init.d/mwan3 enable; /etc/init.d/mwan3 start; "
+                         "for r in $(uci show mwan3 | sed -n 's/^mwan3[.]\\([^.]*\\)=rule$/\\1/p'); do uci set mwan3.$r.use_policy=phone_only; done; "
+                         "uci commit mwan3; /etc/init.d/mwan3 enable; /etc/init.d/mwan3 start; "
                          "for i in $(seq 40); do mwan3 interfaces 2>/dev/null | grep -q 'interface phone is online' && break; sleep 2; done; "
                          "mwan3 interfaces", 300)
         check("interface phone is online" in out, "mwan3 tracks the phone uplink as online", out[-800:])
@@ -367,8 +368,9 @@ def main():
         standin.terminate()
         standin.wait()
         rc, out = con.sh("for i in $(seq 45); do ifstatus phone | grep -q '\"up\": false' && break; sleep 2; done; "
-                         "ifstatus phone | grep '\"up\"'; ip route show default; cat /var/run/etph/phone.json", 120)
-        check('"up": false' in out and "etph-phone" not in out.split("cat")[0], "phone gone: uplink down, default route removed", out)
+                         "ifstatus phone | grep '\"up\"'; echo ROUTES; ip route show default; echo STATUS; cat /var/run/etph/phone.json", 120)
+        routes = out.split("ROUTES")[-1].split("STATUS")[0]
+        check('"up": false' in out and "etph-phone" not in routes, "phone gone: uplink down, default route removed", out)
         check('"retrying"' in out, "client keeps retrying (status file says so)", out)
         # It comes back by itself (backoff, then SIGUSR1 "Reconnect now" for the second time).
         standin = start_standin(a.standin)

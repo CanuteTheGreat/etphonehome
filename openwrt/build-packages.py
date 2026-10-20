@@ -59,7 +59,12 @@ POSTINST = r"""#!/bin/sh
 mkdir -p /etc/etph /var/run/etph
 chmod 700 /etc/etph
 /etc/init.d/etph enable 2>/dev/null
-/etc/init.d/etph restart 2>/dev/null
+# The router's adb key for USB phones: RSA generation takes up to a minute or
+# two on small routers, so it starts now, in the background.
+if [ ! -s /etc/etph/.android/adbkey ]; then
+	mkdir -p /etc/etph/.android && chmod 700 /etc/etph /etc/etph/.android
+	( HOME=/etc/etph /usr/sbin/etphonehome adb-keygen >/dev/null 2>&1 & )
+fi
 # netifd reads protocol handlers only when it starts: a new `proto etph`
 # needs one `/etc/init.d/network restart` (LuCI's setup does it for you).
 if ! ubus call network get_proto_handlers 2>/dev/null | grep -q '"etph"'; then

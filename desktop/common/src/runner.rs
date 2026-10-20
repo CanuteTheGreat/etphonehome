@@ -486,7 +486,8 @@ async fn open_native_usb(port: u16, host: &HostIntegration) -> Result<Transport>
     let adb_tcp = host.adb_tcp.clone();
     let status = host.status.clone();
     let stream = tokio::task::spawn_blocking(move || -> Result<crate::adb::AdbStream> {
-        let key = crate::adb::key::AdbKey::load_or_create(&crate::adb::key::default_dir(), &this_host_name())?;
+        // Find the phone before touching the key: creating a key takes a
+        // while on router CPUs and is pointless with nothing plugged in.
         let link: std::sync::Arc<dyn crate::adb::Link> = match adb_tcp {
             Some(addr) => std::sync::Arc::new(crate::adb::TcpLink::connect(&addr, Duration::from_secs(10))?),
             None => {
@@ -506,6 +507,7 @@ async fn open_native_usb(port: u16, host: &HostIntegration) -> Result<Transport>
                 }
             }
         };
+        let key = crate::adb::key::AdbKey::load_or_create(&crate::adb::key::default_dir(), &this_host_name())?;
         let observer: &dyn crate::adb::AuthObserver = match &status {
             Some(st) => &**st,
             None => &crate::adb::NoObserver,

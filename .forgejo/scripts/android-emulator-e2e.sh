@@ -461,6 +461,11 @@ else
   fail "router USB path: no tunnel through the built-in ADB host"
 fi
 client_stop
+# Leave the app stopped, as the WiFi part expects (mode can't change while it runs).
+launch
+tap stopButton
+wait_log "Stopping tethering" 15
+no_service_within 10 || fail "router USB path: app still tethering after Stop"
 
 # --- WiFi + TLS (Bouncy Castle on ART) --------------------------------------------
 if [ "$HAS_WIFI" = 1 ]; then

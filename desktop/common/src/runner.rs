@@ -324,9 +324,7 @@ pub fn setup_routing_via(tun_name: &str, peer: &str) -> Result<()> {
     #[cfg(windows)]
     {
         let output = Command::new("route")
-            .args([
-                "add", "0.0.0.0", "mask", "0.0.0.0", peer, "metric", "10",
-            ])
+            .args(["add", "0.0.0.0", "mask", "0.0.0.0", peer, "metric", "10"])
             .output()
             .context("Failed to add route")?;
         if !output.status.success() {
@@ -517,7 +515,9 @@ async fn open_native_usb(port: u16, host: &HostIntegration) -> Result<Transport>
     .await
     .context("adb task failed")??;
     let model = stream.connected.model();
-    let mut t = session::handshake_stream(stream.io, capabilities::USB, None, Duration::from_secs(30)).await?;
+    let mut t =
+        session::handshake_stream(stream.io, capabilities::USB, None, Duration::from_secs(30))
+            .await?;
     if t.handshake.device_name.is_none() {
         t.handshake.device_name = model;
     }
@@ -752,13 +752,15 @@ where
     let host = &plan.host;
     let usb_now = match &plan.target {
         Target::Tcp { adb_port, .. } => adb_port.is_some(),
-        Target::Auto { .. } => host.adb_tcp.is_some() || usb_phone_present(host.adb_serial.as_deref()),
+        Target::Auto { .. } => {
+            host.adb_tcp.is_some() || usb_phone_present(host.adb_serial.as_deref())
+        }
         Target::Bluetooth { .. } => false,
     };
     let transport = open_transport_with(&plan.target, host).await?;
     let tun = create_tun_with(&plan.tun_name, &host.tun)?;
-    let dns = (transport.handshake.dns != 0)
-        .then(|| std::net::Ipv4Addr::from(transport.handshake.dns));
+    let dns =
+        (transport.handshake.dns != 0).then(|| std::net::Ipv4Addr::from(transport.handshake.dns));
     let device = transport.handshake.device_name.clone();
     if host.manage_routes {
         if let Err(e) = setup_routing_via(&plan.tun_name, &host.tun.peer.to_string()) {

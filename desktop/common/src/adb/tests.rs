@@ -50,7 +50,9 @@ fn fake_adbd(trust_our_key: bool) -> Fake {
         let (h, banner) = recv(&mut s);
         assert_eq!(h.command, A_CNXN);
         assert!(banner.starts_with(b"host::"));
-        let token: Vec<u8> = (0..20u8).map(|i| i.wrapping_mul(37).wrapping_add(5)).collect();
+        let token: Vec<u8> = (0..20u8)
+            .map(|i| i.wrapping_mul(37).wrapping_add(5))
+            .collect();
         send(&mut s, Header::new(A_AUTH, AUTH_TOKEN, 0, &token), &token);
         let (h, sig) = recv(&mut s);
         assert_eq!((h.command, h.arg0), (A_AUTH, AUTH_SIGNATURE));
@@ -60,7 +62,11 @@ fn fake_adbd(trust_our_key: bool) -> Fake {
             send(&mut s, Header::new(A_AUTH, AUTH_TOKEN, 0, &token), &token);
             let (h, pk) = recv(&mut s);
             assert_eq!((h.command, h.arg0), (A_AUTH, AUTH_RSAPUBLICKEY));
-            *off.lock().unwrap() = Some(String::from_utf8_lossy(&pk).trim_end_matches('\0').to_string());
+            *off.lock().unwrap() = Some(
+                String::from_utf8_lossy(&pk)
+                    .trim_end_matches('\0')
+                    .to_string(),
+            );
             std::thread::sleep(Duration::from_millis(300)); // the user reads the dialog
         }
         let b = b"device::ro.product.name=p;ro.product.model=Pixel 8;ro.product.device=shiba;features=shell_v2\0";
@@ -68,8 +74,13 @@ fn fake_adbd(trust_our_key: bool) -> Fake {
         let (h, svc) = recv(&mut s);
         assert_eq!(h.command, A_OPEN);
         let local = h.arg0;
-        let svc = String::from_utf8_lossy(&svc).trim_end_matches('\0').to_string();
-        let port: u16 = svc.strip_prefix("tcp:").and_then(|p| p.parse().ok()).unwrap_or(0);
+        let svc = String::from_utf8_lossy(&svc)
+            .trim_end_matches('\0')
+            .to_string();
+        let port: u16 = svc
+            .strip_prefix("tcp:")
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(0);
         let Ok(mut target) = TcpStream::connect(("127.0.0.1", port)) else {
             send(&mut s, Header::new(A_CLSE, 0, local, &[]), &[]);
             return;
@@ -91,7 +102,11 @@ fn fake_adbd(trust_our_key: bool) -> Fake {
                 };
                 {
                     let _g = wl2.lock().unwrap();
-                    send(&mut s2, Header::new(A_WRTE, REMOTE, local, &buf[..n]), &buf[..n]);
+                    send(
+                        &mut s2,
+                        Header::new(A_WRTE, REMOTE, local, &buf[..n]),
+                        &buf[..n],
+                    );
                 }
                 if okay_rx.recv_timeout(Duration::from_secs(10)).is_err() {
                     break;
@@ -109,7 +124,10 @@ fn fake_adbd(trust_our_key: bool) -> Fake {
             s.read_exact(&mut d).unwrap();
             match h.command {
                 A_WRTE => {
-                    assert!(d.len() <= 4096, "host must respect the device's max payload");
+                    assert!(
+                        d.len() <= 4096,
+                        "host must respect the device's max payload"
+                    );
                     target.write_all(&d).unwrap();
                     let _g = wlock.lock().unwrap();
                     send(&mut s, Header::new(A_OKAY, REMOTE, local, &[]), &[]);
@@ -150,18 +168,29 @@ impl AuthObserver for Seen {
 async fn roundtrip(trusted: bool) {
     let port = echo_server();
     let fake = fake_adbd(trusted);
-    let link: Arc<dyn Link> = Arc::new(TcpLink::connect(&fake.addr, Duration::from_secs(5)).unwrap());
+    let link: Arc<dyn Link> =
+        Arc::new(TcpLink::connect(&fake.addr, Duration::from_secs(5)).unwrap());
     let seen = Arc::new(Seen(AtomicBool::new(false), Mutex::new(String::new())));
     let seen2 = seen.clone();
     let st = tokio::task::spawn_blocking(move || {
-        open_stream(link, key(), &*seen2, Duration::from_secs(10), &format!("tcp:{port}"))
+        open_stream(
+            link,
+            key(),
+            &*seen2,
+            Duration::from_secs(10),
+            &format!("tcp:{port}"),
+        )
     })
     .await
     .unwrap()
     .unwrap();
     assert_eq!(st.connected.model().as_deref(), Some("Pixel 8"));
     assert_eq!(st.connected.max_data, 4096);
-    assert_eq!(seen.0.load(Ordering::SeqCst), !trusted, "Allow prompt reported iff the key is new");
+    assert_eq!(
+        seen.0.load(Ordering::SeqCst),
+        !trusted,
+        "Allow prompt reported iff the key is new"
+    );
     if !trusted {
         let offered = fake.offered_key.lock().unwrap().clone().unwrap();
         assert_eq!(offered, key().public_key_line());
@@ -197,10 +226,13 @@ async fn new_key_is_offered_for_the_allow_prompt() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_closed_port_on_the_phone_is_a_clear_error() {
     let fake = fake_adbd(true);
-    let link: Arc<dyn Link> = Arc::new(TcpLink::connect(&fake.addr, Duration::from_secs(5)).unwrap());
-    let r = tokio::task::spawn_blocking(move || open_stream(link, key(), &NoObserver, Duration::from_secs(5), "tcp:1"))
-        .await
-        .unwrap();
+    let link: Arc<dyn Link> =
+        Arc::new(TcpLink::connect(&fake.addr, Duration::from_secs(5)).unwrap());
+    let r = tokio::task::spawn_blocking(move || {
+        open_stream(link, key(), &NoObserver, Duration::from_secs(5), "tcp:1")
+    })
+    .await
+    .unwrap();
     let e = format!("{:#}", r.err().expect("must fail"));
     assert!(e.contains("is ETPH started in USB mode"), "{e}");
 }
@@ -221,12 +253,22 @@ fn android_public_key_layout_and_key_files() {
     let again = AdbKey::load_or_create(&dir, "root@OpenWrt").unwrap();
     assert_eq!(again.public_key_line(), k.public_key_line());
     let pubfile = std::fs::read_to_string(dir.join("adbkey.pub")).unwrap();
-    assert_eq!(crate::host::adb_key_fingerprint(&pubfile).unwrap(), k.fingerprint());
+    assert_eq!(
+        crate::host::adb_key_fingerprint(&pubfile).unwrap(),
+        k.fingerprint()
+    );
     assert_eq!(k.fingerprint().len(), 47);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(dir.join("adbkey")).unwrap().permissions().mode();
-        assert_eq!(mode & 0o077, 0, "private key must not be readable by others");
+        let mode = std::fs::metadata(dir.join("adbkey"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "private key must not be readable by others"
+        );
     }
 }

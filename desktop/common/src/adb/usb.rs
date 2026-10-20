@@ -44,10 +44,13 @@ pub fn find_devices(sysfs: &Path) -> Vec<UsbAdbDevice> {
         let class = read_trim(&ifdir.join("bInterfaceClass"));
         let sub = read_trim(&ifdir.join("bInterfaceSubClass"));
         let proto = read_trim(&ifdir.join("bInterfaceProtocol"));
-        if (class.as_deref(), sub.as_deref(), proto.as_deref()) != (Some("ff"), Some("42"), Some("01")) {
+        if (class.as_deref(), sub.as_deref(), proto.as_deref())
+            != (Some("ff"), Some("42"), Some("01"))
+        {
             continue;
         }
-        let Some(iface) = read_trim(&ifdir.join("bInterfaceNumber")).and_then(|s| u32::from_str_radix(&s, 16).ok())
+        let Some(iface) = read_trim(&ifdir.join("bInterfaceNumber"))
+            .and_then(|s| u32::from_str_radix(&s, 16).ok())
         else {
             continue;
         };
@@ -61,11 +64,14 @@ pub fn find_devices(sysfs: &Path) -> Vec<UsbAdbDevice> {
                 if read_trim(&p.join("type")).as_deref() != Some("Bulk") {
                     continue;
                 }
-                let Some(addr) = read_trim(&p.join("bEndpointAddress")).and_then(|s| u8::from_str_radix(&s, 16).ok())
+                let Some(addr) = read_trim(&p.join("bEndpointAddress"))
+                    .and_then(|s| u8::from_str_radix(&s, 16).ok())
                 else {
                     continue;
                 };
-                if let Some(mp) = read_trim(&p.join("wMaxPacketSize")).and_then(|s| usize::from_str_radix(&s, 16).ok()) {
+                if let Some(mp) = read_trim(&p.join("wMaxPacketSize"))
+                    .and_then(|s| usize::from_str_radix(&s, 16).ok())
+                {
                     if mp > 0 {
                         max_packet = mp;
                     }
@@ -95,11 +101,14 @@ pub fn find_devices(sysfs: &Path) -> Vec<UsbAdbDevice> {
             ep_out,
             max_packet,
             serial: read_trim(&devdir.join("serial")).unwrap_or_default(),
-            product: [read_trim(&devdir.join("manufacturer")), read_trim(&devdir.join("product"))]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" "),
+            product: [
+                read_trim(&devdir.join("manufacturer")),
+                read_trim(&devdir.join("product")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" "),
             sysfs: devname.to_string(),
         });
     }
@@ -143,7 +152,12 @@ struct BulkTransfer {
 /// Linux _IOC: MIPS/PowerPC use 3 direction bits at 29 and other values.
 const fn ioc(dir: u32, nr: u32, size: usize) -> u32 {
     let ty = b'U' as u32;
-    if cfg!(any(target_arch = "mips", target_arch = "mips64", target_arch = "powerpc", target_arch = "powerpc64")) {
+    if cfg!(any(
+        target_arch = "mips",
+        target_arch = "mips64",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    )) {
         let d = (if dir & 1 != 0 { 4 } else { 0 }) | (if dir & 2 != 0 { 2 } else { 0 });
         (d << 29) | ((size as u32) << 16) | (ty << 8) | nr
     } else {
@@ -238,7 +252,7 @@ impl Link for UsbLink {
         self.write_all(&hdr.encode())?;
         if !data.is_empty() {
             self.write_all(data)?;
-            if data.len() % self.dev.max_packet == 0 {
+            if data.len().is_multiple_of(self.dev.max_packet) {
                 // End the transfer with a zero-length packet.
                 let mut z = [0u8; 0];
                 self.bulk(self.dev.ep_out, &mut z, 1000)?;
@@ -282,7 +296,13 @@ impl Drop for UsbLink {
     fn drop(&mut self) {
         let mut iface = self.dev.interface;
         // SAFETY: releasing the interface we claimed; errors are irrelevant.
-        unsafe { libc::ioctl(self.fd.as_raw_fd(), USBDEVFS_RELEASEINTERFACE as _, &mut iface) };
+        unsafe {
+            libc::ioctl(
+                self.fd.as_raw_fd(),
+                USBDEVFS_RELEASEINTERFACE as _,
+                &mut iface,
+            )
+        };
     }
 }
 
@@ -315,17 +335,33 @@ mod tests {
         write(&root.join("1-1/serial"), "R5CR70PMMQR");
         write(&root.join("1-1/manufacturer"), "SAMSUNG");
         write(&root.join("1-1/product"), "SAMSUNG_Android");
-        for (k, v) in [("bInterfaceClass", "06"), ("bInterfaceSubClass", "01"), ("bInterfaceProtocol", "01"), ("bInterfaceNumber", "00")] {
+        for (k, v) in [
+            ("bInterfaceClass", "06"),
+            ("bInterfaceSubClass", "01"),
+            ("bInterfaceProtocol", "01"),
+            ("bInterfaceNumber", "00"),
+        ] {
             write(&root.join("1-1:1.0").join(k), v);
         }
-        for (k, v) in [("bInterfaceClass", "ff"), ("bInterfaceSubClass", "42"), ("bInterfaceProtocol", "01"), ("bInterfaceNumber", "01")] {
+        for (k, v) in [
+            ("bInterfaceClass", "ff"),
+            ("bInterfaceSubClass", "42"),
+            ("bInterfaceProtocol", "01"),
+            ("bInterfaceNumber", "01"),
+        ] {
             write(&root.join("1-1:1.1").join(k), v);
         }
         for (ep, dir, addr) in [("ep_81", "in", "81"), ("ep_02", "out", "02")] {
             write(&root.join("1-1:1.1").join(ep).join("type"), "Bulk");
             write(&root.join("1-1:1.1").join(ep).join("direction"), dir);
-            write(&root.join("1-1:1.1").join(ep).join("bEndpointAddress"), addr);
-            write(&root.join("1-1:1.1").join(ep).join("wMaxPacketSize"), "0200");
+            write(
+                &root.join("1-1:1.1").join(ep).join("bEndpointAddress"),
+                addr,
+            );
+            write(
+                &root.join("1-1:1.1").join(ep).join("wMaxPacketSize"),
+                "0200",
+            );
         }
         // A USB stick: ignored.
         write(&root.join("1-2:1.0/bInterfaceClass"), "08");
@@ -333,13 +369,22 @@ mod tests {
         assert_eq!(devs.len(), 1, "{devs:?}");
         let d = &devs[0];
         assert_eq!(d.dev_node, PathBuf::from("/dev/bus/usb/001/007"));
-        assert_eq!((d.interface, d.ep_in, d.ep_out, d.max_packet), (1, 0x81, 0x02, 512));
+        assert_eq!(
+            (d.interface, d.ep_in, d.ep_out, d.max_packet),
+            (1, 0x81, 0x02, 512)
+        );
         assert_eq!(d.serial, "R5CR70PMMQR");
         assert_eq!(d.product, "SAMSUNG SAMSUNG_Android");
         assert_eq!(pick(&devs, Some("R5CR70PMMQR")).unwrap(), *d);
         assert_eq!(pick(&devs, None).unwrap(), *d);
-        assert!(pick(&devs, Some("other")).unwrap_err().to_string().contains("found: R5CR70PMMQR"));
-        assert!(pick(&[], None).unwrap_err().to_string().contains("USB debugging"));
+        assert!(pick(&devs, Some("other"))
+            .unwrap_err()
+            .to_string()
+            .contains("found: R5CR70PMMQR"));
+        assert!(pick(&[], None)
+            .unwrap_err()
+            .to_string()
+            .contains("USB debugging"));
         let _ = fs::remove_dir_all(&root);
     }
 }

@@ -27,11 +27,21 @@ fn base64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for c in data.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         out.push(T[(n >> 18) as usize & 63] as char);
         out.push(T[(n >> 12) as usize & 63] as char);
-        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -50,13 +60,20 @@ impl AdbKey {
             };
             // Keep adbkey.pub in step (the fingerprint and `adb` read it).
             let pubp = dir.join("adbkey.pub");
-            if std::fs::read_to_string(&pubp).map(|s| !s.starts_with(&k.public_key_b64())).unwrap_or(true) {
+            if std::fs::read_to_string(&pubp)
+                .map(|s| !s.starts_with(&k.public_key_b64()))
+                .unwrap_or(true)
+            {
                 let _ = std::fs::write(&pubp, k.public_key_line() + "\n");
             }
             return Ok(k);
         }
-        log::info!("Creating this device's adb key in {} (once)...", dir.display());
-        let key = RsaPrivateKey::new(&mut rand_core::OsRng, 2048).context("RSA key generation failed")?;
+        log::info!(
+            "Creating this device's adb key in {} (once)...",
+            dir.display()
+        );
+        let key =
+            RsaPrivateKey::new(&mut rand_core::OsRng, 2048).context("RSA key generation failed")?;
         let k = Self {
             key,
             name: name.to_string(),
@@ -119,8 +136,12 @@ impl AdbKey {
         let mut out = Vec::with_capacity(524);
         out.extend_from_slice(&(WORDS as u32).to_le_bytes());
         out.extend_from_slice(&n0inv.to_le_bytes());
-        n_words.iter().for_each(|w| out.extend_from_slice(&w.to_le_bytes()));
-        rr_words.iter().for_each(|w| out.extend_from_slice(&w.to_le_bytes()));
+        n_words
+            .iter()
+            .for_each(|w| out.extend_from_slice(&w.to_le_bytes()));
+        rr_words
+            .iter()
+            .for_each(|w| out.extend_from_slice(&w.to_le_bytes()));
         out.extend_from_slice(&e.to_le_bytes());
         out
     }
@@ -142,7 +163,11 @@ impl AdbKey {
     /// adbd's AUTH TOKEN challenge: RSA PKCS#1 v1.5 over the 20-byte token
     /// as if it were a SHA-1 digest (adb's RSA_sign(NID_sha1, ...)).
     pub fn sign_token(&self, token: &[u8]) -> Result<Vec<u8>> {
-        anyhow::ensure!(token.len() == 20, "unexpected adb auth token length {}", token.len());
+        anyhow::ensure!(
+            token.len() == 20,
+            "unexpected adb auth token length {}",
+            token.len()
+        );
         Ok(self.key.sign(Pkcs1v15Sign::new::<sha1::Sha1>(), token)?)
     }
 

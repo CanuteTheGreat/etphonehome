@@ -29,7 +29,7 @@ fn test_handshake_response_roundtrip() {
         capabilities: capabilities::USB | capabilities::ROOT,
         ip_address: 0x0A000002, // 10.0.0.2
         dns: 0x08080808,
-        device_name: None,        // 8.8.8.8
+        device_name: None, // 8.8.8.8
     };
 
     let bytes = original.to_bytes();
@@ -69,7 +69,10 @@ fn test_handshake_response_device_name() {
     let mut b = r.to_bytes()[..14].to_vec();
     b.extend_from_slice(&[0x00, 0x04, b'a', b'\n', b'b', b' ']); // control chars dropped
     assert_eq!(
-        HandshakeResponse::from_bytes(&b).unwrap().device_name.as_deref(),
+        HandshakeResponse::from_bytes(&b)
+            .unwrap()
+            .device_name
+            .as_deref(),
         Some("ab")
     );
     let mut b = r.to_bytes()[..14].to_vec();

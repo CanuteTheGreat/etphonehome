@@ -67,7 +67,10 @@ impl Header {
 
     pub fn decode(b: &[u8]) -> io::Result<Self> {
         if b.len() < 24 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "short adb header"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "short adb header",
+            ));
         }
         let w = |i: usize| u32::from_le_bytes([b[i * 4], b[i * 4 + 1], b[i * 4 + 2], b[i * 4 + 3]]);
         let h = Self {
@@ -78,10 +81,16 @@ impl Header {
             data_check: w(4),
         };
         if w(5) != h.command ^ 0xffff_ffff {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "bad adb header magic"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "bad adb header magic",
+            ));
         }
         if h.data_length as usize > MAX_PAYLOAD {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "adb payload too large"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "adb payload too large",
+            ));
         }
         Ok(h)
     }
@@ -103,7 +112,14 @@ mod tests {
         bad[20] ^= 1;
         assert!(Header::decode(&bad).is_err());
         assert!(Header::decode(&b[..10]).is_err());
-        for (c, s) in [(A_OPEN, b"OPEN"), (A_OKAY, b"OKAY"), (A_WRTE, b"WRTE"), (A_CLSE, b"CLSE"), (A_AUTH, b"AUTH"), (A_SYNC, b"SYNC")] {
+        for (c, s) in [
+            (A_OPEN, b"OPEN"),
+            (A_OKAY, b"OKAY"),
+            (A_WRTE, b"WRTE"),
+            (A_CLSE, b"CLSE"),
+            (A_AUTH, b"AUTH"),
+            (A_SYNC, b"SYNC"),
+        ] {
             assert_eq!(&c.to_le_bytes(), s);
         }
     }

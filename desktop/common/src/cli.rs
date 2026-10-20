@@ -399,12 +399,8 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
                     "No --token given; the Android app rejects WiFi connections without its token"
                 );
             }
-            let integration = net.integration(
-                "wifi",
-                &format!("{wifi_host}:{port}"),
-                &interface,
-                None,
-            )?;
+            let integration =
+                net.integration("wifi", &format!("{wifi_host}:{port}"), &interface, None)?;
             let addr = runner::resolve_addr(&wifi_host, port).await?;
             let mut plan = tcp_plan(addr, capabilities::WIFI, token, tls, None, interface);
             plan.host = integration;
@@ -813,7 +809,15 @@ mod tests {
             }
             c => panic!("{:?}", c),
         }
-        match parse(&["usb", "--tun-address", "10.0.0.1/24", "--tun-peer", "10.9.0.2"]).command {
+        match parse(&[
+            "usb",
+            "--tun-address",
+            "10.0.0.1/24",
+            "--tun-peer",
+            "10.9.0.2",
+        ])
+        .command
+        {
             Commands::Usb { net, .. } => {
                 assert!(net.integration("usb", "x", "etph0", None).is_err());
             }
@@ -823,20 +827,42 @@ mod tests {
             Commands::DiscoverWifi { json, timeout } => assert!(json && timeout == 2),
             c => panic!("{:?}", c),
         }
-        parse(&["connect", "phone", "--no-routes", "--status-file", "/tmp/x.json"]);
+        parse(&[
+            "connect",
+            "phone",
+            "--no-routes",
+            "--status-file",
+            "/tmp/x.json",
+        ]);
         parse(&["bluetooth", "-a", "Pixel", "--no-routes"]);
         parse(&["adb-fingerprint", "--key", "/etc/etph/.android/adbkey.pub"]);
         parse(&["adb-keygen"]);
         parse(&["usb-list", "--json"]);
         match parse(&["usb", "--native", "--adb-tcp", "127.0.0.1:15556"]).command {
-            Commands::Usb { native, adb_tcp, .. } => {
+            Commands::Usb {
+                native, adb_tcp, ..
+            } => {
                 assert!(native);
                 assert_eq!(adb_tcp.as_deref(), Some("127.0.0.1:15556"));
             }
             c => panic!("{:?}", c),
         }
-        match parse(&["auto", "--host", "192.168.8.153", "--no-routes", "--reconnect"]).command {
-            Commands::Auto { host, port, wifi_port, no_tls, .. } => {
+        match parse(&[
+            "auto",
+            "--host",
+            "192.168.8.153",
+            "--no-routes",
+            "--reconnect",
+        ])
+        .command
+        {
+            Commands::Auto {
+                host,
+                port,
+                wifi_port,
+                no_tls,
+                ..
+            } => {
                 assert_eq!(host.as_deref(), Some("192.168.8.153"));
                 assert_eq!((port, wifi_port, no_tls), (8888, 8888, false));
             }

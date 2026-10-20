@@ -82,15 +82,20 @@ impl Link for TcpLink {
         match r.read(&mut h[..1]) {
             Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
             Ok(_) => {}
-            Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
                 return Ok(None)
             }
             Err(e) => return Err(e),
         }
-        read_full(&mut *r, &mut h[1..])?;
+        read_full(&mut r, &mut h[1..])?;
         let hdr = Header::decode(&h)?;
         let mut data = vec![0u8; hdr.data_length as usize];
-        read_full(&mut *r, &mut data)?;
+        read_full(&mut r, &mut data)?;
         Ok(Some((hdr, data)))
     }
 
@@ -110,8 +115,10 @@ fn read_full(r: &mut TcpStream, mut buf: &mut [u8]) -> io::Result<()> {
             Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
             Ok(n) => buf = &mut buf[n..],
             Err(e)
-                if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
-                    && Instant::now() < deadline => {}
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) && Instant::now() < deadline => {}
             Err(e) => return Err(e),
         }
     }
@@ -157,7 +164,12 @@ pub fn handshake(
     allow_wait: Duration,
 ) -> Result<Connected> {
     link.send(
-        &Header::new(A_CNXN, proto::VERSION, proto::MAX_PAYLOAD as u32, proto::HOST_BANNER),
+        &Header::new(
+            A_CNXN,
+            proto::VERSION,
+            proto::MAX_PAYLOAD as u32,
+            proto::HOST_BANNER,
+        ),
         proto::HOST_BANNER,
     )?;
     let mut sent_signature = false;
@@ -174,7 +186,9 @@ pub fn handshake(
             }
             bail!("no answer from adbd on the phone (is USB debugging on?)");
         }
-        let Some((h, data)) = link.recv()? else { continue };
+        let Some((h, data)) = link.recv()? else {
+            continue;
+        };
         match h.command {
             A_CNXN => {
                 let banner = String::from_utf8_lossy(&data).to_string();

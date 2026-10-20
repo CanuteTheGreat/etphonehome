@@ -643,7 +643,10 @@ mod tests {
         st.stopped(Some("token rejected"));
         assert_eq!(read()["state"], "failed");
         // No temp files left behind.
-        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
         assert_eq!(names.len(), 1, "{names:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -662,7 +665,11 @@ mod tests {
         st.traffic(2000, 8000);
         let s = st.snapshot();
         assert!((900..=1000).contains(&s.rate_sent), "{}", s.rate_sent);
-        assert!((3600..=4000).contains(&s.rate_received), "{}", s.rate_received);
+        assert!(
+            (3600..=4000).contains(&s.rate_received),
+            "{}",
+            s.rate_received
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -672,7 +679,9 @@ mod tests {
         assert_eq!(hex(md5(b"")), "d41d8cd98f00b204e9800998ecf8427e");
         assert_eq!(hex(md5(b"abc")), "900150983cd24fb0d6963f7d28e17f72");
         assert_eq!(
-            hex(md5(b"12345678901234567890123456789012345678901234567890123456789012345678901234567890")),
+            hex(md5(
+                b"12345678901234567890123456789012345678901234567890123456789012345678901234567890"
+            )),
             "57edf4a22be3c955ac49da2e2107b67a"
         );
     }

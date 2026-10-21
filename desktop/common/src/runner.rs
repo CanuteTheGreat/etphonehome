@@ -607,6 +607,77 @@ pub fn create_tun_with(
     ))
 }
 
+/// Routers/firewalls on the BSDs (pfSense, OPNsense): every few seconds,
+/// put the link's address back if the firewall's interface configuration
+/// removed it, then run the up hook again so it re-arms gateway monitoring
+/// and routes on the restored link. Elsewhere (and when the client owns the
+/// routes itself) nothing reconfigures our interface: no task.
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    windows
+)))]
+fn address_keeper(
+    host: &HostIntegration,
+    ifname: &str,
+    hook: &HookInfo,
+) -> Option<tokio::task::JoinHandle<()>> {
+    if host.manage_routes {
+        return None;
+    }
+    let (ifname, tun, script, hook) = (
+        ifname.to_string(),
+        host.tun,
+        host.up_script.clone(),
+        hook.clone(),
+    );
+    Some(tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(5));
+        tick.tick().await;
+        loop {
+            tick.tick().await;
+            let (ifname, tun, script, hook) = (ifname.clone(), tun, script.clone(), hook.clone());
+            let _ = tokio::task::spawn_blocking(move || {
+                match crate::bsdtun::ensure_address(
+                    &ifname,
+                    &tun.local.to_string(),
+                    &tun.peer.to_string(),
+                    &tun.netmask().to_string(),
+                    1500,
+                ) {
+                    Ok(true) => {
+                        warn!(
+                            "{}: its address was removed (interface reconfigured by the system); restored it",
+                            ifname
+                        );
+                        if let Some(script) = &script {
+                            host::run_hook(script, "up", &tun, &hook);
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(e) => log::debug!("address check on {}: {:#}", ifname, e),
+                }
+            })
+            .await;
+        }
+    }))
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    windows
+))]
+fn address_keeper(
+    _host: &HostIntegration,
+    _ifname: &str,
+    _hook: &HookInfo,
+) -> Option<tokio::task::JoinHandle<()>> {
+    None
+}
+
 /// What to check when the TUN device cannot be created, per platform.
 #[cfg(target_os = "linux")]
 const TUN_HELP: &str = "Run as root (sudo etphonehome ...), make sure the tun module is loaded \
@@ -1367,6 +1438,7 @@ where
     if let Some(script) = &host.up_script {
         host::run_hook(script, "up", &host.tun, &hook);
     }
+    let address_keeper = address_keeper(host, &ifname, &hook);
     // The status file needs live byte counters; the forwarding loop
     // publishes them through a ConnectionService (the GUI's, or our own).
     let service = service.or_else(|| host.status.as_ref().map(|_| ConnectionService::new()));
@@ -1396,6 +1468,9 @@ where
     let result = session::forward(transport, tun, opts, shutdown).await;
     if let Some(p) = status_pump {
         p.abort();
+    }
+    if let Some(k) = address_keeper {
+        k.abort();
     }
     if host.manage_routes {
         cleanup_host(&ifname);

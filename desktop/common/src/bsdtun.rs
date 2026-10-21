@@ -140,6 +140,41 @@ pub fn create(name: &str, local: &str, peer: &str, netmask: &str, mtu: u16) -> R
     Ok(tun)
 }
 
+/// Put the point-to-point address back if something removed it; true = it
+/// was missing. Firewalls reconfigure an interface the admin assigned when
+/// its settings are applied: pfSense with "IPv4 Configuration Type: None"
+/// strips every IPv4 address from it, which would leave the uplink dead
+/// until the next reconnect.
+#[cfg(not(target_os = "macos"))]
+pub fn ensure_address(
+    name: &str,
+    local: &str,
+    peer: &str,
+    netmask: &str,
+    mtu: u16,
+) -> Result<bool> {
+    let out = Command::new("ifconfig")
+        .args([name, "inet"])
+        .output()
+        .context("cannot run ifconfig")?;
+    if !out.status.success() {
+        bail!(
+            "ifconfig {} inet failed: {}",
+            name,
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let (l, p) = (
+        local.parse().context("local address")?,
+        peer.parse().context("peer address")?,
+    );
+    if crate::host::ifconfig_has_p2p(&String::from_utf8_lossy(&out.stdout), l, p) {
+        return Ok(false);
+    }
+    configure(name, local, peer, netmask, mtu)?;
+    Ok(true)
+}
+
 #[cfg(target_os = "macos")]
 fn open_device(name: &str) -> Result<(OwnedFd, String, bool)> {
     // utun unit N+1 = utunN; 0 = the first free one.

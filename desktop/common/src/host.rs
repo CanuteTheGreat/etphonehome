@@ -161,6 +161,21 @@ pub fn hook_env(tun: &TunAddressing, info: &HookInfo) -> Vec<(String, String)> {
     env
 }
 
+/// Whether `ifconfig <tun>` output still shows the point-to-point address
+/// `local --> peer` (BSD format: `inet 10.0.0.1 --> 10.0.0.2 netmask ...`).
+pub fn ifconfig_has_p2p(ifconfig: &str, local: Ipv4Addr, peer: Ipv4Addr) -> bool {
+    let want = [
+        "inet".to_string(),
+        local.to_string(),
+        "-->".to_string(),
+        peer.to_string(),
+    ];
+    ifconfig.lines().any(|l| {
+        let w: Vec<&str> = l.split_whitespace().take(4).collect();
+        w.len() == 4 && w.iter().zip(want.iter()).all(|(a, b)| *a == b.as_str())
+    })
+}
+
 /// Run a hook script with the session environment; its failure is logged,
 /// never fatal (a broken hook must not kill the uplink or the retry loop).
 pub fn run_hook(script: &Path, phase: &str, tun: &TunAddressing, info: &HookInfo) -> bool {
@@ -548,6 +563,35 @@ pub const STATUS_INTERVAL: Duration = Duration::from_secs(2);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ifconfig_p2p_address_is_recognised() {
+        let local = Ipv4Addr::new(10, 0, 0, 1);
+        let peer = Ipv4Addr::new(10, 0, 0, 2);
+        let up =
+            "etph0: flags=1008051<UP,POINTOPOINT,RUNNING,MULTICAST,LOWER_UP> metric 0 mtu 1500\n\
+                  \toptions=80000<LINKSTATE>\n\
+                  \tinet 10.0.0.1 --> 10.0.0.2 netmask 0xffffff00\n\
+                  \tgroups: tun\n";
+        assert!(ifconfig_has_p2p(up, local, peer));
+        // pfSense with "IPv4 Configuration Type: None" applied: address gone.
+        let gone =
+            "etph0: flags=1008051<UP,POINTOPOINT,RUNNING,MULTICAST,LOWER_UP> metric 0 mtu 1500\n\
+                    \tinet6 fe80::c1b:8832:5ed2:513e%etph0 prefixlen 64 scopeid 0x8\n\
+                    \tgroups: tun\n";
+        assert!(!ifconfig_has_p2p(gone, local, peer));
+        // Another address on the link is not ours.
+        assert!(!ifconfig_has_p2p(
+            "\tinet 10.0.0.11 --> 10.0.0.2 netmask 0xffffff00\n",
+            local,
+            peer
+        ));
+        assert!(!ifconfig_has_p2p(
+            "\tinet 10.0.0.1 --> 10.0.0.20 netmask 0xffffff00\n",
+            local,
+            peer
+        ));
+    }
 
     #[test]
     fn tun_addressing_parses_and_picks_a_peer() {

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `etphonehome list-profiles` prints `WARNING: connect will refuse this profile: ...` under a profile whose enabled filter can't be sent to the phone (a rule with an address/port typo, more than 1024 rules, or rules too large for one message). This is the same check `connect` runs. Before, the listing looked normal and the problem only showed up when a connect attempt failed. The desktop app's profile list marks such a profile with "Filter problem: won't connect".
+
 ## [0.9.1] - 2026-10-21
 
 ### Added

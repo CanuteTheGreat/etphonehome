@@ -1904,6 +1904,16 @@ pub fn format_profiles(config: &Config) -> String {
                 p.filter.rules.len()
             );
         }
+        // The same check `plan_for_profile` runs at connect time: say so here,
+        // where the user is looking at the profile, not only after a connect
+        // attempt fails.
+        if let Some(problem) = p.filter.wire_problem() {
+            let _ = writeln!(
+                out,
+                "    WARNING: connect will refuse this profile: {}",
+                problem
+            );
+        }
         out.push('\n');
     }
     out.push_str("Connect with: sudo etphonehome connect <profile-name>\n");
@@ -2145,6 +2155,53 @@ mod tests {
             "{names:?}"
         );
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn profile_list_warns_about_a_filter_that_connect_will_refuse() {
+        use crate::filter::{FilterAction, FilterRule};
+        let mut cfg = Config::default();
+        cfg.profiles.push(Profile {
+            name: "typo".into(),
+            connection_type: ConnectionType::Usb,
+            host: None,
+            port: None,
+            address: None,
+            description: None,
+            filter: FilterConfig::default(),
+        });
+        cfg.profiles[0].filter.enabled = true;
+        cfg.profiles[0].filter.rules.push(FilterRule {
+            id: "lan".into(),
+            enabled: true,
+            action: FilterAction::Block,
+            protocol: None,
+            dest_ip: Some("10.0.0.0/24/8".into()),
+            dest_port: None,
+            source_ip: None,
+            source_port: None,
+            description: None,
+        });
+        let listing = format_profiles(&cfg);
+        assert!(
+            listing.contains("WARNING: connect will refuse this profile: filter rule 0"),
+            "{}",
+            listing
+        );
+        assert!(listing.contains("\"lan\""), "{}", listing);
+        // The warning matches connect's own refusal.
+        let why = cfg.profiles[0].filter.wire_problem().unwrap();
+        assert!(listing.contains(&why), "{}", listing);
+
+        // Fixed, disabled rule, or disabled filter: no warning.
+        cfg.profiles[0].filter.rules[0].dest_ip = Some("10.0.0.0/8".into());
+        assert!(!format_profiles(&cfg).contains("WARNING"));
+        cfg.profiles[0].filter.rules[0].dest_ip = Some("10.0.0.0/24/8".into());
+        cfg.profiles[0].filter.rules[0].enabled = false;
+        assert!(!format_profiles(&cfg).contains("WARNING"));
+        cfg.profiles[0].filter.rules[0].enabled = true;
+        cfg.profiles[0].filter.enabled = false;
+        assert!(!format_profiles(&cfg).contains("WARNING"));
     }
 
     #[test]

@@ -26,7 +26,18 @@ pub fn view<'a>(profiles: &'a [Profile], selected: Option<&'a String>) -> Elemen
                 .size(10)
                 .color(iced::Color::from_rgb(0.5, 0.5, 0.5));
 
-            let item = button(column![name, conn_type].spacing(2))
+            let mut lines = column![name, conn_type].spacing(2);
+            // Connect refuses a profile whose filter can't be sent to the phone
+            // (a typo'd rule, too many rules); flag it in the list too.
+            if profile.filter.wire_problem().is_some() {
+                lines = lines.push(
+                    text("Filter problem: won't connect")
+                        .size(10)
+                        .color(iced::Color::from_rgb(0.85, 0.2, 0.2)),
+                );
+            }
+
+            let item = button(lines)
                 .padding(8)
                 .width(Length::Fill)
                 .style(if is_selected {

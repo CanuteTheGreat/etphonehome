@@ -75,16 +75,13 @@ jobs:
           CARGO_PROFILE_DEV_DEBUG: '0'
         run: |
           # cargo-mutants builds copies of desktop/ in $TMPDIR/cargo-mutants-*;
-          # the tests include_str! ../config.example.toml,
-          # ../protocol/test-vectors.txt and the app's TetherService.kt (Bluetooth
-          # UUID) from outside desktop/, so put those
-          # where the copies' relative paths land.
+          # tests include_str! files from outside desktop/ (config.example.toml,
+          # protocol/test-vectors.txt, the app's TetherService.kt and
+          # accessory_filter.xml, ...), so stage every such include where the
+          # copies' relative paths land (found by scanning, not a hand list).
           export TMPDIR="${RUNNER_TEMP:-/tmp}/etph-mutants"
-          mkdir -p "$TMPDIR/protocol"
-          cp ../config.example.toml "$TMPDIR/"
-          cp ../protocol/test-vectors.txt "$TMPDIR/protocol/"
-          SVC=android/app/src/main/java/com/etphonehome/service
-          mkdir -p "$TMPDIR/$SVC" && cp "../$SVC/TetherService.kt" "$TMPDIR/$SVC/"
+          mkdir -p "$TMPDIR"
+          python3 ../.forgejo/scripts/mutants-stage-includes.py "$TMPDIR" || exit 1
           set +e
           diff=""
           [ "$MUT_MODE" = incremental ] && diff="--in-diff $MUT_DIFF"

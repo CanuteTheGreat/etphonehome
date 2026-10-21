@@ -347,9 +347,44 @@ jobs:
             echo "giving up on $f"; exit 1
           done
 
+  checksums:
+    name: SHA256SUMS over every release file
+    # The router build writes SHA256SUMS for the router packages only, and the APK is signed (so it
+    # changes) after create-release. Once everything is attached, hash every asset and replace
+    # SHA256SUMS, so `sha256sum -c SHA256SUMS` covers the whole release.
+    needs: [sign-android]
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 15
+    steps:
+      - name: Hash every asset, replace SHA256SUMS
+        env:
+          TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          auth=(-H "Authorization: token $TOKEN")
+          mkdir -p sums/files && cd sums
+          curl -fsS "${auth[@]}" "$API/releases/tags/$TAG" > rel.json
+          ID=$(python3 -c 'import json; print(json.load(open("rel.json"))["id"])')
+          python3 -c 'import json; [print(a["id"], a["name"], a["browser_download_url"]) for a in json.load(open("rel.json"))["assets"]]' > assets.txt
+          while read -r id name url; do
+            if [ "$name" = SHA256SUMS ]; then out=router-sums; else out="files/$name"; fi
+            curl -fsSL --retry 3 "${auth[@]}" -o "$out" "$url"
+          done < assets.txt
+          # The router packages still match the sums the router build wrote.
+          if [ -f router-sums ]; then (cd files && sha256sum -c --quiet ../router-sums); fi
+          (cd files && sha256sum -- * > ../SHA256SUMS)
+          for a in $(awk '$2 == "SHA256SUMS" {print $1}' assets.txt); do
+            curl -fsS "${auth[@]}" -X DELETE "$API/releases/$ID/assets/$a"
+          done
+          curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=SHA256SUMS" -F "attachment=@SHA256SUMS" >/dev/null
+          (cd files && sha256sum -c --quiet ../SHA256SUMS)
+          echo "SHA256SUMS covers $(wc -l < SHA256SUMS) files"; cat SHA256SUMS
+
   verify-release:
     name: Verify the published release
-    needs: [sign-android]
+    needs: [checksums]
     runs-on: linux-cross-x86_64
     timeout-minutes: 10
     steps:

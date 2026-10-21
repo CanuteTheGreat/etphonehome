@@ -338,8 +338,7 @@ impl HandshakeRequest {
 
         // Optional client id and name: best effort, never fail the handshake.
         fn field(rest: &mut &[u8]) -> Option<String> {
-            let r: &[u8] = *rest;
-            let (len, tail) = r.split_first_chunk::<2>()?;
+            let (len, tail) = rest.split_first_chunk::<2>()?;
             let n = u16::from_be_bytes(*len) as usize;
             let Some(v) = tail.get(..n) else {
                 *rest = &[];

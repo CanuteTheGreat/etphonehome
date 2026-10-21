@@ -52,7 +52,8 @@ jobs:
           URL=$(python3 -c "
           import json
           r=[r for r in json.load(open('releases.json')) if not r['draft'] and not r['prerelease']][0]
-          print([a['browser_download_url'] for a in r['assets'] if a['name'].endswith('.apk')][0])")
+          # The Android app only: since 0.8.0 releases also carry OpenWrt 25 packages, which are .apk too.
+          print([a['browser_download_url'] for a in r['assets'] if a['name'].startswith('etphonehome-') and a['name'].endswith('.apk')][0])")
           echo "previous APK: $URL"
           curl -fsSL "$URL" -o prev.apk
           # Releases since 0.7.0 are signed with the ETPH release key, which never reaches this

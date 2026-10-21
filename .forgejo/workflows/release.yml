@@ -308,10 +308,6 @@ jobs:
     # universal .pkg on a GitHub-hosted Mac when the mirror receives this tag,
     # tests it on Apple Silicon and Intel, and attaches it to the GitHub
     # release. Copy it (checked against its SHA256SUMS) into this release.
-    # Off until the macOS client is released (a 0.9.x update): the GitHub mirror
-    # no longer builds on tags. Re-enable together with the tag trigger in
-    # .github/workflows/desktop-native.yml and the macOS names in verify-release.
-    if: ${{ false }}
     needs: create-release
     runs-on: linux-cross-x86_64
     timeout-minutes: 120
@@ -352,7 +348,7 @@ jobs:
     # The router build writes SHA256SUMS for the router packages only, and the APK is signed (so it
     # changes) after create-release. Once everything is attached, hash every asset and replace
     # SHA256SUMS, so `sha256sum -c SHA256SUMS` covers the whole release.
-    needs: [sign-android]
+    needs: [sign-android, macos-from-github]
     runs-on: linux-cross-x86_64
     timeout-minutes: 15
     steps:
@@ -403,8 +399,10 @@ jobs:
           v = tag[1:] + "-r1"
           want = {f"etphonehome-linux-{tag}.tar.gz", f"etphonehome-windows-{tag}.zip", f"etphonehome-gui-{tag}.tar.gz", f"etphonehome-{tag}.apk",
                   "etph-openwrt-install.sh", "SHA256SUMS", "sizes.tsv", f"luci-app-etph_{v}_all.ipk", f"luci-app-etph-{v}_noarch.apk"}
-          want |= {f"etph-windows-{tag}.msi", f"etph-winget-{tag}.zip",
-                   f"etphonehome-{tag[1:]}-freebsd-amd64.pkg", f"etphonehome-{tag[1:]}-freebsd-aarch64.pkg",
+          want |= {f"etph-windows-{tag}.msi", f"etph-winget-{tag}.zip", f"etph-macos-{tag}.pkg", f"etphonehome-macos-{tag}.tar.gz",
+                   f"etphonehome-{tag[1:]}-freebsd14-amd64.pkg", f"etphonehome-{tag[1:]}-freebsd15-amd64.pkg",
+                   f"etphonehome-{tag[1:]}-freebsd14-aarch64.pkg", f"etphonehome-{tag[1:]}-freebsd15-aarch64.pkg",
+                   f"os-etph-{tag[1:]}.pkg", f"pfSense-pkg-etph-{tag[1:]}.pkg",
                    f"etphonehome-freebsd-amd64-{tag}.tar.gz"}
           for arch in ("x86_64", "aarch64_cortex-a53", "arm_cortex-a7_neon-vfpv4", "mips_24kc", "mipsel_24kc"):
               want |= {f"etph_{v}_{arch}.ipk", f"etph-{v}_{arch}.apk"}

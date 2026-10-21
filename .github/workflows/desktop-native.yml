@@ -13,13 +13,16 @@
 #   Forgejo's release workflow copies them into the Forgejo release.
 name: Desktop (macOS + Windows, native)
 
-# Runs ONLY on manual dispatch: GitHub emails the owner (the mirror pushes as
-# his account) about every failing run, so fixes are proven locally / in
-# Forgejo's cross-build jobs first and this is dispatched only when expected
-# to pass. Never cancel these runs. Release tags (v*) do not trigger it until
-# the macOS client ships (0.9.x): then add `push: tags: ['v*']` back and
-# re-enable macos-from-github in .forgejo/workflows/release.yml.
+# Runs ONLY on release tags (v*) and manual dispatch, never on branch pushes:
+# GitHub emails the owner (the mirror pushes as his account) about every
+# failing run, so fixes are proven locally / in Forgejo's cross-build jobs
+# first and this is dispatched only when expected to pass. Never cancel these
+# runs. On a tag it attaches the macOS .pkg to the GitHub release, and
+# .forgejo/workflows/release.yml (macos-from-github) copies it into the
+# Forgejo release.
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -79,13 +82,6 @@ jobs:
         with:
           name: etph-macos
           path: dist/
-      - name: Attach to the GitHub release (tags)
-        if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "ETPH $GITHUB_REF_NAME" --notes "Mirror of https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases/tag/$GITHUB_REF_NAME"
-          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
 
   macos-e2e:
     name: macOS e2e (${{ matrix.os }})
@@ -116,6 +112,29 @@ jobs:
       - name: Logs
         if: always()
         run: sudo tail -50 /Library/Logs/ETPH/service.log 2>/dev/null || true
+
+  macos-release:
+    # Tags only, and only once the .pkg passed e2e on BOTH Macs: attach it to
+    # the GitHub release, where Forgejo's release workflow picks it up
+    # (checked against SHA256SUMS-macos-<tag>).
+    name: Attach the tested macOS package to the GitHub release (tags)
+    if: github.ref_type == 'tag'
+    needs: [macos-e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: etph-macos
+          path: dist
+      - name: Attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          (cd dist && sha256sum -c "SHA256SUMS-macos-$GITHUB_REF_NAME")
+          gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --title "ETPH $GITHUB_REF_NAME" --notes "Mirror of https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases/tag/$GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" dist/* --clobber
 
   windows-msi:
     name: Windows MSI (mingw + wixl, as released)

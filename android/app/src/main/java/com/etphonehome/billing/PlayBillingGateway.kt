@@ -27,7 +27,7 @@ import kotlin.coroutines.resume
  * on the JVM with a fake gateway; this class only translates Play's types to plain data.
  */
 class PlayBillingGateway(
-    context: Context,
+    private val context: Context,
     private val productId: String,
     onPurchasesUpdated: (BillingResult, List<Purchase>?) -> Unit,
 ) : BillingGateway {
@@ -45,6 +45,12 @@ class PlayBillingGateway(
     /** Connects once (Play reconnects by itself afterwards); returns Play's answer. */
     private suspend fun connect(): BillingResult = connectLock.withLock {
         if (client.isReady) return@withLock ok()
+        // No Play Store app (de-Googled ROMs, emulator images with Play services only): Play
+        // billing can't work at all, so say that instead of a misleading "lost the connection".
+        if (!playStoreInstalled()) {
+            return@withLock BillingResult.newBuilder().setResponseCode(BillingResponseCode.BILLING_UNAVAILABLE)
+                .setDebugMessage("no Google Play Store app").build()
+        }
         suspendCancellableCoroutine { cont ->
             client.startConnection(object : BillingClientStateListener {
                 override fun onBillingSetupFinished(result: BillingResult) {
@@ -129,12 +135,23 @@ class PlayBillingGateway(
         return client.launchBillingFlow(activity, params)
     }
 
+    @Suppress("DEPRECATION") // getPackageInfo(String, Int): the flags overload works on every API level
+    private fun playStoreInstalled(): Boolean = try {
+        context.packageManager.getPackageInfo(PLAY_STORE, 0)
+        true
+    } catch (e: Exception) {
+        false
+    }
+
     private fun ok() = BillingResult.newBuilder().setResponseCode(BillingResponseCode.OK).build()
 
     private fun failed(r: BillingResult) =
         PurchaseQuery.Failed(describe(r), unavailable = r.responseCode == BillingResponseCode.BILLING_UNAVAILABLE)
 
     companion object {
+        /** The Play Store app; visible to this app through the <queries> entry in the manifest. */
+        const val PLAY_STORE = "com.android.vending"
+
         fun describe(r: BillingResult): String = when (r.responseCode) {
             BillingResponseCode.BILLING_UNAVAILABLE -> "Google Play billing isn't available on this phone"
             BillingResponseCode.SERVICE_UNAVAILABLE, BillingResponseCode.NETWORK_ERROR -> "Google Play can't be reached right now"

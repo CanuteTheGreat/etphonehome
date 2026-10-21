@@ -348,11 +348,14 @@ class TetherService : Service() {
         return when (val a = ProGate.admit(Pro.isPro, mode, client, Pro.store.paired.value)) {
             is Admission.Refuse -> {
                 Log.i(tag, "Refused ${client.name}: ${a.reason}")
-                TetherStatus.set(TetherState.Waiting(modeLabel(mode), "$waitingHint\n\nRefused \"${client.name}\": ${a.reason.removePrefix(ProGate.PREFIX)}"))
-                refreshNotification()
+                // Kept on screen until a computer is admitted: the refused connection ends right
+                // after this, and that would otherwise put the plain waiting hint straight back.
+                lastRefusal = "Refused \"${client.name}\": ${a.reason.removePrefix(ProGate.PREFIX)}"
+                waiting(waitingHint)
                 a.reason
             }
             Admission.Admit -> {
+                lastRefusal = null
                 Pro.store.deviceSeen(client)
                 null
             }
@@ -396,9 +399,13 @@ class TetherService : Service() {
 
     private var waitingHint = ""
 
+    /** The last computer/router the Free/Pro gate turned away, shown under the waiting hint. */
+    @Volatile private var lastRefusal: String? = null
+
     private fun waiting(hint: String) {
         waitingHint = hint
-        TetherStatus.set(TetherState.Waiting(modeLabel(mode), hint))
+        val shown = lastRefusal?.let { "$hint\n\n$it" } ?: hint
+        TetherStatus.set(TetherState.Waiting(modeLabel(mode), shown))
         refreshNotification()
     }
 

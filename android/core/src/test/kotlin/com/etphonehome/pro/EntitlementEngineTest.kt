@@ -3,7 +3,10 @@ package com.etphonehome.pro
 import com.etphonehome.pro.PurchaseVerifierTest.Companion.json
 import com.etphonehome.pro.PurchaseVerifierTest.Companion.publicB64
 import com.etphonehome.pro.PurchaseVerifierTest.Companion.sign
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -22,6 +25,14 @@ class MemoryStore(var cached: EntitlementStore.Cached? = null, var forced: Boole
     override fun load() = cached
     override fun save(cached: EntitlementStore.Cached?) { this.cached = cached }
     override fun override() = forced
+}
+
+/** A Play that answers only when the test says so (a slow Play Store / a missing one timing out). */
+class SlowBillingGateway : BillingGateway {
+    val asked = CompletableDeferred<Unit>()
+    val answer = CompletableDeferred<PurchaseQuery>()
+    override suspend fun queryPurchases(): PurchaseQuery { asked.complete(Unit); return answer.await() }
+    override suspend fun acknowledge(purchaseToken: String): Boolean = true
 }
 
 class EntitlementEngineTest {
@@ -115,5 +126,33 @@ class EntitlementEngineTest {
         assertEquals(0, play.queries)
         store.forced = false
         assertFalse(engine.refresh(play).isPro)
+    }
+
+    @Test
+    fun aSlowOlderAnswerDoesNotOverwriteAPurchaseThatArrivedMeanwhile() = runBlocking {
+        val slow = SlowBillingGateway()
+        val older = async { engine.refresh(slow) }
+        slow.asked.await()
+        // The purchase sheet finishes while the older query is still waiting for Play.
+        val update = async { engine.onPurchasesUpdated(listOf(bought()), FakeBillingGateway()) }
+        yield()
+        slow.answer.complete(PurchaseQuery.Ok(emptyList()))
+        older.await()
+        update.await()
+        assertEquals(Entitlement.Status.PRO, engine.state.value.status)
+    }
+
+    @Test
+    fun aSlowOlderAnswerDoesNotOverwriteTheTestOverride() = runBlocking {
+        val slow = SlowBillingGateway()
+        val older = async { engine.refresh(slow) }
+        slow.asked.await()
+        store.forced = true
+        val newer = async { engine.refresh(FakeBillingGateway()) }
+        yield()
+        slow.answer.complete(PurchaseQuery.Failed("lost the connection to Google Play", unavailable = false))
+        older.await()
+        newer.await()
+        assertEquals(Entitlement.Status.TEST_PRO, engine.state.value.status)
     }
 }

@@ -33,7 +33,9 @@ import com.etphonehome.util.LegacyApp
 import com.etphonehome.util.ProText
 import com.etphonehome.util.Settings
 import com.etphonehome.util.TokenManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -44,6 +46,10 @@ import java.time.LocalDate
  * Sharing needs no VPN permission and no root: the phone keeps its own
  * internet while the desktop uses it.
  */
+
+/** How often the data usage view re-reads the ledger while a session is running. */
+private const val USAGE_REFRESH_MS = 5_000L
+
 class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
@@ -159,7 +165,19 @@ class MainActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                combine(Pro.state, Pro.store.paired, Pro.store.usageVersion) { e, _, _ -> e }.collect { renderPro() }
+                combine(Pro.state, Pro.store.paired) { e, _ -> e }.collect { renderPro() }
+            }
+        }
+        // Usage changes with every stats tick of a session (each second): re-read it at most every
+        // USAGE_REFRESH_MS and only touch the view when the text changed. Re-rendering the whole
+        // Pro section every tick kept the window from ever going idle (uiautomator, accessibility
+        // services and the battery all noticed: found by the emulator e2e).
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                Pro.store.usageVersion.conflate().collect {
+                    renderUsage()
+                    delay(USAGE_REFRESH_MS)
+                }
             }
         }
     }
@@ -187,7 +205,12 @@ class MainActivity : AppCompatActivity() {
             row.findViewById<Button>(R.id.pairedForget).setOnClickListener { Pro.store.forget(d.id) }
             pairedList.addView(row)
         }
-        usageText.text = Pro.store.usage { ProText.usage(pro, it, paired, LocalDate.now()) }
+        renderUsage()
+    }
+
+    private fun renderUsage() {
+        val t = Pro.store.usage { ProText.usage(Pro.isPro, it, Pro.store.paired.value, LocalDate.now()) }
+        if (usageText.text.toString() != t) usageText.text = t
     }
 
     override fun onResume() {

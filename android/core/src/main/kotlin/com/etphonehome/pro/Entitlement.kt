@@ -3,6 +3,8 @@ package com.etphonehome.pro
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** One purchase as Play reports it: the signed JSON and its signature. */
 data class PlayPurchase(val originalJson: String, val signature: String?)
@@ -51,6 +53,11 @@ data class Entitlement(val status: Status, val message: String? = null) {
  *  - Play can't be asked (offline, Play Store updating): the remembered purchase, re-verified,
  *    keeps Pro for [offlineGraceMs] after Play last confirmed it, so an offline phone that is
  *    being used as the uplink doesn't lose Pro.
+ *
+ * Checks run one at a time ([lock]): Play can take seconds to answer (or to say it isn't there),
+ * and an older answer must never land after a newer one. Without that, a purchase update or a
+ * test override arriving while an older query was still waiting was overwritten by that query's
+ * stale "Free" (found by the emulator e2e: the app stayed Free after the Pro test hook).
  */
 class EntitlementEngine(
     private val verifier: PurchaseVerifier,
@@ -60,6 +67,7 @@ class EntitlementEngine(
     private val now: () -> Long = System::currentTimeMillis,
     private val offlineGraceMs: Long = 30L * 24 * 3600 * 1000,
 ) {
+    private val lock = Mutex()
     private val _state = MutableStateFlow(Entitlement(Entitlement.Status.CHECKING))
     val state: StateFlow<Entitlement> = _state.asStateFlow()
 
@@ -70,9 +78,9 @@ class EntitlementEngine(
         return set(fromCache(null) ?: Entitlement(Entitlement.Status.CHECKING))
     }
 
-    suspend fun refresh(gateway: BillingGateway): Entitlement {
-        store.override()?.let { return set(testState(it)) }
-        return when (val q = gateway.queryPurchases()) {
+    suspend fun refresh(gateway: BillingGateway): Entitlement = lock.withLock {
+        store.override()?.let { return@withLock set(testState(it)) }
+        when (val q = gateway.queryPurchases()) {
             is PurchaseQuery.Ok -> set(apply(q.purchases, gateway))
             is PurchaseQuery.Failed -> set(
                 fromCache(q.message) ?: Entitlement(
@@ -84,9 +92,9 @@ class EntitlementEngine(
     }
 
     /** New purchases pushed by Play (the purchase flow finished, or a pending one completed). */
-    suspend fun onPurchasesUpdated(purchases: List<PlayPurchase>, gateway: BillingGateway): Entitlement {
-        store.override()?.let { return set(testState(it)) }
-        return set(apply(purchases, gateway))
+    suspend fun onPurchasesUpdated(purchases: List<PlayPurchase>, gateway: BillingGateway): Entitlement = lock.withLock {
+        store.override()?.let { return@withLock set(testState(it)) }
+        set(apply(purchases, gateway))
     }
 
     private suspend fun apply(purchases: List<PlayPurchase>, gateway: BillingGateway): Entitlement {

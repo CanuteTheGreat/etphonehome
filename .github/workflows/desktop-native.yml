@@ -132,7 +132,11 @@ jobs:
         working-directory: desktop
         run: cargo build --release --target x86_64-pc-windows-gnu -p etphonehome-windows -p etphonehome-tray
       - name: MSI + zip
-        run: bash desktop/packaging/windows/build-msi.sh desktop/target/x86_64-pc-windows-gnu/release "ci-${GITHUB_SHA::8}" dist
+        run: |
+          bash desktop/packaging/windows/build-msi.sh desktop/target/x86_64-pc-windows-gnu/release "ci-${GITHUB_SHA::8}" dist
+          # An "older release" for the upgrade test (same files, version 0.0.1).
+          bash desktop/packaging/windows/build-msi.sh desktop/target/x86_64-pc-windows-gnu/release v0.0.1 old
+          mv old/etph-windows-v0.0.1.msi dist/upgrade-from-v0.0.1.msi
       - uses: actions/upload-artifact@v4
         with:
           name: etph-windows
@@ -161,7 +165,7 @@ jobs:
         run: |
           tar -xzf standin.tar.gz
           $msi = (Get-ChildItem dist\etph-windows-*.msi | Select-Object -First 1).FullName
-          & desktop\packaging\windows\e2e.ps1 -Msi $msi -Standin "$PWD\standin"
+          & desktop\packaging\windows\e2e.ps1 -Msi $msi -Standin "$PWD\standin" -OldMsi "$PWD\dist\upgrade-from-v0.0.1.msi"
           exit $LASTEXITCODE
       - name: Logs
         if: always()

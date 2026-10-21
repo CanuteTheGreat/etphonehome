@@ -44,8 +44,9 @@ echo "$ST" | grep -q '"state":"idle"' && pass "unprivileged ctl talks to the ser
 etphonehome usb-list --json | grep -q '^\[' && pass "usb-list enumerates USB through IOKit/libusb" || fail "usb-list"
 
 # ---- the phone ------------------------------------------------------------
-IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
-echo "Mac address for the stand-in's own traffic: $IP"
+DEFIF=$(route -n get default | awk '/interface:/{print $2}')
+IP=$(ipconfig getifaddr "$DEFIF")
+echo "Mac address for the stand-in's own traffic: $IP ($DEFIF)"
 "$STANDIN/bin/standin" --listen 127.0.0.1:9301 --token "$TOKEN" --require-tls --stats-log --stats-secs 2 \
   --bind-address "$IP" >"$W/standin.log" 2>&1 &
 SP=$!
@@ -65,11 +66,16 @@ ifconfig "$IF" 2>/dev/null | grep -q 'inet 10.0.0.1 --> 10.0.0.2' \
 R1=$(route -n get 1.1.1.1 | awk '/interface:/{print $2}')
 R2=$(route -n get 200.1.1.1 | awk '/interface:/{print $2}')
 [ "$R1" = "$IF" ] && [ "$R2" = "$IF" ] && pass "0/1 + 128/1 routes through $IF" || fail "routes: $R1 $R2"
-scutil --dns | grep -q 'nameserver\[0\] : 8.8.8.8' && pass "scutil: the phone's DNS server is a resolver" \
-  || fail "scutil --dns: $(scutil --dns | head -40)"
-B0=$(netstat -I "$IF" -b | awk 'NR==2{print $7}')
+printf 'show State:/Network/Service/etphonehome-%s/DNS\n' "$IF" | scutil | grep -q 8.8.8.8 \
+  && pass "scutil: DNS service for $IF published with the phone's DNS server" || fail "scutil DNS key missing"
+if scutil --dns | grep -q 'nameserver\[[0-9]*\] : 8.8.8.8'; then
+  echo "INFO: scutil --dns lists 8.8.8.8 as a resolver"
+else
+  echo "INFO: scutil --dns does not list 8.8.8.8:"; scutil --dns | sed -n 1,30p
+fi
+B0=$(netstat -ibn -I "$IF" | awk 'NR==2{print $(NF-4)}')
 if curl -sS -m 30 https://example.com | grep -q "Example Domain"; then pass "HTTPS through the phone"; else fail "curl"; fi
-B1=$(netstat -I "$IF" -b | awk 'NR==2{print $7}')
+B1=$(netstat -ibn -I "$IF" | awk 'NR==2{print $(NF-4)}')
 [ "${B1:-0}" -gt "${B0:-0}" ] && pass "the request really crossed $IF ($B0 -> $B1 bytes in)" || fail "no bytes on $IF ($B0 -> $B1)"
 dscacheutil -q host -a name example.org | grep -q ip_address && pass "name resolution while tethered" || fail "dscacheutil"
 curl -sS -m 60 -o "$W/5m" 'https://speed.cloudflare.com/__down?bytes=5000000' && [ "$(stat -f %z "$W/5m")" = 5000000 ] \

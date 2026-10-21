@@ -7,7 +7,7 @@
 # The stand-in binds its relay sockets to this machine's real address
 # (--bind-address), so its own traffic leaves through the real adapter
 # (strong host model) instead of looping into the tunnel's routes.
-param([string]$Msi, [string]$Standin)
+param([string]$Msi, [string]$Standin, [string]$OldMsi = "")
 $ErrorActionPreference = "Continue"
 $Token = "WinE2eTok"
 $W = Join-Path $env:RUNNER_TEMP "etph-e2e"
@@ -19,6 +19,11 @@ $Exe = "C:\Program Files\ETPH\etphonehome.exe"
 $Cfg = "C:\ProgramData\ETPH\config.toml"
 
 # ---- install --------------------------------------------------------------
+# Upgrade path: an older ETPH first, then this one over it.
+if ($OldMsi) {
+  $p = Start-Process msiexec.exe -ArgumentList "/i `"$OldMsi`" /qn /l*v `"$W\msi-old.log`"" -Wait -PassThru
+  if ($p.ExitCode -eq 0) { Pass "older ETPH installed ($(Split-Path $OldMsi -Leaf))" } else { Fail "older MSI exit $($p.ExitCode)" }
+}
 $p = Start-Process msiexec.exe -ArgumentList "/i `"$Msi`" /qn /l*v `"$W\msi.log`"" -Wait -PassThru
 if ($p.ExitCode -eq 0) { Pass "msiexec /i $(Split-Path $Msi -Leaf)" } else { Get-Content "$W\msi.log" -Tail 40; Fail "msiexec exit $($p.ExitCode)" }
 foreach ($f in "etphonehome.exe", "etph-tray.exe", "wintun.dll") {
@@ -26,6 +31,10 @@ foreach ($f in "etphonehome.exe", "etph-tray.exe", "wintun.dll") {
 }
 $sig = Get-AuthenticodeSignature "C:\Program Files\ETPH\wintun.dll"
 if ($sig.Status -eq "Valid" -and $sig.SignerCertificate.Subject -match "WireGuard") { Pass "wintun.dll signed by WireGuard LLC ($($sig.Status))" } else { Fail "wintun.dll signature: $($sig.Status) $($sig.SignerCertificate.Subject)" }
+if ($OldMsi) {
+  $n = @(Get-CimInstance Win32_Product -Filter "Name='ETPH'").Count
+  if ($n -eq 1) { Pass "upgrade replaced the older ETPH (one product installed)" } else { Fail "$n ETPH products installed after the upgrade" }
+}
 $svc = Get-Service ETPH -ErrorAction SilentlyContinue
 for ($i = 0; $i -lt 20 -and $svc.Status -ne "Running"; $i++) { Start-Sleep 1; $svc = Get-Service ETPH -ErrorAction SilentlyContinue }
 if ($svc.Status -eq "Running") { Pass "ETPH service running (LocalSystem)" } else { Fail "service: $($svc.Status)"; Get-Content C:\ProgramData\ETPH\service.log -Tail 30 -ErrorAction SilentlyContinue }
@@ -42,7 +51,8 @@ $ip = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null }
 Write-Host "address for the stand-in's own traffic: $ip"
 $sp = Start-Process -FilePath "$Standin\bin\standin.bat" -ArgumentList "--listen 127.0.0.1:9301 --token $Token --require-tls --stats-log --stats-secs 2 --bind-address $ip" `
   -RedirectStandardOutput "$W\standin.log" -RedirectStandardError "$W\standin.err" -PassThru -WindowStyle Hidden
-for ($i = 0; $i -lt 100; $i++) { if ((Get-Content "$W\standin.log" -Raw -ErrorAction SilentlyContinue) -match "listening on") { break }; Start-Sleep -Milliseconds 300 }
+# The stand-in logs to stderr.
+for ($i = 0; $i -lt 100; $i++) { if ((Get-Content "$W\standin.err" -Raw -ErrorAction SilentlyContinue) -match "listening on") { break }; Start-Sleep -Milliseconds 300 }
 
 # ---- CLI session (Administrator, as the runner is) ------------------------
 $env:ETPH_TOKEN = $Token
@@ -51,6 +61,9 @@ $cli = Start-Process -FilePath $Exe -ArgumentList "wifi --host 127.0.0.1 --port 
 for ($i = 0; $i -lt 60; $i++) { if ((Get-Content "$W\cli.log" -Raw -ErrorAction SilentlyContinue) -match "Tethering connection established") { break }; Start-Sleep 1 }
 $log = Get-Content "$W\cli.log" -Raw
 if ($log -match "Tethering connection established" -and $log -match "TLS handshake complete") { Pass "Wi-Fi session up (cert-pinned TLS 1.3) over Wintun" } else { Write-Host $log; Fail "session" }
+# The client waits for the address before it adds routes; give Windows a
+# moment to settle the route table too.
+for ($i = 0; $i -lt 20; $i++) { if (Find-NetRoute -RemoteIPAddress 1.1.1.1 -ErrorAction SilentlyContinue | Where-Object InterfaceAlias -eq etphcli) { break }; Start-Sleep 1 }
 $ad = Get-NetAdapter -Name etphcli -ErrorAction SilentlyContinue
 if ($ad -and $ad.InterfaceDescription -match "Wintun|ETPH|etph") { Pass "Wintun adapter etphcli ($($ad.InterfaceDescription))" } else { Fail "adapter: $($ad | Format-List | Out-String)" }
 $addr = Get-NetIPAddress -InterfaceAlias etphcli -AddressFamily IPv4 -ErrorAction SilentlyContinue
@@ -78,15 +91,18 @@ Remove-Item Env:\ETPH_TOKEN
 if ($LASTEXITCODE -eq 0) { Pass "saved a phone for the service" } else { Fail "save-profile" }
 & $Exe ctl connect ci | Out-Null
 for ($i = 0; $i -lt 40; $i++) { if ((& $Exe ctl status --json | Out-String) -match '"state":"connected"') { break }; Start-Sleep 1 }
+for ($i = 0; $i -lt 20; $i++) { if (Find-NetRoute -RemoteIPAddress 1.1.1.1 -ErrorAction SilentlyContinue | Where-Object InterfaceAlias -eq etph0) { break }; Start-Sleep 1 }
 $st = & $Exe ctl status --json | Out-String
 if ($st -match '"state":"connected"' -and $st -match '"phone_pro":true') { Pass "service connected (status shows the phone and ETPH Pro)" } else { Fail "service connect: $st"; Get-Content C:\ProgramData\ETPH\service.log -Tail 30 }
+$b0 = (Get-NetAdapterStatistics -Name etph0 -ErrorAction SilentlyContinue).ReceivedBytes
 $page = & curl.exe -sS -m 30 https://example.com 2>&1 | Out-String
-if ($page -match "Example Domain") { Pass "HTTPS through the service's session" } else { Fail "curl via service: $page" }
+$b1 = (Get-NetAdapterStatistics -Name etph0 -ErrorAction SilentlyContinue).ReceivedBytes
+if ($page -match "Example Domain" -and $b1 -gt $b0) { Pass "HTTPS through the service's session (etph0 $b0 -> $b1 bytes in)" } else { Fail "curl via service: $b0 -> $b1 $page" }
 & $Exe ctl disconnect | Out-Null
 Start-Sleep 3
 $st = & $Exe ctl status --json | Out-String
 if ($st -match '"state":"idle"') { Pass "ctl disconnect" } else { Fail "disconnect: $st" }
-if ((Get-Content "$W\standin.log" -Raw) -match "Disconnect|session over") { Pass "the phone saw a clean disconnect" } else { Fail "no clean disconnect on the phone" }
+if ((Get-Content "$W\standin.err" -Raw) -match "Desktop requested disconnect") { Pass "the phone saw a clean disconnect" } else { Fail "no clean disconnect on the phone" }
 
 $tray = Start-Process -FilePath "C:\Program Files\ETPH\etph-tray.exe" -PassThru
 Start-Sleep 6
@@ -94,8 +110,11 @@ if (-not $tray.HasExited) { Pass "tray app starts and stays up"; Stop-Process -I
 
 # ---- uninstall ------------------------------------------------------------
 $p = Start-Process msiexec.exe -ArgumentList "/x `"$Msi`" /qn /l*v `"$W\msi-x.log`"" -Wait -PassThru
-if ($p.ExitCode -eq 0 -and -not (Test-Path $Exe) -and -not (Get-Service ETPH -ErrorAction SilentlyContinue)) { Pass "msiexec /x removes files and the service" } else { Fail "uninstall exit $($p.ExitCode)" }
+if ($p.ExitCode -eq 0 -and -not (Test-Path "C:\Program Files\ETPH\*.exe") -and -not (Get-Service ETPH -ErrorAction SilentlyContinue)) { Pass "msiexec /x removes files and the service" } else { Fail "uninstall exit $($p.ExitCode); left: $(Get-ChildItem 'C:\Program Files\ETPH' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name); service: $((Get-Service ETPH -ErrorAction SilentlyContinue).Status)" }
 Stop-Process -Id $sp.Id -Force -ErrorAction SilentlyContinue
+# standin.bat's java child outlives cmd.exe; stop it so the job can end.
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "standin" -and $_.Name -match "java" } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 Write-Host "windows e2e summary: $($script:Pass) passed, $($script:Fail) failed"
 if ($script:Fail -gt 0) { exit 1 }

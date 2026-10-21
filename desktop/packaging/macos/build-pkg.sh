@@ -37,7 +37,10 @@ sed "s/@VERSION@/$NUM/g" "$HERE/Info.plist" >"$S/root/Applications/ETPH.app/Cont
 mkdir "$S/etph.iconset"
 for n in 16 32 128 256 512; do
   sips -z $n $n "$ROOT/store/graphics/icon-512.png" --out "$S/etph.iconset/icon_${n}x${n}.png" >/dev/null
-  d=$((n * 2)); [ $d -le 512 ] && sips -z $d $d "$ROOT/store/graphics/icon-512.png" --out "$S/etph.iconset/icon_${n}x${n}@2x.png" >/dev/null
+  d=$((n * 2))
+  if [ $d -le 512 ]; then
+    sips -z $d $d "$ROOT/store/graphics/icon-512.png" --out "$S/etph.iconset/icon_${n}x${n}@2x.png" >/dev/null
+  fi
 done
 iconutil -c icns -o "$S/root/Applications/ETPH.app/Contents/Resources/etph.icns" "$S/etph.iconset"
 cp "$HERE/solutions.errant.etph.plist" "$S/root/Library/LaunchDaemons/"
@@ -71,6 +74,7 @@ else
 fi
 # The CLI alone, for scripts and people who don't want the app.
 tar -C "$S/root/usr/local/bin" -czf "$OUT/etphonehome-macos-$VER.tar.gz" etphonehome etph-uninstall
-pkgutil --payload-files "$PKG" | grep -q 'usr/local/bin/etphonehome'
+pkgutil --payload-files "$S/etph-component.pkg" >"$S/payload.txt"
+grep -q 'usr/local/bin/etphonehome' "$S/payload.txt"
 (cd "$OUT" && shasum -a 256 "etph-macos-$VER.pkg" "etphonehome-macos-$VER.tar.gz" >"SHA256SUMS-macos-$VER")
 ls -la "$OUT"

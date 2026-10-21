@@ -12,6 +12,11 @@
              Description="ETPH - internet from your Android phone over USB or Wi-Fi"
              Manufacturer="Errant Solutions" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of ETPH is already installed." />
+    <!-- Always lay down our files: wintun.dll keeps its version between ETPH
+         releases, and with the default file-version rules an upgrade skipped
+         it and then let the old product's removal delete it (CI upgrade
+         test: no wintun.dll, no tunnel). -->
+    <Property Id="REINSTALLMODE" Value="amus" />
     <Media Id="1" Cabinet="etph.cab" EmbedCab="yes" />
     <Icon Id="etph.ico" SourceFile="$(var.SourceDir)/etph.ico" />
     <Property Id="ARPPRODUCTICON" Value="etph.ico" />

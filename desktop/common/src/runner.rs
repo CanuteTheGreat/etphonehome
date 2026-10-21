@@ -324,18 +324,39 @@ pub fn setup_routing_via(tun_name: &str, peer: &str) -> Result<()> {
     #[cfg(windows)]
     {
         // Two /1 routes, like macOS/BSD: more specific than any default
-        // route, so they win whatever metric Windows gave the other adapters
-        // (a single 0.0.0.0/0 with metric 10 lost to a wired/Wi-Fi default
-        // with a lower automatic interface metric). Gone with the adapter.
-        for (net, mask) in [("0.0.0.0", "128.0.0.0"), ("128.0.0.0", "128.0.0.0")] {
-            let output = Command::new("route")
-                .args(["add", net, "mask", mask, peer, "metric", "1"])
+        // route, so they win whatever metric Windows gave the other adapters.
+        // Bound to the tunnel adapter by name: `route add ... 10.0.0.2`
+        // attached the routes to the physical adapter (seen on Windows
+        // Server 2022), so traffic never entered the tunnel.
+        // A new Wintun address is "Tentative" (duplicate address detection)
+        // for a few seconds; traffic sent before it is "Preferred" is lost
+        // (CI: DNS and HTTPS failed right after connecting). Wait for it.
+        wait_windows_address(tun_name);
+        // Next hop 0.0.0.0 = on-link: Wintun is a layer-3 adapter with no
+        // neighbour discovery, so a gateway address (the phone's 10.0.0.2)
+        // is "unreachable" and nothing would be sent (WireGuard does the same).
+        let _ = peer;
+        let iface = format!("interface={}", tun_name);
+        let hop = "nexthop=0.0.0.0".to_string();
+        for prefix in ["prefix=0.0.0.0/1", "prefix=128.0.0.0/1"] {
+            let output = Command::new("netsh")
+                .args([
+                    "interface",
+                    "ipv4",
+                    "add",
+                    "route",
+                    prefix,
+                    &iface,
+                    &hop,
+                    "metric=1",
+                    "store=active",
+                ])
                 .output()
-                .context("Failed to run route.exe")?;
+                .context("Failed to run netsh")?;
             if !output.status.success() {
                 warn!(
-                    "Failed to route {}/1 through {}: {}",
-                    net,
+                    "Failed to route {} through {}: {}",
+                    prefix,
                     tun_name,
                     String::from_utf8_lossy(&output.stdout).trim()
                 );
@@ -370,6 +391,24 @@ pub fn setup_routing_via(tun_name: &str, peer: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Wait (up to 15 s) until the adapter's IPv4 address is usable.
+#[cfg(windows)]
+fn wait_windows_address(tun_name: &str) {
+    let iface = format!("interface={}", tun_name);
+    for _ in 0..75 {
+        let ready = Command::new("netsh")
+            .args(["interface", "ipv4", "show", "ipaddresses", &iface])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("Preferred"))
+            .unwrap_or(false);
+        if ready {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    warn!("the address on {} is still not ready after 15 s", tun_name);
 }
 
 /// Undo what [`configure_dns`] set up outside the TUN device (macOS: the

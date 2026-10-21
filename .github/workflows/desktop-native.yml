@@ -13,22 +13,13 @@
 #   Forgejo's release workflow copies them into the Forgejo release.
 name: Desktop (macOS + Windows, native)
 
+# Runs ONLY on release tags and manual dispatch: GitHub emails the owner
+# (the mirror pushes as his account) about every failing run, so fixes are
+# proven locally / in Forgejo's cross-build jobs first and this is
+# dispatched only when expected to pass. Never cancel these runs.
 on:
   push:
-    branches: [main]
     tags: ['v*']
-    paths:
-      # Same paths as .forgejo/workflows/desktop-os.yml, whose gate job
-      # waits for this run.
-      - 'desktop/**'
-      - 'android/core/**'
-      - 'protocol/**'
-      - '.forgejo/scripts/freebsd-cross-env.sh'
-      - '.forgejo/scripts/package.sh'
-      - '.forgejo/workflows/desktop-os.yml'
-      - '.forgejo/scripts/github-native-gate.py'
-      - '.github/workflows/desktop-native.yml'
-      - 'store/graphics/icon-512.png'
   workflow_dispatch:
 
 permissions:
@@ -36,7 +27,7 @@ permissions:
 
 concurrency:
   group: desktop-native-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always

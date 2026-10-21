@@ -133,7 +133,7 @@ jobs:
     # on GitHub-hosted Macs and Windows (.github/workflows/desktop-native.yml)
     # and reports their result here.
     runs-on: linux-any  # arch-independent: arm64 or x86 slot, whichever is free (ctg-infrastructure ci-runners)
-    timeout-minutes: 180
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - name: Wait for the native run and check it

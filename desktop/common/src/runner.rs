@@ -733,13 +733,9 @@ fn desktop_wants_accessory(host: &HostIntegration) -> bool {
             || (crate::adb::usb::pick(&crate::adb::usb::find_devices(sysfs), serial).is_err()
                 && !aoa_candidates(sysfs, serial).is_empty())
     }
-    #[cfg(all(not(target_os = "linux"), feature = "usb-libusb"))]
+    #[cfg(not(target_os = "linux"))]
     {
-        let devs = crate::adb::usb::find_devices();
-        crate::adb::usb::pick(&devs, serial).is_ok()
-    }
-    #[cfg(not(any(target_os = "linux", feature = "usb-libusb")))]
-    {
+        // The accessory link is Linux-only for now; elsewhere USB is ADB.
         let _ = host;
         false
     }
@@ -757,7 +753,13 @@ pub fn usb_phone_present(serial: Option<&str>, link: UsbLinkMode) -> bool {
         link != UsbLinkMode::Adb
             && !aoa_candidates(std::path::Path::new("/sys/bus/usb/devices"), serial).is_empty()
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(not(target_os = "linux"), feature = "usb-libusb"))]
+    {
+        let _ = link;
+        let devs = crate::adb::usb::find_devices();
+        crate::adb::usb::pick(&devs, serial).is_ok()
+    }
+    #[cfg(not(any(target_os = "linux", feature = "usb-libusb")))]
     {
         let _ = (serial, link);
         false

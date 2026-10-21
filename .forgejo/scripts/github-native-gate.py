@@ -34,16 +34,20 @@ def get(url):
 
 def main():
     sha = sys.argv[1]
-    run = None
-    for i in range(20):  # the push mirror syncs on commit; allow 40 min
-        runs = get(f"{API}/workflows/desktop-native.yml/runs?head_sha={sha}&per_page=5").get("workflow_runs", [])
-        if runs:
-            run = runs[0]
-            break
-        print(f"waiting for the GitHub mirror to run desktop-native.yml for {sha[:8]} ({i + 1}/20)")
-        time.sleep(120)
-    if run is None:
-        raise SystemExit(f"no desktop-native.yml run on GitHub for {sha} (push mirror not synced?)")
+    # desktop-native.yml runs on release tags and manual dispatch only
+    # (failing GitHub runs email the owner), so most commits have no run:
+    # report the latest dispatched run and its commit instead of waiting.
+    runs = get(f"{API}/workflows/desktop-native.yml/runs?head_sha={sha}&per_page=5").get("workflow_runs", [])
+    if not runs:
+        latest = get(f"{API}/workflows/desktop-native.yml/runs?per_page=1").get("workflow_runs", [])
+        if latest:
+            l = latest[0]
+            print(f"no native run for {sha[:8]} (dispatched by hand); latest: {l['head_sha'][:8]} "
+                  f"{l['status']} {l.get('conclusion')} {l['html_url']}")
+        else:
+            print(f"no native run for {sha[:8]} yet (dispatched by hand)")
+        return
+    run = runs[0]
     print(f"GitHub run: {run['html_url']}")
     for _ in range(60):  # up to 2 h
         run = get(f"{API}/runs/{run['id']}")

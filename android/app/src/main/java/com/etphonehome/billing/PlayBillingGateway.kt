@@ -2,6 +2,7 @@ package com.etphonehome.billing
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import com.android.billingclient.api.AcknowledgePurchaseParams
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClient.BillingResponseCode
@@ -45,13 +46,7 @@ class PlayBillingGateway(
     /** Connects once (Play reconnects by itself afterwards); returns Play's answer. */
     private suspend fun connect(): BillingResult = connectLock.withLock {
         if (client.isReady) return@withLock ok()
-        // No Play Store app (de-Googled ROMs, emulator images with Play services only): Play
-        // billing can't work at all, so say that instead of a misleading "lost the connection".
-        if (!playStoreInstalled()) {
-            return@withLock BillingResult.newBuilder().setResponseCode(BillingResponseCode.BILLING_UNAVAILABLE)
-                .setDebugMessage("no Google Play Store app").build()
-        }
-        suspendCancellableCoroutine { cont ->
+        val r = suspendCancellableCoroutine { cont ->
             client.startConnection(object : BillingClientStateListener {
                 override fun onBillingSetupFinished(result: BillingResult) {
                     if (cont.isActive) cont.resume(result)
@@ -64,6 +59,14 @@ class PlayBillingGateway(
                 }
             })
         }
+        // Only after a failure, and only for the message: a phone without Play's billing service
+        // (no Play Store, de-Googled ROMs, emulator images with Play services only) can never
+        // connect, so say "isn't available" instead of a misleading "lost the connection".
+        if (r.responseCode != BillingResponseCode.OK && !playBillingServicePresent()) {
+            return@withLock BillingResult.newBuilder().setResponseCode(BillingResponseCode.BILLING_UNAVAILABLE)
+                .setDebugMessage("no Google Play billing service on this phone").build()
+        }
+        r
     }
 
     override suspend fun queryPurchases(): PurchaseQuery {
@@ -135,12 +138,13 @@ class PlayBillingGateway(
         return client.launchBillingFlow(activity, params)
     }
 
-    @Suppress("DEPRECATION") // getPackageInfo(String, Int): the flags overload works on every API level
-    private fun playStoreInstalled(): Boolean = try {
-        context.packageManager.getPackageInfo(PLAY_STORE, 0)
-        true
+    /** The Play Store's billing service, the one the Billing Library binds to. */
+    @Suppress("DEPRECATION") // queryIntentServices(Intent, Int): the flags overload works on every API level
+    private fun playBillingServicePresent(): Boolean = try {
+        val bind = Intent(BILLING_BIND_ACTION).setPackage(PLAY_STORE)
+        context.packageManager.queryIntentServices(bind, 0).isNotEmpty()
     } catch (e: Exception) {
-        false
+        true // can't tell: keep Play's own answer
     }
 
     private fun ok() = BillingResult.newBuilder().setResponseCode(BillingResponseCode.OK).build()
@@ -151,6 +155,7 @@ class PlayBillingGateway(
     companion object {
         /** The Play Store app; visible to this app through the <queries> entry in the manifest. */
         const val PLAY_STORE = "com.android.vending"
+        const val BILLING_BIND_ACTION = "com.android.vending.billing.InAppBillingService.BIND"
 
         fun describe(r: BillingResult): String = when (r.responseCode) {
             BillingResponseCode.BILLING_UNAVAILABLE -> "Google Play billing isn't available on this phone"

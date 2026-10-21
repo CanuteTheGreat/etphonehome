@@ -36,7 +36,7 @@
          build (com.etphonehome), so MainActivity can tell the user it is still installed. -->
     <queries>
         <package android:name="com.etphonehome" />
-        <!-- Google Play Store: Pro says "billing isn't available" on phones without it -->
+        <!-- Google Play Store: the Pro screen says "billing isn't available" when its billing service is missing -->
         <package android:name="com.android.vending" />
     </queries>
 

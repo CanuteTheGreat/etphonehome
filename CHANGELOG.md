@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Desktop/router: a filter rule with an address or port typo (`dest_ip = "10.0.0.0/24/8"`, `"010.0.0.1"`, `dest_port = "443-80"` or `"8o"`) silently did nothing: the computer never matched it and the phone dropped it, so a BLOCK rule blocked nothing. A profile with such an enabled rule is now refused before connecting, with the rule and field named.
+
 ## [0.9.0] - 2026-10-20
 
 ### Added

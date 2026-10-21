@@ -322,6 +322,8 @@ Use `--config <file>` or `ETPHONEHOME_CONFIG=<file>` to pick another file. WiFi
 profiles use `auth.wifi_token` and Bluetooth profiles `auth.bluetooth_token` from that
 file; a profile's `[profiles.filter]` rules are applied to outgoing traffic on the
 computer and sent to the phone, which enforces them on the connections it relays.
+A profile whose enabled filter has a rule with an address or port spec that doesn't
+parse is refused before connecting, so a typo can't leave a BLOCK rule doing nothing.
 
 ### Auto-Reconnect
 

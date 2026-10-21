@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 // portable-atomic: 32-bit MIPS routers have no native 64-bit atomics.
 use portable_atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -128,9 +128,30 @@ impl FilterConfig {
     ///   past the limit got through the desktop and was then blocked by the
     ///   phone.
     ///
+    /// - An enabled rule with an address or port spec that doesn't parse
+    ///   (`dest_ip = "10.0.0.0/24/8"`, `"010.0.0.1"`, `"10.0.0.0 /8"`,
+    ///   `dest_port = "8o"` or `"443-80"`) did nothing at all: the desktop
+    ///   treats an unparseable spec as "rule never matches" and the phone
+    ///   drops the rule (`parseWireRule`). So a BLOCK rule with a typo
+    ///   silently blocked nothing while the profile looked protected. A few
+    ///   specs also parsed on one side only (leading-zero octets on the
+    ///   phone, `"/+8"` or `"/032"` on the desktop). A comma list keeps only
+    ///   its good entries on both sides, so `"80,44x3"` became a rule for 80
+    ///   alone.
+    ///
     /// Checked before connecting (`runner::plan_for_profile`), so the user
     /// gets one clear error instead.
     pub fn wire_problem(&self) -> Option<String> {
+        if self.enabled {
+            for (i, rule) in self.rules.iter().enumerate().filter(|(_, r)| r.enabled) {
+                if let Some(why) = rule.spec_problem() {
+                    return Some(format!(
+                        "filter rule {} (id {:?}): {}; fix or disable the rule",
+                        i, rule.id, why
+                    ));
+                }
+            }
+        }
         if self.enabled && self.rules.len() > MAX_WIRE_RULES {
             return Some(format!(
                 "the filter has {} rules, but the phone accepts at most {}; merge rules \
@@ -188,6 +209,74 @@ pub struct FilterRule {
 
 fn default_true() -> bool {
     true
+}
+
+impl FilterRule {
+    /// Why an address or port spec of this rule would make it do nothing, or
+    /// `None` if every non-blank spec means the same thing on the desktop
+    /// and on the phone. Blank specs mean "any" on both sides.
+    fn spec_problem(&self) -> Option<String> {
+        fn spec(s: &Option<String>) -> Option<&str> {
+            s.as_deref().map(str::trim).filter(|t| !t.is_empty())
+        }
+        for (field, value) in [("dest_ip", &self.dest_ip), ("source_ip", &self.source_ip)] {
+            if let Some(v) = spec(value) {
+                if !is_address_spec(v) {
+                    return Some(format!(
+                        "{} {:?} is not an IP address or CIDR such as \"10.0.0.0/8\" \
+                         (decimal octets without leading zeros, no spaces)",
+                        field, v
+                    ));
+                }
+            }
+        }
+        for (field, value) in [
+            ("dest_port", &self.dest_port),
+            ("source_port", &self.source_port),
+        ] {
+            if let Some(v) = spec(value) {
+                let entries: Vec<&str> = v
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|e| !e.is_empty())
+                    .collect();
+                let bad = entries.iter().find(
+                    |e| !matches!(PortRange::parse_all(e).as_slice(), [r] if r.start <= r.end),
+                );
+                if entries.is_empty() || bad.is_some() {
+                    return Some(format!(
+                        "{} {:?} has {}; use ports 0-65535 such as \"443\", \"8000-8080\" \
+                         or \"80,443\"",
+                        field,
+                        v,
+                        bad.map_or("no port".to_string(), |e| format!("a bad entry {:?}", e))
+                    ));
+                }
+            }
+        }
+        None
+    }
+}
+
+/// An address spec both sides read the same way: an IPv4 or IPv6 literal,
+/// optionally with a `/prefix` of plain digits (at most 2 for IPv4 and 3 for
+/// IPv6, which is what the phone's `parseWireRule` takes). IPv6 rules are
+/// enforced by the phone only; this side's filter is IPv4-only.
+fn is_address_spec(spec: &str) -> bool {
+    let (addr, prefix) = match spec.split_once('/') {
+        Some((a, p)) => (a, Some(p)),
+        None => (spec, None),
+    };
+    let max_digits = if addr.parse::<Ipv4Addr>().is_ok() {
+        2
+    } else if addr.parse::<Ipv6Addr>().is_ok() {
+        3
+    } else {
+        return false;
+    };
+    prefix.is_none_or(|p| {
+        !p.is_empty() && p.len() <= max_digits && p.bytes().all(|b| b.is_ascii_digit())
+    })
 }
 
 /// Action to take when rule matches
@@ -702,6 +791,83 @@ mod tests {
             );
             let big = cfg.wire_problem().expect("over 65535 bytes can't be sent");
             assert!(big.contains("65535"), "{}", big);
+        }
+    }
+
+    #[test]
+    fn wire_problem_refuses_an_enabled_rule_whose_spec_does_nothing() {
+        let rule = |dest_ip: &str, dest_port: &str, source_ip: &str, source_port: &str| {
+            let s = |v: &str| Some(v.to_string());
+            FilterRule {
+                id: "typo".into(),
+                enabled: true,
+                action: FilterAction::Block,
+                protocol: Some(Protocol::Tcp),
+                dest_ip: s(dest_ip),
+                dest_port: s(dest_port),
+                source_ip: s(source_ip),
+                source_port: s(source_port),
+                description: None,
+            }
+        };
+        let filter = |enabled: bool, rules: Vec<FilterRule>| FilterConfig {
+            enabled,
+            mode: FilterMode::Blacklist,
+            log_blocked: true,
+            rules,
+        };
+
+        // Specs that mean the same on both sides are fine, blanks included.
+        for ok in [
+            rule("10.0.0.0/8", "443", "", ""),
+            rule(
+                " 192.168.1.7 ",
+                " 80, 443 ,8000-8080,",
+                "0.0.0.0/0",
+                "1024-65535",
+            ),
+            rule("", "", "10.1.2.3/32", "53"),
+            rule("2001:db8::1", "443", "", ""),
+            rule("2001:db8::/32", "", "::ffff:10.0.0.1", ""),
+            rule("10.0.0.7/99", "0", "", "65535"),
+        ] {
+            assert_eq!(
+                filter(true, vec![ok.clone()]).wire_problem(),
+                None,
+                "{:?}",
+                ok
+            );
+        }
+
+        for (bad, field) in [
+            (rule("10.0.0.0/24/8", "", "", ""), "dest_ip"),
+            (rule("010.0.0.1", "", "", ""), "dest_ip"),
+            (rule("10.0.0.0 /8", "", "", ""), "dest_ip"),
+            (rule("10.0.0.0/", "", "", ""), "dest_ip"),
+            (rule("10.0.0.0/+8", "", "", ""), "dest_ip"),
+            (rule("10.0.0.0/032", "", "", ""), "dest_ip"),
+            (rule("2001:db8::/1280", "", "", ""), "dest_ip"),
+            (rule("example.com", "", "", ""), "dest_ip"),
+            (rule("", "", "10.0.0.300", ""), "source_ip"),
+            (rule("", "8o", "", ""), "dest_port"),
+            (rule("", "80,44x3", "", ""), "dest_port"),
+            (rule("", "443-80", "", ""), "dest_port"),
+            (rule("", "8000-80000", "", ""), "dest_port"),
+            (rule("", ",", "", ""), "dest_port"),
+            (rule("", "", "", "80-443-9000"), "source_port"),
+        ] {
+            let why = filter(true, vec![rule("", "", "", ""), bad.clone()])
+                .wire_problem()
+                .unwrap_or_else(|| panic!("{:?} must be refused", bad));
+            assert!(why.contains("filter rule 1"), "{}", why);
+            assert!(why.contains("\"typo\""), "{}", why);
+            assert!(why.contains(field), "{}", why);
+
+            // A disabled rule or a disabled filter enforces nothing.
+            let mut off = bad.clone();
+            off.enabled = false;
+            assert_eq!(filter(true, vec![off]).wire_problem(), None);
+            assert_eq!(filter(false, vec![bad]).wire_problem(), None);
         }
     }
 

@@ -31,7 +31,7 @@ android {
         // on by default (the app has no custom back handling, AppCompat routes back itself);
         // TetherService is a specialUse foreground service, which has no Android 15 time limit.
         targetSdk 36
-        versionCode 11
+        versionCode 12
         versionName "0.9.0"
 
         // ETPH Pro (one-time in-app product, owner decision 2026-10-20).

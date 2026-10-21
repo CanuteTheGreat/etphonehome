@@ -6,12 +6,15 @@
 #   e2e.sh <etph-macos-*.pkg> <standin install dir>
 #
 # The stand-in binds its relay sockets to the Mac's real address
-# (--bind-address). macOS is a weak-host system: a bound source address does
-# not pick the route, so without help the stand-in's own traffic would follow
-# the tunnel's 0/1 + 128/1 routes back into utun (a loop; every DNS query
-# timed out). A pf anchor routes packets from that address out the real
-# interface (route-to); everything else on the Mac goes through utun. (On a
-# real setup the phone is another device, so nothing like this is needed.)
+# (--bind-address). macOS scopes a socket bound to an address to that
+# address's interface, and a scoped lookup for en0 only sees en0's scoped
+# routes: the primary interface has no scoped default, so the tunnel's
+# 0/1 + 128/1 won and the stand-in's sends failed with "No route to host"
+# (every DNS query timed out). Test plumbing adds en0's scoped default
+# (`route add -ifscope en0 default <gw>`, what macOS itself gives every
+# non-primary service), so the stand-in's own traffic leaves through en0 and
+# everything else on the Mac goes through utun. On a real setup the phone is
+# another device and none of this is needed.
 set -uo pipefail
 PKG=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 STANDIN=$2
@@ -24,15 +27,14 @@ fail() { echo "FAIL: $*"; FAIL=$((FAIL + 1)); }
 cleanup() {
   sudo pkill -INT -f 'etphonehome wifi' 2>/dev/null
   [ -n "${SP:-}" ] && kill "$SP" 2>/dev/null
-  sudo pfctl -a com.apple/etph-e2e -F all >/dev/null 2>&1
-  [ -n "${PFTOKEN:-}" ] && sudo pfctl -X "$PFTOKEN" >/dev/null 2>&1
+  [ -n "${SCOPED:-}" ] && sudo route -n delete -ifscope "$DEFIF" default >/dev/null 2>&1
   true
 }
 diag() {
   echo "--- client log (tail)"; tail -25 "$W/cli.log" 2>/dev/null
   echo "--- stand-in log (tail)"; tail -25 "$W/standin.log" 2>/dev/null
-  echo "--- pf anchor"; sudo pfctl -a com.apple/etph-e2e -sr 2>&1; sudo pfctl -s info 2>&1 | head -3
-  netstat -rn -f inet | head -20
+  echo "--- scoped lookup for the stand-in"; route -n get -ifscope "$DEFIF" 8.8.8.8 2>&1 | head -8
+  netstat -rn -f inet | head -24
 }
 trap cleanup EXIT
 echo "macOS $(sw_vers -productVersion) $(uname -m)"
@@ -60,15 +62,12 @@ DEFIF=$(route -n get default | awk '/interface:/{print $2}')
 GW=$(route -n get default | awk '/gateway:/{print $2}')
 IP=$(ipconfig getifaddr "$DEFIF")
 echo "Mac address for the stand-in's own traffic: $IP ($DEFIF, gateway $GW)"
-# Test plumbing only (see the top): the stand-in's packets leave via $DEFIF.
-printf 'pass out quick on lo0 all\npass out quick on ! %s route-to (%s %s) inet from %s to any keep state\n' \
-  "$DEFIF" "$DEFIF" "$GW" "$IP" >"$W/pf.conf"
-# The stock ruleset (/etc/pf.conf) evaluates every com.apple/* anchor.
-sudo pfctl -q -f /etc/pf.conf 2>&1 | grep -v -i 'ALTQ\|flushing\|No ALTQ' || true
-sudo pfctl -a com.apple/etph-e2e -f "$W/pf.conf" 2>&1 | grep -v -i 'ALTQ\|flushing' || true
-PFTOKEN=$(sudo pfctl -E 2>&1 | sed -n 's/^Token : //p')
-sudo pfctl -a com.apple/etph-e2e -sr | grep -q route-to && echo "pf: stand-in traffic from $IP routed out $DEFIF" \
-  || { echo "pf anchor did not load:"; cat "$W/pf.conf"; }
+# Test plumbing only (see the top): en0's scoped default for the stand-in.
+if sudo route -n add -ifscope "$DEFIF" default "$GW" >/dev/null 2>&1; then
+  SCOPED=1; echo "scoped default via $GW on $DEFIF for the stand-in's own traffic"
+else
+  echo "could not add a scoped default on $DEFIF:"; netstat -rn -f inet | grep default
+fi
 "$STANDIN/bin/standin" --listen 127.0.0.1:9301 --token "$TOKEN" --require-tls --stats-log --stats-secs 2 \
   --bind-address "$IP" >"$W/standin.log" 2>&1 &
 SP=$!

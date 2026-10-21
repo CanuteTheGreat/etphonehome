@@ -24,6 +24,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      diagnose:
+        description: 'Diagnose only: e2e failures are logged but do not fail the run (no failure email); never for release proof'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -106,6 +111,7 @@ jobs:
         with:
           name: standin
       - name: Install and test
+        continue-on-error: ${{ inputs.diagnose == true }}
         run: |
           tar -xzf standin.tar.gz
           bash desktop/packaging/macos/e2e.sh dist/etph-macos-*.pkg "$PWD/standin"
@@ -180,6 +186,7 @@ jobs:
         with:
           name: standin
       - name: Install and test
+        continue-on-error: ${{ inputs.diagnose == true }}
         shell: pwsh
         run: |
           tar -xzf standin.tar.gz

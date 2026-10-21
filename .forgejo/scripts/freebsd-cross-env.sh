@@ -18,7 +18,9 @@ case "$FBSD_ARCH" in
   arm64) FREEBSD_TARGET=aarch64-unknown-freebsd; TRIPLE=aarch64-unknown-freebsd14 ;;
   *) echo "unknown arch $FBSD_ARCH" >&2; return 1 ;;
 esac
-SYSROOT=${FREEBSD_SYSROOT:-$HOME/.cache/freebsd-sysroot/$FBSD_REL-$FBSD_ARCH}
+# Per arch, always: FREEBSD_SYSROOT is exported below, so a second `source ... arm64` in the same
+# shell must not pick up the amd64 sysroot (v0.9.0 release: aarch64 objects linked against amd64 Scrt1.o).
+SYSROOT=${FREEBSD_SYSROOT_BASE:-$HOME/.cache/freebsd-sysroot}/$FBSD_REL-$FBSD_ARCH
 if [ ! -f "$SYSROOT/.ok" ]; then
   mkdir -p "$SYSROOT"
   url="https://download.freebsd.org/releases/$FBSD_ARCH/$FBSD_REL/base.txz"

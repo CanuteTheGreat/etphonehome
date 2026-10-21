@@ -7,10 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- Desktop/router: a filter rule with an address or port typo (`dest_ip = "10.0.0.0/24/8"`, `"010.0.0.1"`, `dest_port = "443-80"` or `"8o"`) silently did nothing: the computer never matched it and the phone dropped it, so a BLOCK rule blocked nothing. A profile with such an enabled rule is now refused before connecting, with the rule and field named.
-
-## [0.9.0] - 2026-10-20
+## [0.9.0] - 2026-10-21
 
 ### Added
 - **Free and Pro.** One app, two tiers. Free: sharing over USB with one computer, no speed cap, no time limit, started and stopped on the phone. **ETPH Pro**, a one-time in-app purchase in the Google Play app (US$15 or Play's local price; no subscription), adds Wi-Fi and Bluetooth, routers, several computers and routers, auto-start when the computer asks over USB plus waiting for the computer after a disconnect, and a data usage history. "Upgrade to Pro" screen with the feature list and the Play price, Restore purchase; a quiet status line instead of pop-ups. Google Play Billing 9.1: purchases are acknowledged, restored on a reinstall or new phone, pending payments wait for Play, refunds and revocations take Pro away at the next check (every app start, every Start); purchase signatures are checked on the phone; no server (docs/pro.md).
@@ -23,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **USB works in every app mode:** a phone in Wi-Fi or Bluetooth mode still accepts a computer or router on USB.
 - **The phone names what it shares with** ("Router: slate (GL.iNet GL-AR750S, OpenWrt)", or the computer's host name).
 - **Windows installer:** `etph-windows-<version>.msi` (CLI, tray app, the ETPH tethering service, bundled Wintun) and winget manifests (`etph-winget-<version>.zip`).
+- ETPH Pro purchases are checked on the phone against the app's Play licence key: an unsigned or wrongly signed purchase never unlocks Pro.
 - **FreeBSD 14 packages** (amd64, aarch64): `pkg add`, an rc.d service and `etphonehome ctl`, tun(4) + resolvconf(8); tested on a real FreeBSD 14.4 VM.
 
 ### Known limits
@@ -31,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Free: when the computer disconnects, sharing stops (tap Start again); Pro keeps waiting for it.
+
+### Fixed
+- Desktop/router: a filter rule with an address or port typo (`dest_ip = "10.0.0.0/24/8"`, `"010.0.0.1"`, `dest_port = "443-80"` or `"8o"`) silently did nothing: the computer never matched it and the phone dropped it, so a BLOCK rule blocked nothing. A profile with such an enabled rule is now refused before connecting, with the rule and field named.
 
 ## [0.8.0] - 2026-10-20
 

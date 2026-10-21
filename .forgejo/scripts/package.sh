@@ -68,7 +68,10 @@ case "$KIND" in
       tar -C "$STAGE" -czf "$DIST/etphonehome-freebsd-$arch-$VER.tar.gz" etphonehome etphonehome.rc
       file "$STAGE/etphonehome" | has 'FreeBSD'
     done
-    ls "$DIST"/etphonehome-*-freebsd-amd64.pkg >/dev/null
+    ls "$DIST"/etphonehome-*-freebsd14-amd64.pkg "$DIST"/etphonehome-*-freebsd15-amd64.pkg >/dev/null
+    # Firewall integrations: the OPNsense plugin and the pfSense package.
+    python3 "$ROOT/desktop/packaging/opnsense/make-plugin.py" "$VER" "$DIST"
+    python3 "$ROOT/desktop/packaging/pfsense/make-package.py" "$VER" "$DIST"
     ;;
   *)
     echo "unknown kind: $KIND" >&2

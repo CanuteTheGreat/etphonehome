@@ -1,7 +1,10 @@
 # FreeBSD (and the FreeBSD-based firewalls pfSense CE / OPNsense): cross-
-# built on Linux against FreeBSD's own base system, packaged as a pkg(8)
-# package, then installed and tested on a real FreeBSD VM against the phone
-# core (Wi-Fi transport, the VM's only way out is the phone).
+# built on Linux against FreeBSD's own base system, packaged as pkg(8)
+# packages (FreeBSD 14 and 15 ABIs, plus the OPNsense plugin os-etph and the
+# pfSense package pfSense-pkg-etph), then installed and tested on real VMs
+# against the phone core: FreeBSD 14 (Wi-Fi transport, the VM's only way out
+# is the phone), OPNsense and pfSense CE (the phone as an assigned interface
+# and gateway, a LAN client keeps internet when the primary WAN fails).
 #
 # macOS and Windows are built and tested natively on the GitHub mirror
 # (.github/workflows/desktop-native.yml); the Windows MSI is also built here
@@ -115,7 +118,7 @@ jobs:
           done
       - name: FreeBSD 14.4 VM
         run: |
-          PKG=$(ls pkgs/etphonehome-*-freebsd-amd64.pkg | head -1)
+          PKG=$(ls pkgs/etphonehome-*-freebsd14-amd64.pkg | head -1)
           sudo env "PATH=$PATH" "JAVA_HOME=$JAVA_HOME" python3 desktop/packaging/freebsd/vm-test.py \
             --pkg "$PKG" --standin "$PWD/android/core/standin/build/install/standin" --work /tmp/fbsd-vm
       - name: Logs
@@ -126,6 +129,61 @@ jobs:
           path: |
             /tmp/fbsd-vm/serial.log
             /tmp/fbsd-vm/standin-*.log
+
+  firewall-vms:
+    name: Real OPNsense + pfSense CE VMs (plugin/package, phone as gateway, WAN failover)
+    needs: freebsd
+    runs-on: kvm-x86_64
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep Node.js on PATH for JS-action steps
+        run: |
+          command -v node || (sudo apt-get update -qq && sudo apt-get install -y -qq nodejs)
+          dirname "$(command -v node)" >> "$GITHUB_PATH"
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils iproute2 iptables dnsmasq-base isc-dhcp-client \
+            openssh-client curl bzip2 python3
+          ls -l /dev/kvm
+      - name: Packages
+        uses: actions/download-artifact@v3
+        with:
+          name: etphonehome-freebsd
+          path: pkgs
+      - name: Build the phone stand-in (android/core)
+        working-directory: android/core
+        run: |
+          for attempt in 1 2 3; do
+            ../gradlew --no-daemon --max-workers=2 installDist && break
+            [ "$attempt" -eq 3 ] && exit 1
+            echo "gradle failed (attempt $attempt/3), retrying in 20s"; sleep 20
+          done
+      - name: OPNsense 26.7 (os-etph plugin, FreeBSD 15 client)
+        run: |
+          sudo env "PATH=$PATH" "JAVA_HOME=$JAVA_HOME" python3 desktop/packaging/firewall-vm/opnsense-vm-test.py \
+            --release 26.7 --pkgdir "$PWD/pkgs" --standin "$PWD/android/core/standin/build/install/standin" --work /tmp/opn-vm
+      - name: pfSense CE 2.7.2 (pfSense-pkg-etph, FreeBSD 14 client)
+        if: always()
+        run: |
+          sudo env "PATH=$PATH" "JAVA_HOME=$JAVA_HOME" python3 desktop/packaging/firewall-vm/pfsense-vm-test.py \
+            --pkgdir "$PWD/pkgs" --standin "$PWD/android/core/standin/build/install/standin" --work /tmp/pf-vm
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: firewall-vm-logs
+          path: |
+            /tmp/opn-vm/serial-*.log
+            /tmp/opn-vm/standin-*.log
+            /tmp/pf-vm/serial-*.log
+            /tmp/pf-vm/standin-*.log
 
   native-macos-windows:
     name: macOS (Apple Silicon + Intel) and Windows e2e, on the GitHub mirror

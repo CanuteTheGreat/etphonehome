@@ -40,11 +40,43 @@ pub fn current() -> ClientIdentity {
     let (id, name) = c
         .get_or_insert_with(|| (load_or_create_id(), host_name()))
         .clone();
+    let router = is_router();
     ClientIdentity {
         id,
-        name,
-        router: is_router(),
+        name: if router {
+            router_name(&name, router_model().as_deref())
+        } else {
+            name
+        },
+        router,
     }
+}
+
+/// How the phone shows a router: "slate (GL.iNet GL-AR750S, OpenWrt)".
+pub fn router_name(host: &str, model: Option<&str>) -> String {
+    match model.map(str::trim).filter(|m| !m.is_empty()) {
+        Some(m) => {
+            // "GL.iNet GL-AR750S (NOR/NAND)" -> "GL.iNet GL-AR750S"
+            let m = match m.find(" (") {
+                Some(i) if m.ends_with(')') => &m[..i],
+                _ => m,
+            };
+            format!("{host} ({m}, OpenWrt)")
+        }
+        None => format!("{host} (OpenWrt router)"),
+    }
+}
+
+/// The router's model: OpenWrt's /tmp/sysinfo/model, else the device tree.
+fn router_model() -> Option<String> {
+    ["/tmp/sysinfo/model", "/proc/device-tree/model"]
+        .iter()
+        .find_map(|p| std::fs::read_to_string(p).ok())
+        .map(|s| {
+            s.trim_matches(|c: char| c == '\0' || c.is_whitespace())
+                .to_string()
+        })
+        .filter(|s| !s.is_empty())
 }
 
 /// Where the id lives: next to config.toml (under sudo, the invoking user's).
@@ -152,6 +184,19 @@ pub fn pro_required_hint(phone_message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn routers_are_named_with_their_model() {
+        assert_eq!(
+            router_name("slate", Some("GL.iNet GL-AR750S (NOR/NAND)\n")),
+            "slate (GL.iNet GL-AR750S, OpenWrt)"
+        );
+        assert_eq!(
+            router_name("OpenWrt", Some("QEMU Standard PC (Q35 + ICH9, 2009)")),
+            "OpenWrt (QEMU Standard PC, OpenWrt)"
+        );
+        assert_eq!(router_name("gw", None), "gw (OpenWrt router)");
+    }
 
     #[test]
     fn new_ids_are_random_hex_and_valid() {

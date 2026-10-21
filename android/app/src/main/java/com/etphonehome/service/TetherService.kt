@@ -68,10 +68,12 @@ class TetherService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val tag = "ETPhoneHome"
 
-    @Volatile private var serverSocket: ServerSocket? = null
-    @Volatile private var bluetoothServerSocket: BluetoothServerSocket? = null
-    @Volatile private var activeConnection: Closeable? = null
-    @Volatile private var sessionLoop: SessionLoop<*>? = null
+    /** Listening sockets of every running transport (closed on stop). */
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<Closeable>()
+    /** Live desktop/router connections (several transports can serve at once). */
+    private val connections = java.util.concurrent.ConcurrentHashMap.newKeySet<Closeable>()
+    private val sessionLoops = java.util.concurrent.CopyOnWriteArrayList<SessionLoop<*>>()
+    private var accessories: UsbAccessories? = null
     private var nsdAdvertiser: NsdAdvertiser? = null
     private var upstream: UpstreamNetworks? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -86,6 +88,8 @@ class TetherService : Service() {
         const val EXTRA_PORT = "port"
         /** Started by AutoStartActivity (the computer asked over USB), not by the Start button. */
         const val EXTRA_AUTO_START = "auto_start"
+        /** A computer/router just attached as a USB accessory (AccessoryActivity): look now. */
+        const val ACTION_ACCESSORY = "com.etphonehome.action.ACCESSORY"
         const val DEFAULT_PORT = 8888
 
         const val CONNECTION_USB = "usb"
@@ -98,6 +102,14 @@ class TetherService : Service() {
         // (runner::BLUETOOTH_SERVICE_UUID) asks BlueZ to find its RFCOMM
         // channel over SDP: Android assigns channels dynamically.
         private val BLUETOOTH_UUID: UUID = UUID.fromString("6b1c0f53-4e3a-4d7e-9c5b-455450484f4e")
+
+        /** How the UI names a USB peer (the router/computer's own name comes from the handshake). */
+        const val USB_PEER_ADB = "USB cable (adb)"
+        const val USB_PEER_ACCESSORY = "USB cable"
+
+        const val USB_HINT =
+            "Plug the phone into the computer or router. When the phone asks \"Open ETPH ...?\", tap OK.\n" +
+                "(Computers with only the adb tool: sudo etphonehome usb)"
 
         const val FREE_SESSION_ENDED =
             "The computer disconnected. Tap Start to share again (ETPH Pro keeps waiting for it to come back)."
@@ -120,6 +132,10 @@ class TetherService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null || intent.action == ACTION_STOP) {
             shutdown(null)
+            return START_NOT_STICKY
+        }
+        if (intent.action == ACTION_ACCESSORY) {
+            if (running) accessories?.wake() else stopSelf()
             return START_NOT_STICKY
         }
         if (running) {
@@ -149,6 +165,18 @@ class TetherService : Service() {
                     return@launch
                 }
                 if (auto) Log.i(tag, "Started by the computer (auto-start, ETPH Pro)")
+                // USB works in every mode: the accessory link (no USB debugging needed), and
+                // adb-forwarded connections on loopback (Wi-Fi mode's listener covers loopback).
+                launch { serveAccessory() }
+                if (mode == CONNECTION_BLUETOOTH) {
+                    launch {
+                        try {
+                            serveUsbLoopback(port, quiet = true)
+                        } catch (e: java.io.IOException) {
+                            if (running) Log.w(tag, "USB (adb) listener stopped: ${e.message}")
+                        }
+                    }
+                }
                 when (mode) {
                     CONNECTION_USB -> serveUsb(port)
                     CONNECTION_WIFI -> serveWifi(port)
@@ -179,17 +207,19 @@ class TetherService : Service() {
         }
         Log.i(tag, "Stopping tethering")
         running = false
-        sessionLoop?.stop()
-        for (c in listOf(activeConnection, serverSocket, bluetoothServerSocket)) {
+        sessionLoops.forEach { it.stop() }
+        sessionLoops.clear()
+        accessories?.stop()
+        accessories = null
+        for (c in listeners + connections) {
             try {
-                c?.close()
+                c.close()
             } catch (e: Exception) {
                 Log.w(tag, "Error closing socket", e)
             }
         }
-        activeConnection = null
-        serverSocket = null
-        bluetoothServerSocket = null
+        listeners.clear()
+        connections.clear()
         nsdAdvertiser?.unregisterService()
         nsdAdvertiser = null
         upstream?.stop()
@@ -206,27 +236,40 @@ class TetherService : Service() {
     // ---------------------------------------------------------------
 
     private suspend fun serveUsb(port: Int) {
-        // Loopback only: reached exclusively through `adb forward` over the
-        // cable, which is why USB needs no token. Binding to all interfaces
-        // would let anyone on the phone's WiFi in without one.
-        //
-        // IPv4 127.0.0.1, not InetAddress.getLoopbackAddress(): on Android
-        // that is ::1, and adbd before Android 11 connects `adb forward`
-        // streams to 127.0.0.1 only -- on Android 8 (our minSdk) every USB
-        // connection was refused ("adbd: failed to connect to socket
-        // 'tcp:8888': Connection refused", found by the API 26 emulator
-        // test). Newer adbd tries IPv4 first too.
-        val server = ServerSocket(port, 50, InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)))
-        serverSocket = server
+        waiting(USB_HINT)
+        serveUsbLoopback(port, quiet = false)
+    }
+
+    /**
+     * adb-forwarded USB connections (`adb forward` / a router's built-in ADB host).
+     *
+     * Loopback only: reached exclusively through `adb forward` over the cable, which is why USB
+     * needs no token. Binding to all interfaces would let anyone on the phone's WiFi in without one.
+     *
+     * IPv4 127.0.0.1, not InetAddress.getLoopbackAddress(): on Android that is ::1, and adbd before
+     * Android 11 connects `adb forward` streams to 127.0.0.1 only -- on Android 8 (our minSdk) every
+     * USB connection was refused ("adbd: failed to connect to socket 'tcp:8888': Connection
+     * refused", found by the API 26 emulator test). Newer adbd tries IPv4 first too.
+     *
+     * [quiet]: an extra listener next to another mode (Bluetooth); failing to bind is only logged.
+     */
+    private suspend fun serveUsbLoopback(port: Int, quiet: Boolean) {
+        val server = try {
+            ServerSocket(port, 50, InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)))
+        } catch (e: java.io.IOException) {
+            if (!quiet) throw e
+            Log.w(tag, "USB (adb) listener not available: ${e.message}")
+            return
+        }
+        listeners += server
         Log.i(tag, "USB server listening on loopback port $port")
-        waiting("Connect the phone by USB and run on the computer:\n  sudo etphonehome usb")
         serveTcp(server, token = null, requireTls = false)
     }
 
     private suspend fun serveWifi(port: Int) {
         val server = ServerSocket(port, 50, null)
-        serverSocket = server
-        Log.i(tag, "WiFi server listening on port $port")
+        listeners += server
+        Log.i(tag, "WiFi server listening on port $port (loopback: USB via adb forward)")
         nsdAdvertiser = NsdAdvertiser(this).also { it.registerService(port) }
         upstream = UpstreamNetworks(this).also { it.start() }
         val token = TokenManager.getWifiToken(this)
@@ -248,19 +291,22 @@ class TetherService : Service() {
         val loop = SessionLoop<Socket>(
             accept = { server.accept() },
             session = { sock ->
-                activeConnection = sock
-                Log.i(tag, "Desktop connected from ${sock.inetAddress}")
-                val link = TcpLink.accept(sock, token)
-                activeConnection = link
-                val verifier: ((String?) -> Boolean)? = token?.let {
+                connections += sock
+                // Wi-Fi mode listens on every address, loopback included: a connection from
+                // loopback came through `adb forward` over the cable, i.e. it is USB (no token).
+                val usb = token == null || sock.inetAddress.isLoopbackAddress
+                val tok = if (usb) null else token
+                Log.i(tag, if (usb) "Computer/router connected over USB (adb)" else "Desktop connected from ${sock.inetAddress}")
+                val link = TcpLink.accept(sock, tok)
+                val verifier: ((String?) -> Boolean)? = tok?.let {
                     { presented -> TokenManager.verifyWifiToken(this, presented) }
                 }
                 // A router whose internet is this phone, reached over the
                 // router's own Wi-Fi: pin relay sockets to another network
                 // (UpstreamPolicy), or they would loop back through it.
                 val up = upstream
-                val downlink = if (token != null) sock.localAddress else null
-                val peer = if (token != null) sock.inetAddress else null
+                val downlink = if (!usb) sock.localAddress else null
+                val peer = if (!usb) sock.inetAddress else null
                 val relayConfig = if (up != null) {
                     RelayConfig(socketPreparer = up.preparerFor(downlink, peer), icmpEchoer = up.echoerFor(downlink, peer))
                 } else {
@@ -269,31 +315,70 @@ class TetherService : Service() {
                 runSession(
                     link.stream,
                     SessionOptions(
-                        // USB arrives through adb's loopback forward: the
-                        // address (::1) says nothing, so name the transport.
-                        peer = if (token == null) "computer over USB" else sock.inetAddress.hostAddress ?: "desktop",
+                        // USB arrives through adb's loopback forward: the address (::1) says
+                        // nothing, so name the transport.
+                        peer = if (usb) USB_PEER_ADB else sock.inetAddress.hostAddress ?: "desktop",
                         encrypted = link.encrypted,
                         tokenVerifier = verifier,
-                        refuseReason = if (requireTls && !link.encrypted) {
+                        refuseReason = if (!usb && requireTls && !link.encrypted) {
                             "This phone requires an encrypted connection. Use `etphonehome wifi` " +
                                 "(TLS is the default) or turn off \"Require encryption\" in the app."
                         } else {
                             null
                         },
                         capabilities = Protocol.CAP_USB or Protocol.CAP_WIFI or
-                            (if (token != null) Protocol.CAP_TLS else 0) or proCapability(),
+                            (if (!usb) Protocol.CAP_TLS else 0) or proCapability(),
                         abortLink = { link.abort() },
                         relayConfig = relayConfig,
                         deviceName = deviceName(),
-                        admit = ::admitClient,
+                        admit = { r -> admitClient(r, if (usb) CONNECTION_USB else mode) },
                     ),
+                    if (usb) CONNECTION_USB else mode,
                 )
             },
-            endSession = { endSession() },
+            endSession = { c -> connections.remove(c); endSession() },
             onSessionError = { e -> Log.w(tag, "Desktop session failed: ${e.message}") },
         )
-        sessionLoop = loop
+        sessionLoops += loop
         loop.run()
+    }
+
+    /**
+     * Computers and routers on the USB cable as a USB accessory (Android Open Accessory): they
+     * switch the phone into accessory mode, Android asks "Open ETPH ...?", and the session runs over
+     * the accessory's bulk endpoints -- no Developer options / USB debugging needed. Runs next to
+     * every mode while sharing is on.
+     */
+    private suspend fun serveAccessory() {
+        val acc = UsbAccessories(this).also { accessories = it }
+        val loop = SessionLoop<UsbAccessories.Connection>(
+            accept = { acc.accept { running } },
+            session = { c ->
+                connections += c
+                Log.i(tag, "Computer/router connected over USB (accessory: ${c.description})")
+                runSession(
+                    com.etphonehome.protocol.MessageStream(c.input, c.output),
+                    SessionOptions(
+                        peer = USB_PEER_ACCESSORY,
+                        encrypted = false,
+                        tokenVerifier = null,
+                        capabilities = Protocol.CAP_USB or proCapability(),
+                        abortLink = { c.close() },
+                        deviceName = deviceName(),
+                        admit = { r -> admitClient(r, CONNECTION_USB) },
+                    ),
+                    CONNECTION_USB,
+                )
+            },
+            endSession = { c -> connections.remove(c); endSession() },
+            onSessionError = { e -> Log.w(tag, "USB accessory session failed: ${e.message}") },
+        )
+        sessionLoops += loop
+        try {
+            loop.run()
+        } catch (e: Exception) {
+            if (running) Log.w(tag, "USB accessory link stopped: ${e.message}")
+        }
     }
 
     @Suppress("MissingPermission") // checked in MainActivity before starting this mode
@@ -302,7 +387,7 @@ class TetherService : Service() {
         val adapter = manager.adapter ?: throw IllegalStateException("Bluetooth not available on this device")
         if (!adapter.isEnabled) throw IllegalStateException("Bluetooth is off")
         val server = adapter.listenUsingRfcommWithServiceRecord(BLUETOOTH_SERVICE_NAME, BLUETOOTH_UUID)
-        bluetoothServerSocket = server
+        listeners += server
         val token = TokenManager.getBluetoothToken(this)
         Log.i(tag, "Bluetooth server listening as ${adapter.name}")
         waiting(
@@ -312,7 +397,7 @@ class TetherService : Service() {
         val loop = SessionLoop<BluetoothSocket>(
             accept = { server.accept() },
             session = { sock ->
-                activeConnection = sock
+                connections += sock
                 Log.i(tag, "Desktop connected over Bluetooth: ${sock.remoteDevice.address}")
                 runSession(
                     MessageStream(sock.inputStream, sock.outputStream),
@@ -322,7 +407,7 @@ class TetherService : Service() {
                         encrypted = true,
                         tokenVerifier = { presented -> TokenManager.verifyBluetoothToken(this, presented) },
                         capabilities = Protocol.CAP_BLUETOOTH or proCapability(),
-                        admit = ::admitClient,
+                        admit = { r -> admitClient(r, CONNECTION_BLUETOOTH) },
                         abortLink = {
                             try {
                                 sock.close()
@@ -331,21 +416,22 @@ class TetherService : Service() {
                         },
                         deviceName = deviceName(),
                     ),
+                    CONNECTION_BLUETOOTH,
                 )
             },
-            endSession = { endSession() },
+            endSession = { c -> connections.remove(c); endSession() },
             onSessionError = { e -> Log.w(tag, "Bluetooth session failed: ${e.message}") },
         )
-        sessionLoop = loop
+        sessionLoops += loop
         loop.run()
     }
 
     private fun proCapability() = if (Pro.isPro) Protocol.CAP_PRO else 0
 
     /** The Free/Pro gate at the handshake (after the token check): see ProGate. */
-    private fun admitClient(request: HandshakeRequest): String? {
+    private fun admitClient(request: HandshakeRequest, transport: String): String? {
         val client = ClientIdentity.of(request)
-        return when (val a = ProGate.admit(Pro.isPro, mode, client, Pro.store.paired.value)) {
+        return when (val a = ProGate.admit(Pro.isPro, transport, client, Pro.store.paired.value)) {
             is Admission.Refuse -> {
                 Log.i(tag, "Refused ${client.name}: ${a.reason}")
                 // Kept on screen until a computer is admitted: the refused connection ends right
@@ -365,8 +451,8 @@ class TetherService : Service() {
     /** Set once a session got past the handshake; Free stops sharing after such a session. */
     @Volatile private var hadSession = false
 
-    private suspend fun runSession(stream: MessageStream, options: SessionOptions) {
-        val label = modeLabel(mode)
+    private suspend fun runSession(stream: MessageStream, options: SessionOptions, transport: String) {
+        val label = modeLabel(transport)
         val sessionKey = Any()
         var client = ClientIdentity.UNKNOWN
         var last: SessionSnapshot? = null
@@ -415,7 +501,6 @@ class TetherService : Service() {
 
     /** One desktop left; keep listening for the next. */
     private fun endSession() {
-        activeConnection = null
         upstream?.releaseCellular()
         if (!running) return
         if (hadSession && !ProGate.keepListeningAfterSession(Pro.isPro)) {

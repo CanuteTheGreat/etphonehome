@@ -234,7 +234,10 @@ async fn a_closed_port_on_the_phone_is_a_clear_error() {
     .await
     .unwrap();
     let e = format!("{:#}", r.err().expect("must fail"));
-    assert!(e.contains("is ETPH started in USB mode"), "{e}");
+    assert!(
+        e.contains("ETPH isn't accepting USB connections - open ETPH on the phone and tap Start"),
+        "{e}"
+    );
 }
 
 #[test]

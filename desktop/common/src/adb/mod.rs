@@ -139,6 +139,11 @@ pub trait AuthObserver: Send + Sync {
     fn waiting_for_allow(&self, fingerprint: &str) {
         let _ = fingerprint;
     }
+    /// The phone is there but the user has to do something on it (open
+    /// ETPH, tap OK on the accessory prompt): `msg` says what.
+    fn waiting_on_phone(&self, msg: &str) {
+        let _ = msg;
+    }
 }
 
 pub struct NoObserver;
@@ -313,7 +318,8 @@ fn open_service(link: &dyn Link, service: &str, local: u32) -> Result<u32> {
         match h.command {
             A_OKAY if h.arg1 == local => return Ok(h.arg0),
             A_CLSE if h.arg1 == local || h.arg1 == 0 => bail!(
-                "the phone refused {service}: is ETPH started in USB mode? (nothing listens on that port)"
+                "Phone connected, but ETPH isn't accepting USB connections - open ETPH on the phone and tap \
+                 Start (the phone refused {service}: nothing listens there)"
             ),
             _ => {}
         }

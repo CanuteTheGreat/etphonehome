@@ -33,10 +33,15 @@ import com.etphonehome.util.LegacyApp
 import com.etphonehome.util.ProText
 import com.etphonehome.util.Settings
 import com.etphonehome.util.TokenManager
+import com.etphonehome.util.UsbHint
+import com.etphonehome.util.UsbLinkState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+
+/** Sticky system broadcast with the USB cable's state and functions (adb, accessory, mtp). */
+private const val USB_STATE = "android.hardware.usb.action.USB_STATE"
 
 /**
  * Main screen: pick USB / WiFi / Bluetooth, start or stop sharing, and see
@@ -70,6 +75,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var usageText: TextView
 
     private var selectedConnectionMode = TetherService.CONNECTION_USB
+    private lateinit var usbHintText: TextView
+    private var usbState: android.content.Intent? = null
+
+    /** USB_STATE is sticky: the current cable state arrives at once, then every change. */
+    private val usbStateReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            usbState = intent
+            renderUsbHint()
+        }
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -98,6 +113,7 @@ class MainActivity : AppCompatActivity() {
             WindowInsetsCompat.CONSUMED
         }
         statusText = findViewById(R.id.statusText)
+        usbHintText = findViewById(R.id.usbHintText)
         startButton = findViewById(R.id.startButton)
         stopButton = findViewById(R.id.stopButton)
         statsText = findViewById(R.id.statsText)
@@ -212,6 +228,45 @@ class MainActivity : AppCompatActivity() {
         if (usageText.text.toString() != t) usageText.text = t
     }
 
+    override fun onStart() {
+        super.onStart()
+        ContextCompat.registerReceiver(
+            this, usbStateReceiver, android.content.IntentFilter(USB_STATE), ContextCompat.RECEIVER_NOT_EXPORTED,
+        )?.let { usbState = it }
+        renderUsbHint()
+    }
+
+    override fun onStop() {
+        unregisterReceiver(usbStateReceiver)
+        super.onStop()
+    }
+
+    /** The Samsung Auto Blocker / "tap OK" hint while USB sharing waits (see UsbHint). */
+    private fun renderUsbHint() {
+        val i = usbState
+        val state = TetherStatus.state.value
+        val waitingUsb = state is TetherState.Waiting
+        val text = if (i == null) {
+            null
+        } else {
+            UsbHint.text(
+                UsbLinkState(
+                    connected = i.getBooleanExtra("connected", false) && i.getBooleanExtra("configured", false),
+                    adbFunction = i.getBooleanExtra("adb", false),
+                    accessoryFunction = i.getBooleanExtra("accessory", false),
+                    adbEnabled = android.provider.Settings.Global.getInt(
+                        contentResolver, android.provider.Settings.Global.ADB_ENABLED, 0,
+                    ) == 1,
+                    samsung = Build.MANUFACTURER.equals("samsung", ignoreCase = true),
+                    sdk = Build.VERSION.SDK_INT,
+                ),
+                waitingForUsb = waitingUsb,
+            )
+        }
+        usbHintText.text = text ?: ""
+        usbHintText.visibility = if (text == null) View.GONE else View.VISIBLE
+    }
+
     override fun onResume() {
         super.onResume()
         // Re-ask Google Play whenever the app comes back (refunds, a purchase made elsewhere).
@@ -229,6 +284,7 @@ class MainActivity : AppCompatActivity() {
         stopButton.isEnabled = running
         for (i in 0 until connectionModeGroup.childCount) connectionModeGroup.getChildAt(i).isEnabled = !running
         requireEncryptionSwitch.isEnabled = !running
+        renderUsbHint()
     }
 
     private fun requestPermissionsAndStart() {

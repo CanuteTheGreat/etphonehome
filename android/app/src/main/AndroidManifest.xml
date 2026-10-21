@@ -32,6 +32,10 @@
     <!-- For Android 12+ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- USB accessory link (Android Open Accessory): computers and routers with ETPH reach the
+         app over the cable without Developer options / USB debugging. Optional hardware. -->
+    <uses-feature android:name="android.hardware.usb.accessory" android:required="false" />
+
     <!-- Package visibility (Android 11+) for exactly one app: the old ET Phone Home
          build (com.etphonehome), so MainActivity can tell the user it is still installed. -->
     <queries>
@@ -82,6 +86,24 @@
             android:exported="true"
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- "Open ETPH ...?" when a computer/router with ETPH switches the phone into USB
+             accessory mode (strings in res/xml/accessory_filter.xml). Exported because the system
+             starts it; it only hands the accessory to TetherService (see AccessoryActivity). -->
+        <activity
+            android:name=".AccessoryActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"
+                android:resource="@xml/accessory_filter" />
+        </activity>
 
         <!-- Emulator e2e builds only (-PbillingTestHooks=true): force Free/Pro. Disabled in every
              other build (and TestHookReceiver checks BuildConfig.BILLING_TEST_HOOKS too). -->

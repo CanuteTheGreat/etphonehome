@@ -656,7 +656,11 @@ pub async fn open_transport_with(target: &Target, host: &HostIntegration) -> Res
     match target {
         Target::Tcp { opts, adb_port } => {
             if let Some(port) = adb_port {
-                if host.usb_native || host.adb_tcp.is_some() || !adb_tool_available() {
+                if host.usb_native
+                    || host.adb_tcp.is_some()
+                    || desktop_wants_accessory(host)
+                    || !adb_tool_available()
+                {
                     return open_native_usb(*port, host).await;
                 }
                 if let Err(e) = setup_adb_forwarding_for(*port, host.adb_serial.as_deref()) {
@@ -693,27 +697,41 @@ pub async fn open_transport_with(target: &Target, host: &HostIntegration) -> Res
         }
         Target::Bluetooth { address, token } => connect_bluetooth(address, token.clone()).await,
         Target::Auto { usb_port, wifi } => {
-            if host.adb_tcp.is_some() || usb_phone_present(host.adb_serial.as_deref()) {
+            if host.adb_tcp.is_some()
+                || usb_phone_present(host.adb_serial.as_deref(), host.usb_link)
+            {
                 info!("Phone on USB: using it");
                 return open_native_usb(*usb_port, host).await;
             }
             match wifi {
                 Some(w) => session::connect(w).await,
                 None => bail!(
-                    "no phone with USB debugging on the USB port (plug it in, unlock it, enable USB \
-                     debugging), and no WiFi phone configured"
+                    "no phone on the USB port (plug it in with a data cable and unlock it), and no WiFi \
+                     phone configured"
                 ),
             }
         }
     }
 }
 
-/// Is a phone with USB debugging plugged in (Linux sysfs)?
-pub fn usb_phone_present(serial: Option<&str>) -> bool {
+/// Desktop `etphonehome usb` (adb tool): use the accessory link instead
+/// when the phone has no USB debugging but may be an Android phone, and we
+/// can open USB devices (root).
+fn desktop_wants_accessory(host: &HostIntegration) -> bool {
     #[cfg(target_os = "linux")]
     {
-        let devs = crate::adb::usb::find_devices(std::path::Path::new("/sys/bus/usb/devices"));
-        crate::adb::usb::pick(&devs, serial).is_ok()
+        if host.usb_link == UsbLinkMode::Adb {
+            return false;
+        }
+        // SAFETY: geteuid has no preconditions.
+        if unsafe { libc::geteuid() } != 0 && host.usb_link == UsbLinkMode::Auto {
+            return false;
+        }
+        let sysfs = std::path::Path::new("/sys/bus/usb/devices");
+        let serial = host.adb_serial.as_deref();
+        host.usb_link == UsbLinkMode::Aoa
+            || (crate::adb::usb::pick(&crate::adb::usb::find_devices(sysfs), serial).is_err()
+                && !aoa_candidates(sysfs, serial).is_empty())
     }
     #[cfg(all(not(target_os = "linux"), feature = "usb-libusb"))]
     {
@@ -722,8 +740,168 @@ pub fn usb_phone_present(serial: Option<&str>) -> bool {
     }
     #[cfg(not(any(target_os = "linux", feature = "usb-libusb")))]
     {
-        let _ = serial;
+        let _ = host;
         false
+    }
+}
+
+/// Is a phone plugged in (Linux sysfs)? With USB debugging, or (unless
+/// `link` is ADB only) any device that may be a phone for the accessory link.
+pub fn usb_phone_present(serial: Option<&str>, link: UsbLinkMode) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        let devs = crate::adb::usb::find_devices(std::path::Path::new("/sys/bus/usb/devices"));
+        if crate::adb::usb::pick(&devs, serial).is_ok() {
+            return true;
+        }
+        link != UsbLinkMode::Adb
+            && !aoa_candidates(std::path::Path::new("/sys/bus/usb/devices"), serial).is_empty()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (serial, link);
+        false
+    }
+}
+
+/// How a USB phone is reached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UsbLinkMode {
+    /// Accessory link (no USB debugging needed) when the phone offers it,
+    /// otherwise ADB.
+    #[default]
+    Auto,
+    /// Android Open Accessory only.
+    Aoa,
+    /// ADB (USB debugging) only.
+    Adb,
+}
+
+impl std::str::FromStr for UsbLinkMode {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "" | "auto" => Ok(Self::Auto),
+            "aoa" | "accessory" => Ok(Self::Aoa),
+            "adb" => Ok(Self::Adb),
+            o => Err(format!("unknown USB link '{o}' (auto, aoa or adb)")),
+        }
+    }
+}
+
+/// Phones for the accessory link, already-switched ones first.
+#[cfg(target_os = "linux")]
+fn aoa_candidates(sysfs: &std::path::Path, serial: Option<&str>) -> Vec<crate::aoa::usb::UsbDev> {
+    let serial = serial.map(str::trim).filter(|s| !s.is_empty());
+    let mut c: Vec<_> = crate::aoa::usb::scan(sysfs)
+        .into_iter()
+        .filter(|d| d.is_accessory() || d.maybe_phone())
+        .filter(|d| serial.is_none_or(|s| d.serial == s))
+        .collect();
+    c.sort_by_key(|d| !d.is_accessory());
+    c
+}
+
+/// Ports where the accessory link was tried and the phone answered only
+/// over ADB (an ETPH without accessory support): don't wait on them again
+/// until the phone is unplugged.
+#[cfg(target_os = "linux")]
+static ADB_ONLY_PORTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(target_os = "linux")]
+enum AoaOutcome {
+    Stream(tokio::io::DuplexStream, String),
+    UseAdb,
+}
+
+/// The accessory link: switch the phone if needed, open it, run the
+/// preamble. Blocking.
+#[cfg(target_os = "linux")]
+fn aoa_connect(
+    serial: Option<&str>,
+    mode: UsbLinkMode,
+    observer: &dyn crate::adb::AuthObserver,
+) -> Result<AoaOutcome> {
+    use crate::aoa::usb::{wait_for_accessory, AccessoryLink, UsbControl};
+    let sysfs = std::path::Path::new("/sys/bus/usb/devices");
+    let cands = aoa_candidates(sysfs, serial);
+    {
+        let mut adb_only = ADB_ONLY_PORTS.lock().unwrap();
+        adb_only.retain(|p| cands.iter().any(|d| &d.port == p));
+    }
+    let Some(dev) = cands.into_iter().next() else {
+        if mode == UsbLinkMode::Aoa {
+            phone_absent();
+            bail!("no phone on the USB port (plug it in with a data cable and unlock it)");
+        }
+        return Ok(AoaOutcome::UseAdb);
+    };
+    if mode == UsbLinkMode::Auto
+        && dev.has_adb()
+        && ADB_ONLY_PORTS.lock().unwrap().contains(&dev.port)
+    {
+        return Ok(AoaOutcome::UseAdb);
+    }
+    let name = dev.name();
+    let acc = if dev.is_accessory() {
+        dev
+    } else {
+        let ctrl = UsbControl::open(&dev)
+            .with_context(|| format!("cannot open {} (run as root)", dev.dev_node.display()))?;
+        let id = crate::identity::current();
+        match crate::aoa::start_accessory(&ctrl, &crate::aoa::AccessoryStrings::etph(&id.name, id.router)) {
+            Ok(v) => info!("Phone on USB: {name} (port {}), switching it to accessory mode (AOA {v})", dev.port),
+            Err(e) if dev.has_adb() && mode == UsbLinkMode::Auto => {
+                info!("{name}: no accessory mode ({e}); using USB debugging");
+                return Ok(AoaOutcome::UseAdb);
+            }
+            Err(e) => bail!(
+                "Phone found ({name}), but it answers neither as a USB accessory nor with USB debugging ({e}). \
+                 Unlock it and use a data cable; on Samsung turn off Auto Blocker (Settings > Security and \
+                 privacy > Auto Blocker)"
+            ),
+        }
+        drop(ctrl);
+        wait_for_accessory(sysfs, &dev.port, Duration::from_secs(10)).with_context(|| {
+            format!("Phone found ({name}), but it did not come back as a USB accessory (unplug it and plug it back in)")
+        })?
+    };
+    let link = std::sync::Arc::new(
+        AccessoryLink::open(&acc)
+            .with_context(|| format!("cannot open {} (run as root)", acc.dev_node.display()))?,
+    );
+    let fallback = acc.has_adb() && mode == UsbLinkMode::Auto;
+    let wait = if fallback {
+        Duration::from_secs(20)
+    } else {
+        Duration::from_secs(120)
+    };
+    let msg =
+        format!("Phone found ({name}) - open ETPH on the phone and tap OK on \"Open ETPH ...?\"");
+    match crate::aoa::preamble::host_handshake(
+        &*link,
+        crate::aoa::preamble::new_nonce(),
+        wait,
+        &|| {
+            info!("{msg}");
+            observer.waiting_on_phone(&msg);
+        },
+    ) {
+        Ok(rest) => {
+            info!("Accessory link to {name} open (USB, no USB debugging needed)");
+            Ok(AoaOutcome::Stream(
+                crate::aoa::preamble::bridge(link, rest, 16384),
+                name,
+            ))
+        }
+        Err(e) if fallback => {
+            info!("{name}: ETPH did not answer on the accessory link ({e}); using USB debugging");
+            ADB_ONLY_PORTS.lock().unwrap().push(acc.port.clone());
+            Ok(AoaOutcome::UseAdb)
+        }
+        Err(e) => Err(e.context(format!(
+            "Phone found ({name}) - open ETPH on the phone and tap OK"
+        ))),
     }
 }
 
@@ -755,10 +933,41 @@ fn sys_hostname() -> Option<String> {
     }
 }
 
-/// USB through the built-in ADB host: the phone's adb interface via usbfs
-/// (or adbd over TCP with `adb_tcp`), authenticated with this device's adb
-/// key, then a stream to the app's loopback port -- no adb tool or server.
+/// USB without the adb tool: the accessory link (AOA, no USB debugging
+/// needed) when the phone offers it, else the built-in ADB host -- the
+/// phone's adb interface via usbfs (or adbd over TCP with `adb_tcp`),
+/// authenticated with this device's adb key, then a stream to the app's
+/// loopback port.
 async fn open_native_usb(port: u16, host: &HostIntegration) -> Result<Transport> {
+    #[cfg(target_os = "linux")]
+    if host.adb_tcp.is_none() && host.usb_link != UsbLinkMode::Adb {
+        let serial = host.adb_serial.clone();
+        let mode = host.usb_link;
+        let status = host.status.clone();
+        let outcome = tokio::task::spawn_blocking(move || {
+            let observer: &dyn crate::adb::AuthObserver = match &status {
+                Some(st) => &**st,
+                None => &crate::adb::NoObserver,
+            };
+            aoa_connect(serial.as_deref(), mode, observer)
+        })
+        .await
+        .context("accessory task failed")??;
+        if let AoaOutcome::Stream(io, name) = outcome {
+            let mut t =
+                session::handshake_stream(io, capabilities::USB, None, Duration::from_secs(30))
+                    .await?;
+            if t.handshake.device_name.is_none() {
+                t.handshake.device_name = Some(name);
+            }
+            return Ok(t);
+        }
+    }
+    open_adb_usb(port, host).await
+}
+
+/// USB through the built-in ADB host (see [`open_native_usb`]).
+async fn open_adb_usb(port: u16, host: &HostIntegration) -> Result<Transport> {
     let serial = host.adb_serial.clone();
     let adb_tcp = host.adb_tcp.clone();
     let status = host.status.clone();
@@ -1058,7 +1267,7 @@ where
     let usb_now = match &plan.target {
         Target::Tcp { adb_port, .. } => adb_port.is_some(),
         Target::Auto { .. } => {
-            host.adb_tcp.is_some() || usb_phone_present(host.adb_serial.as_deref())
+            host.adb_tcp.is_some() || usb_phone_present(host.adb_serial.as_deref(), host.usb_link)
         }
         Target::Bluetooth { .. } => false,
     };

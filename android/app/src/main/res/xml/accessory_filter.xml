@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Computers and routers running ETPH switch the phone into USB accessory mode with these
+     strings (desktop/common/src/aoa/mod.rs); Android then offers "Open ETPH ...?". -->
+<resources>
+    <usb-accessory manufacturer="Errant Solutions" model="ETPH" />
+</resources>

@@ -6,6 +6,8 @@
 #       option proto 'etph'
 #       option transport 'usb'        # usb | wifi | auto (USB when plugged in, else Wi-Fi)
 #       option serial ''              # usb: the phone's serial, when several are plugged in
+#       option usb_link 'auto'        # usb: auto (accessory link, no USB debugging needed;
+#                                     #   ADB when the phone only offers that) | aoa | adb
 #       option host '192.168.8.153'   # wifi: the phone's address
 #       option token '...'            # wifi: pairing token shown in the app
 #       option tls '1'                # wifi: cert-pinned TLS 1.3 (default)
@@ -36,6 +38,7 @@ proto_etph_init_config() {
 	proto_config_add_string "token"
 	proto_config_add_boolean "tls"
 	proto_config_add_string "serial"
+	proto_config_add_string "usb_link"
 	proto_config_add_string "ipaddr"
 	proto_config_add_string "peeraddr"
 	proto_config_add_boolean "defaultroute"
@@ -51,8 +54,8 @@ proto_etph_ifname() {
 
 proto_etph_setup() {
 	local config="$1"
-	local transport host port token tls serial ipaddr peeraddr defaultroute peerdns dns loglevel
-	json_get_vars transport host port token tls serial ipaddr peeraddr defaultroute peerdns loglevel
+	local transport host port token tls serial usb_link ipaddr peeraddr defaultroute peerdns dns loglevel
+	json_get_vars transport host port token tls serial usb_link ipaddr peeraddr defaultroute peerdns loglevel
 	json_get_values dns dns
 
 	local ifname
@@ -67,7 +70,8 @@ proto_etph_setup() {
 	set -- /usr/sbin/etphonehome --router
 	case "${transport:-usb}" in
 	usb)
-		# The client's built-in ADB host (usbfs): no adb package or server.
+		# The client's own USB stack (usbfs): the accessory link (no USB
+		# debugging needed) or its built-in ADB host; no adb package or server.
 		set -- "$@" usb --native --interface "$ifname"
 		[ -n "$port" ] && set -- "$@" --port "$port"
 		[ -n "$serial" ] && set -- "$@" --adb-serial "$serial"
@@ -109,6 +113,7 @@ proto_etph_setup() {
 	set -- "$@" --reconnect --max-retries 0 --no-routes \
 		--up-script /lib/netifd/etph-hook --down-script /lib/netifd/etph-hook \
 		--status-file "/var/run/etph/$config.json"
+	[ -n "$usb_link" ] && set -- "$@" --usb-link "$usb_link"
 	[ -n "$ipaddr" ] && set -- "$@" --tun-address "$ipaddr"
 	[ -n "$peeraddr" ] && set -- "$@" --tun-peer "$peeraddr"
 

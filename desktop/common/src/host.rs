@@ -107,6 +107,8 @@ pub struct HostIntegration {
     pub adb_serial: Option<String>,
     /// USB through the built-in ADB host (usbfs) instead of the adb tool.
     pub usb_native: bool,
+    /// Accessory link (AOA) and/or ADB for USB phones.
+    pub usb_link: crate::runner::UsbLinkMode,
     /// Built-in ADB host over TCP to an adbd in tcpip mode (tests, `adb tcpip`).
     pub adb_tcp: Option<String>,
 }
@@ -121,6 +123,7 @@ impl Default for HostIntegration {
             tun: TunAddressing::default(),
             adb_serial: None,
             usb_native: false,
+            usb_link: Default::default(),
             adb_tcp: None,
         }
     }
@@ -427,6 +430,12 @@ impl StatusFile {
 impl crate::adb::AuthObserver for StatusFile {
     fn waiting_for_allow(&self, fingerprint: &str) {
         self.authorizing(fingerprint);
+    }
+    fn waiting_on_phone(&self, msg: &str) {
+        self.update(|s| {
+            s.state = "waiting_for_phone".into();
+            s.last_error = Some(msg.into());
+        });
     }
 }
 

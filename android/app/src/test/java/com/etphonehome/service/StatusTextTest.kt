@@ -52,6 +52,21 @@ class StatusTextTest {
     }
 
     @Test
+    fun `a router is named as a router with its model`() {
+        val router = info.copy(
+            peer = "USB cable", encrypted = false,
+            client = com.etphonehome.session.ClientIdentity("c0ffee", "slate (GL.iNet GL-AR750S, OpenWrt)", router = true),
+        )
+        val st = TetherState.Connected("USB", router, stats)
+        assertEquals("Router connected (USB, not encrypted)", StatusText.status(st))
+        val d = StatusText.details(st)
+        assertTrue(d, d.contains("Router: slate (GL.iNet GL-AR750S, OpenWrt) · USB cable"))
+        assertTrue(d, d.contains("To router: 5.00 MB"))
+        assertFalse(d, d.contains("computer over USB"))
+        assertTrue(StatusText.notification(st).startsWith("Router connected"))
+    }
+
+    @Test
     fun `stopped with an error explains it`() {
         assertEquals("Stopped: Bluetooth is off", StatusText.status(TetherState.Stopped("Bluetooth is off")))
         assertEquals("Not running", StatusText.status(TetherState.Stopped()))

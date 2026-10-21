@@ -40,8 +40,8 @@ return network.registerProtocol('etph', {
 		var o;
 
 		o = s.taboption('general', form.ListValue, 'transport', _('Connection to the phone'),
-			_('USB: enable USB debugging, start ETPH in USB mode, plug the phone into the router and tap Allow on the phone. Wi-Fi: start ETPH in WiFi mode and copy its address and token.'));
-		o.value('usb', _('USB cable (adb)'));
+			_('USB: plug the phone into the router and tap OK when the phone asks "Open ETPH ...?" (no USB debugging needed). Wi-Fi: start ETPH in WiFi mode and copy its address and token.'));
+		o.value('usb', _('USB cable'));
 		o.value('wifi', _('Wi-Fi (encrypted, pairing token)'));
 		o.value('auto', _('USB when plugged in, else Wi-Fi'));
 		o.default = 'usb';
@@ -63,6 +63,16 @@ return network.registerProtocol('etph', {
 		o.depends('transport', 'usb');
 		o.depends('transport', 'auto');
 		o.optional = true;
+
+		o = s.taboption('advanced', form.ListValue, 'usb_link', _('USB link'),
+			_('Automatic: the accessory link (works without Developer options), or USB debugging (adb) when the phone only offers that.'));
+		o.value('auto', _('Automatic'));
+		o.value('aoa', _('Accessory link only (no USB debugging)'));
+		o.value('adb', _('USB debugging (adb) only'));
+		o.default = 'auto';
+		o.optional = true;
+		o.depends('transport', 'usb');
+		o.depends('transport', 'auto');
 
 		o = s.taboption('advanced', form.Flag, 'tls', _('Encrypt (TLS 1.3)'),
 			_('Turn off only if the app\'s "Require encryption" switch is off'));

@@ -49,6 +49,15 @@ pub struct RetryArgs {
 /// by every connecting subcommand.
 #[derive(clap::Args, Debug, Clone, Default)]
 pub struct HostArgs {
+    /// USB phones: `auto` (accessory link -- no USB debugging needed -- when
+    /// the phone offers it, else ADB), `aoa`, or `adb`
+    #[arg(
+        long,
+        value_name = "auto|aoa|adb",
+        default_value = "auto",
+        env = "ETPH_USB_LINK"
+    )]
+    pub usb_link: crate::runner::UsbLinkMode,
     /// Don't add a default route or DNS; leave that to --up-script (on
     /// OpenWrt netifd owns routes, DNS, firewall zones and mwan3)
     #[arg(long)]
@@ -97,6 +106,7 @@ impl HostArgs {
             tun,
             adb_serial,
             usb_native: false,
+            usb_link: self.usb_link,
             adb_tcp: None,
         })
     }
@@ -609,23 +619,57 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
             }
         }
         Commands::UsbList { json } => {
+            // Every phone on the USB ports: with USB debugging (adb) and/or
+            // reachable over the accessory link (no USB debugging needed).
             #[cfg(target_os = "linux")]
-            let devs = crate::adb::usb::find_devices(std::path::Path::new("/sys/bus/usb/devices"));
+            let phones: Vec<(String, String, String, bool, bool)> =
+                crate::aoa::usb::scan(std::path::Path::new("/sys/bus/usb/devices"))
+                    .into_iter()
+                    .filter(|d| d.is_accessory() || d.maybe_phone())
+                    .map(|d| {
+                        (
+                            d.serial.clone(),
+                            d.name(),
+                            d.port.clone(),
+                            d.has_adb(),
+                            d.is_accessory(),
+                        )
+                    })
+                    .collect();
             #[cfg(all(not(target_os = "linux"), feature = "usb-libusb"))]
-            let devs = crate::adb::usb::find_devices();
+            let phones: Vec<(String, String, String, bool, bool)> = crate::adb::usb::find_devices()
+                .into_iter()
+                .map(|d| {
+                    (
+                        d.serial.clone(),
+                        d.product.clone(),
+                        d.sysfs.clone(),
+                        true,
+                        false,
+                    )
+                })
+                .collect();
             #[cfg(not(any(target_os = "linux", feature = "usb-libusb")))]
-            let devs: Vec<crate::adb::usb_info::UsbAdbDevice> = Vec::new();
+            let phones: Vec<(String, String, String, bool, bool)> = Vec::new();
             if json {
-                let list: Vec<serde_json::Value> = devs
+                let list: Vec<serde_json::Value> = phones
                     .iter()
-                    .map(|d| serde_json::json!({"serial": d.serial, "product": d.product, "port": d.sysfs}))
+                    .map(|(serial, product, port, adb, acc)| {
+                        serde_json::json!({"serial": serial, "product": product, "port": port,
+                                           "adb": adb, "accessory_mode": acc})
+                    })
                     .collect();
                 println!("{}", serde_json::Value::Array(list));
-            } else if devs.is_empty() {
-                println!("No phone with USB debugging on the USB ports.");
+            } else if phones.is_empty() {
+                println!("No phone on the USB ports.");
             } else {
-                for d in &devs {
-                    println!("{}\t{}\t(port {})", d.serial, d.product, d.sysfs);
+                for (serial, product, port, adb, acc) in &phones {
+                    let how = match (adb, acc) {
+                        (_, true) => "accessory mode",
+                        (true, false) => "USB debugging on",
+                        (false, false) => "USB debugging off (accessory link)",
+                    };
+                    println!("{serial}\t{product}\t(port {port}, {how})");
                 }
             }
             Ok(())

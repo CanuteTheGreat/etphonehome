@@ -1,4 +1,5 @@
 pub mod adb;
+pub mod aoa;
 #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
 pub mod bsdtun;
 pub mod cli;

@@ -575,9 +575,18 @@ no_service_within 10
 # speaks the ADB protocol to the phone's adbd -- CNXN, RSA AUTH with the
 # device's adb key, OPEN tcp:8888, WRTE/OKAY flow control. Here adbd is reached
 # over the emulator's TCP port (5555) instead of usbfs; the protocol is the same.
+# The app is started in Wi-Fi mode (when the image has Wi-Fi): USB connections must be accepted in
+# every mode (a router owner who tapped Start in Wi-Fi mode got "the phone refused tcp:8888").
 adb logcat -c
-start_mode radioUsb
-wait_log "USB server listening" 20
+if [ "$HAS_WIFI" = 1 ]; then
+  start_mode radioWifi
+  wait_log "WiFi server listening" 20
+  RT_MODE=WiFi
+else
+  start_mode radioUsb
+  wait_log "USB server listening" 20
+  RT_MODE=USB
+fi
 bridge_port 5555
 sleep 1
 client usbnative --router usb --adb-tcp 127.0.0.1:5555 --interface etph0 --reconnect --max-retries 0
@@ -591,6 +600,11 @@ if wait_iface 60; then
   [ "$want" = "$got" ] && pass "router USB path: 50 MiB download through the ADB stream, sha256 intact" || fail "router USB path: download ($got)"
   grep -q "Phone: ETPH Pro" "$LOG/usbnative.log" && pass "router USB path (Pro phone): the router (--router) was admitted and logs 'Phone: ETPH Pro'" || fail "router USB path: Pro not reported"
   grep -q "Phone: " "$LOG/usbnative.log" && pass "router USB path: phone named in the session ($(grep -o 'Phone: .*' "$LOG/usbnative.log" | head -1))" || fail "router USB path: phone name"
+  [ "$RT_MODE" = WiFi ] && pass "router USB path: accepted while the app is in Wi-Fi mode (USB works in every mode)"
+  ST=$(text_of statusText); SX=$(text_of statsText)
+  echo "$ST" | grep -q "Router connected (USB" && pass "phone UI names a router: '$ST'" || fail "phone UI status for a router ('$ST')"
+  echo "$SX" | grep -q "Router: .*(OpenWrt router\|, OpenWrt)" && echo "$SX" | grep -q "USB cable" \
+    && pass "phone UI shows the router's name and kind: $(echo "$SX" | head -1)" || fail "phone UI router line ('$(echo "$SX" | head -2 | tr '\n' ' ')')"
 else
   tail -30 "$LOG/usbnative.log"
   fail "router USB path: no tunnel through the built-in ADB host"

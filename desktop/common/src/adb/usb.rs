@@ -150,7 +150,7 @@ struct BulkTransfer {
 }
 
 /// Linux _IOC: MIPS/PowerPC use 3 direction bits at 29 and other values.
-const fn ioc(dir: u32, nr: u32, size: usize) -> u32 {
+pub(crate) const fn ioc(dir: u32, nr: u32, size: usize) -> u32 {
     let ty = b'U' as u32;
     if cfg!(any(
         target_arch = "mips",

@@ -44,6 +44,7 @@ function stateLabel(sess, nif) {
 	case 'connected': return _('Connected');
 	case 'connecting': return _('Connecting to the phone (attempt %d)').format(sess.attempt || 1);
 	case 'authorizing': return _('Unlock your phone and tap Allow ("Allow USB debugging?")');
+	case 'waiting_for_phone': return sess.last_error || _('Phone found - open ETPH on the phone and tap OK');
 	case 'retrying': return _('Waiting for the phone, retrying');
 	case 'failed': return _('Stopped: %s').format(sess.last_error || '');
 	case 'stopped': return _('Stopped');

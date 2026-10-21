@@ -397,7 +397,11 @@ def main():
         standin.terminate()
         standin.wait()
         rc, out = con.sh("for i in $(seq 45); do ifstatus phone | grep -q '\"up\": false' && break; sleep 2; done; "
-                         "ifstatus phone | grep '\"up\"'; echo ROUTES; ip route show default; echo STATUS; cat /var/run/etph/phone.json", 120)
+                         "ifstatus phone | grep '\"up\"'; echo ROUTES; ip route show default; "
+                         # Between attempts the status says "retrying"; a snapshot can catch the
+                         # short "connecting" of the next attempt instead, so wait for the backoff.
+                         "for i in $(seq 30); do grep -q '\"retrying\"' /var/run/etph/phone.json && break; sleep 1; done; "
+                         "echo STATUS; cat /var/run/etph/phone.json", 120)
         routes = out.split("ROUTES")[-1].split("STATUS")[0]
         check('"up": false' in out and "etph-phone" not in routes, "phone gone: uplink down, default route removed", out)
         check('"retrying"' in out, "client keeps retrying (status file says so)", out)

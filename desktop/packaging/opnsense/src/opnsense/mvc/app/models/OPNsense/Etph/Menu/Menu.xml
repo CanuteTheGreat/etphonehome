@@ -1,0 +1,5 @@
+<menu>
+    <Interfaces>
+        <EtphPhone VisibleName="Phone uplink (ETPH)" cssClass="fa fa-mobile fa-fw" url="/ui/etph/"/>
+    </Interfaces>
+</menu>

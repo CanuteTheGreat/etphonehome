@@ -1,0 +1,14 @@
+{% if helpers.exists('OPNsense.etph.general.enabled') and OPNsense.etph.general.enabled == '1' %}
+{%   set g = OPNsense.etph.general %}
+{%   set common = '--no-routes --interface etph0 --reconnect --status-file /var/run/etph/etph0.json --up-script /usr/local/opnsense/scripts/etph/newip.sh --down-script /usr/local/opnsense/scripts/etph/newip.sh' %}
+etphonehome_enable="YES"
+{%   if g.transport == 'usb' %}
+etphonehome_args="--router usb --port {{ g.port }} {{ common }}"
+{%   elif g.transport == 'auto' %}
+etphonehome_args="--router auto --wifi-port {{ g.port }}{% if g.host %} --host {{ g.host }}{% endif %} {{ common }}"
+{%   else %}
+etphonehome_args="--router wifi --host {{ g.host }} --port {{ g.port }} {{ common }}"
+{%   endif %}
+{% else %}
+etphonehome_enable="NO"
+{% endif %}

@@ -1,0 +1,30 @@
+<form>
+    <field>
+        <id>etph.general.enabled</id>
+        <label>Enable</label>
+        <type>checkbox</type>
+        <help>Run the ETPH client: the phone becomes the network interface etph0. Assign it under Interfaces: Assignments, give it a gateway (10.0.0.2) and use that gateway in a gateway group for WAN failover. ETPH Pro is needed on the phone for routers.</help>
+    </field>
+    <field>
+        <id>etph.general.transport</id>
+        <label>Connect over</label>
+        <type>dropdown</type>
+    </field>
+    <field>
+        <id>etph.general.host</id>
+        <label>Phone address (Wi-Fi)</label>
+        <type>text</type>
+        <help>The IP address the ETPH app shows in Wi-Fi mode.</help>
+    </field>
+    <field>
+        <id>etph.general.port</id>
+        <label>Port</label>
+        <type>text</type>
+    </field>
+    <field>
+        <id>etph.general.token</id>
+        <label>Pairing token (Wi-Fi)</label>
+        <type>password</type>
+        <help>The token the ETPH app shows; the link is cert-pinned TLS 1.3 keyed to it.</help>
+    </field>
+</form>

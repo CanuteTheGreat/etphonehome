@@ -1,0 +1,9 @@
+<acl>
+    <page-interfaces-etph>
+        <name>Interfaces: Phone uplink (ETPH)</name>
+        <patterns>
+            <pattern>ui/etph/*</pattern>
+            <pattern>api/etph/*</pattern>
+        </patterns>
+    </page-interfaces-etph>
+</acl>

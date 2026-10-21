@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<pfsensepkgs>
+	<package>
+		<name>etph</name>
+		<internal_name>etph</internal_name>
+		<descr><![CDATA[ETPH: an Android phone (ETPH app, ETPH Pro) as an uplink -- the assignable interface etph0, usable in gateway groups for WAN failover.]]></descr>
+		<website>https://errant.solutions/etphonehome/</website>
+		<category>Network</category>
+		<version>%%PKGVERSION%%</version>
+		<configurationfile>etph.xml</configurationfile>
+		<maintainer>support@errant.solutions</maintainer>
+	</package>
+</pfsensepkgs>

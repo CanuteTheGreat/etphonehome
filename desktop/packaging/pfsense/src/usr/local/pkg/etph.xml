@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<?xml-stylesheet type="text/xsl" href="../xsl/package.xsl"?>
+<packagegui>
+	<copyright>
+	<![CDATA[
+/*
+ * etph.xml
+ *
+ * ETPH (Errant Solutions): an Android phone as a pfSense uplink.
+ * Licensed under the MIT License.
+ */
+	]]>
+	</copyright>
+	<name>etph</name>
+	<title>Interfaces/Phone uplink (ETPH)</title>
+	<include_file>/usr/local/pkg/etph.inc</include_file>
+	<aftersaveredirect>pkg_edit.php?xml=etph.xml</aftersaveredirect>
+	<menu>
+		<name>Phone uplink (ETPH)</name>
+		<section>Interfaces</section>
+		<url>/pkg_edit.php?xml=etph.xml</url>
+	</menu>
+	<service>
+		<name>etph</name>
+		<rcfile>etph.sh</rcfile>
+		<executable>etphonehome</executable>
+		<description>ETPH phone uplink</description>
+	</service>
+	<tabs>
+		<tab>
+			<text>Settings</text>
+			<url>/pkg_edit.php?xml=etph.xml</url>
+			<active/>
+		</tab>
+		<tab>
+			<text>Status</text>
+			<url>/status_etph.php</url>
+		</tab>
+	</tabs>
+	<fields>
+		<field>
+			<name>Phone uplink</name>
+			<type>listtopic</type>
+		</field>
+		<field>
+			<fielddescr>Enable</fielddescr>
+			<fieldname>enable</fieldname>
+			<type>checkbox</type>
+			<description>Run the ETPH client: the phone (ETPH app, ETPH Pro) becomes the interface etph0.</description>
+			<sethelp>Then assign etph0 under Interfaces &gt; Assignments, give it a gateway (the phone is the far end of the link, 10.0.0.2 by default) and use that gateway in a gateway group for WAN failover.</sethelp>
+		</field>
+		<field>
+			<fielddescr>Connection</fielddescr>
+			<fieldname>transport</fieldname>
+			<type>select</type>
+			<default_value>wifi</default_value>
+			<options>
+				<option><name>Wi-Fi (the phone on a network this firewall reaches)</name><value>wifi</value></option>
+				<option><name>USB (phone plugged into this firewall)</name><value>usb</value></option>
+				<option><name>Automatic (USB when plugged in, else Wi-Fi)</name><value>auto</value></option>
+			</options>
+		</field>
+		<field>
+			<fielddescr>Phone address</fielddescr>
+			<fieldname>host</fieldname>
+			<type>input</type>
+			<size>30</size>
+			<description>The phone's IP address on its Wi-Fi network (shown in the app's Wi-Fi panel). Wi-Fi and Automatic only.</description>
+		</field>
+		<field>
+			<fielddescr>Port</fielddescr>
+			<fieldname>port</fieldname>
+			<type>input</type>
+			<size>6</size>
+			<default_value>8888</default_value>
+		</field>
+		<field>
+			<fielddescr>Token</fielddescr>
+			<fieldname>token</fieldname>
+			<type>password</type>
+			<description>The Auth Token from the app's Wi-Fi panel (Wi-Fi is TLS-encrypted and pinned to the phone).</description>
+		</field>
+	</fields>
+	<custom_php_validation_command>
+		etph_validate($_POST, $input_errors);
+	</custom_php_validation_command>
+	<custom_php_resync_config_command>
+		etph_resync();
+	</custom_php_resync_config_command>
+	<custom_php_install_command>
+		etph_install();
+	</custom_php_install_command>
+	<custom_php_deinstall_command>
+		etph_deinstall();
+	</custom_php_deinstall_command>
+</packagegui>

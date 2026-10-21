@@ -35,7 +35,6 @@ import com.etphonehome.util.Settings
 import com.etphonehome.util.TokenManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -174,7 +173,7 @@ class MainActivity : AppCompatActivity() {
         // services and the battery all noticed: found by the emulator e2e).
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                Pro.store.usageVersion.conflate().collect {
+                Pro.store.usageVersion.collect { // a StateFlow: conflated already
                     renderUsage()
                     delay(USAGE_REFRESH_MS)
                 }

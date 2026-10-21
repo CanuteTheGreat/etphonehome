@@ -625,7 +625,12 @@ if [ "$HAS_WIFI" = 1 ]; then
   TOKEN=$(text_of wifiIpText | grep -o 'Auth Token: [^ ]*' | head -1 | cut -d' ' -f3)
   start_mode radioWifi
   if [ -n "$TOKEN" ] && wait_log "WiFi server listening" 20; then
-    adb forward tcp:18888 tcp:8888 >/dev/null
+    # Not `adb forward`: that arrives on the phone's loopback, which Wi-Fi mode treats as USB
+    # (plain, no token) since USB works in every mode. The emulator's own port redirect comes in
+    # from the virtual router (10.0.2.2), like a computer on the Wi-Fi.
+    adb emu redir del tcp:18888 >/dev/null 2>&1 || true
+    adb emu redir add tcp:18888:8888 >/dev/null
+    adb emu redir list 2>/dev/null | grep -q 18888 || echo "warning: emulator redirect tcp:18888 not listed"
     bridge_port 18888
     sleep 1
     client wifi wifi --host 127.0.0.1 --port 18888 --token "$TOKEN" --interface etph0
@@ -651,6 +656,7 @@ if [ "$HAS_WIFI" = 1 ]; then
     else
       grep -q "TLS handshake failed" "$LOG/wifi-bad.log" && ! iface_up && pass "WiFi: wrong token fails closed (TLS pin mismatch), no TUN" || { tail -5 "$LOG/wifi-bad.log"; fail "WiFi wrong token message"; }
     fi
+    adb emu redir del tcp:18888 >/dev/null 2>&1 || true
   else
     fail "WiFi mode did not start (token='$TOKEN')"
   fi

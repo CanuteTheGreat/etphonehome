@@ -347,6 +347,11 @@ impl StatusFile {
         });
     }
 
+    /// The interface the system actually created (macOS names utun itself).
+    pub fn interface(&self, name: &str) {
+        self.update(|s| s.interface = name.to_string());
+    }
+
     pub fn phone_pro(&self, pro: bool) {
         self.update(|s| s.phone_pro = Some(pro));
     }

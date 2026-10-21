@@ -1,0 +1,12 @@
+#!/bin/sh
+# Start the ETPH service and, for the logged-in user, the menu-bar app.
+mkdir -p "/Library/Application Support/ETPH" /Library/Logs/ETPH
+chmod 755 "/Library/Application Support/ETPH"
+launchctl bootstrap system /Library/LaunchDaemons/solutions.errant.etph.plist 2>/dev/null \
+  || launchctl kickstart -k system/solutions.errant.etph
+user=$(stat -f %Su /dev/console 2>/dev/null)
+if [ -n "$user" ] && [ "$user" != root ] && [ "$user" != loginwindow ]; then
+  uid=$(id -u "$user")
+  launchctl bootstrap "gui/$uid" /Library/LaunchAgents/solutions.errant.etph.menubar.plist 2>/dev/null || true
+fi
+exit 0

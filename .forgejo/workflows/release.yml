@@ -46,20 +46,56 @@ jobs:
         uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
-      - name: Install mingw-w64 and zip
+      - name: Install mingw-w64, zip and wixl (MSI)
         run: |
           sudo apt-get update
-          sudo apt-get install -y mingw-w64 zip unzip
+          sudo apt-get install -y mingw-w64 zip unzip wixl msitools python3-pil
       - name: Build release
         working-directory: desktop
-        run: cargo build --release -p etphonehome-windows --target x86_64-pc-windows-gnu
-      - name: Package
-        run: bash .forgejo/scripts/package.sh windows "${{ github.ref_name }}"
+        run: cargo build --release -p etphonehome-windows -p etphonehome-tray --target x86_64-pc-windows-gnu
+      - name: Package (MSI + zip, Wintun bundled)
+        run: |
+          bash .forgejo/scripts/package.sh windows "${{ github.ref_name }}"
+          python3 desktop/packaging/windows/winget-manifest.py "${{ github.ref_name }}" "dist/etph-windows-${{ github.ref_name }}.msi" dist
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: etphonehome-windows-${{ github.ref_name }}
-          path: dist/etphonehome-windows-${{ github.ref_name }}.zip
+          path: |
+            dist/etphonehome-windows-${{ github.ref_name }}.zip
+            dist/etph-windows-${{ github.ref_name }}.msi
+            dist/etph-winget-${{ github.ref_name }}.zip
+
+  build-freebsd:
+    name: Build FreeBSD Release (pkg, amd64 + aarch64)
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-freebsd,aarch64-unknown-freebsd
+      - name: Tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang lld llvm xz-utils python3 file
+      - name: Build
+        working-directory: desktop
+        run: |
+          source ../.forgejo/scripts/freebsd-cross-env.sh amd64
+          cargo build --release --target "$FREEBSD_TARGET" -p etphonehome-bsd
+          source ../.forgejo/scripts/freebsd-cross-env.sh arm64
+          cargo build --release --target "$FREEBSD_TARGET" -p etphonehome-bsd
+      - name: Package
+        run: bash .forgejo/scripts/package.sh freebsd "${{ github.ref_name }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: etphonehome-freebsd-${{ github.ref_name }}
+          path: |
+            dist/*.pkg
+            dist/etphonehome-freebsd-*.tar.gz
 
   build-gui-linux:
     name: Build Desktop GUI (Linux)
@@ -156,7 +192,7 @@ jobs:
     # ever created here. This talks to the Forgejo releases API directly:
     # create (or reuse) the release for the tag, upload every package, then
     # verify the release really lists all four.
-    needs: [build-linux, build-windows, build-gui-linux, build-android, build-openwrt]
+    needs: [build-linux, build-windows, build-freebsd, build-gui-linux, build-android, build-openwrt]
     runs-on: linux-cross-x86_64
     timeout-minutes: 15
     steps:
@@ -266,9 +302,50 @@ jobs:
           [ "$ok" = 1 ] || { echo "giving up on $name"; exit 1; }
           echo "attached $name ($(sha256sum "$f" | awk '{print $1}'))"
 
+  macos-from-github:
+    name: Attach the macOS package (built + tested on the GitHub mirror)
+    # No macOS runner here: .github/workflows/desktop-native.yml builds the
+    # universal .pkg on a GitHub-hosted Mac when the mirror receives this tag,
+    # tests it on Apple Silicon and Intel, and attaches it to the GitHub
+    # release. Copy it (checked against its SHA256SUMS) into this release.
+    needs: create-release
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 120
+    steps:
+      - name: Wait for the GitHub build, verify, upload
+        env:
+          TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          GH=https://github.com/CanuteTheGreat/etphonehome/releases/download/$TAG
+          mkdir -p mac && cd mac
+          for i in $(seq 1 100); do
+            if curl -fsSL -o "SHA256SUMS-macos-$TAG" "$GH/SHA256SUMS-macos-$TAG"; then break; fi
+            [ "$i" = 100 ] && { echo "the GitHub mirror never published the macOS build for $TAG"; exit 1; }
+            echo "waiting for the macOS build on the GitHub mirror ($i/100)"; sleep 60
+          done
+          for f in "etph-macos-$TAG.pkg" "etphonehome-macos-$TAG.tar.gz"; do
+            curl -fsSL --retry 3 -o "$f" "$GH/$f"
+          done
+          shasum -a 256 -c "SHA256SUMS-macos-$TAG" 2>/dev/null || sha256sum -c "SHA256SUMS-macos-$TAG"
+          auth=(-H "Authorization: token $TOKEN")
+          ID=$(curl -fsS "${auth[@]}" "$API/releases/tags/$TAG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          for f in *; do
+            for try in 1 2 3 4 5 6; do
+              for a in $(curl -fsS "${auth[@]}" "$API/releases/$ID/assets" | python3 -c 'import json,sys; n=sys.argv[1]; print(" ".join(str(a["id"]) for a in json.load(sys.stdin) if a["name"]==n))' "$f"); do
+                curl -fsS "${auth[@]}" -X DELETE "$API/releases/$ID/assets/$a" || true
+              done
+              if curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=$f" -F "attachment=@$f" >/dev/null; then echo "attached $f"; continue 2; fi
+              echo "upload of $f failed (attempt $try)"; sleep $((try*20))
+            done
+            echo "giving up on $f"; exit 1
+          done
+
   verify-release:
     name: Verify the published release
-    needs: sign-android
+    needs: [sign-android, macos-from-github]
     runs-on: linux-cross-x86_64
     timeout-minutes: 10
     steps:
@@ -287,6 +364,9 @@ jobs:
           v = tag[1:] + "-r1"
           want = {f"etphonehome-linux-{tag}.tar.gz", f"etphonehome-windows-{tag}.zip", f"etphonehome-gui-{tag}.tar.gz", f"etphonehome-{tag}.apk",
                   "etph-openwrt-install.sh", "SHA256SUMS", "sizes.tsv", f"luci-app-etph_{v}_all.ipk", f"luci-app-etph-{v}_noarch.apk"}
+          want |= {f"etph-windows-{tag}.msi", f"etph-winget-{tag}.zip", f"etph-macos-{tag}.pkg", f"etphonehome-macos-{tag}.tar.gz",
+                   f"etphonehome-{tag[1:]}-freebsd-amd64.pkg", f"etphonehome-{tag[1:]}-freebsd-aarch64.pkg",
+                   f"etphonehome-freebsd-amd64-{tag}.tar.gz"}
           for arch in ("x86_64", "aarch64_cortex-a53", "arm_cortex-a7_neon-vfpv4", "mips_24kc", "mipsel_24kc"):
               want |= {f"etph_{v}_{arch}.ipk", f"etph-{v}_{arch}.apk"}
           missing = want - set(names)

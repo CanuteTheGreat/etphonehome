@@ -1,0 +1,19 @@
+[package]
+name = "etphonehome-macos"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "etphonehome"
+path = "src/main.rs"
+
+[dependencies]
+etphonehome-common = { path = "../common", default-features = false, features = ["usb-libusb"] }
+
+tokio = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+libc = "0.2"

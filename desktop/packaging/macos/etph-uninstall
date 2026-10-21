@@ -1,0 +1,14 @@
+#!/bin/sh
+# Remove ETPH from this Mac: sudo etph-uninstall
+set -e
+[ "$(id -u)" = 0 ] || { echo "run with sudo: sudo etph-uninstall" >&2; exit 1; }
+user=$(stat -f %Su /dev/console 2>/dev/null || true)
+if [ -n "$user" ] && [ "$user" != root ]; then
+  launchctl bootout "gui/$(id -u "$user")/solutions.errant.etph.menubar" 2>/dev/null || true
+fi
+launchctl bootout system/solutions.errant.etph 2>/dev/null || true
+rm -f /Library/LaunchDaemons/solutions.errant.etph.plist /Library/LaunchAgents/solutions.errant.etph.menubar.plist
+rm -rf /Applications/ETPH.app /Library/Logs/ETPH
+rm -f /usr/local/bin/etphonehome /usr/local/bin/etph-uninstall /var/run/etphonehome.sock
+pkgutil --forget solutions.errant.etph >/dev/null 2>&1 || true
+echo "ETPH removed (saved phones stay in /Library/Application Support/ETPH; delete it to forget them)."

@@ -4,6 +4,9 @@ members = [
     "windows",
     "linux",
     "gui",
+    "macos",
+    "bsd",
+    "tray",
 ]
 resolver = "2"
 

@@ -27,7 +27,13 @@ import kotlin.system.exitProcess
  *   standin --listen 127.0.0.1:8888 [--token T] [--require-tls]
  *           [--keepalive-secs N] [--stats-secs N] [--disconnect-after-secs N]
  *           [--advertise-version 0xMMmm] [--stats-log] [--device-name NAME] [--quiet]
- *           [--free]
+ *           [--free] [--bind-address IP]
+ *
+ * --bind-address binds every relayed socket to this local address, so on a
+ * single machine (the macOS/Windows CI e2e: client and stand-in on one host)
+ * the stand-in's own traffic leaves through the real network interface
+ * instead of looping back into the client's tunnel routes. The phone app
+ * does the same with Network.bindSocket (SocketPreparer).
  *
  * --free plays a phone WITHOUT ETPH Pro (ProGate, as the app does): one computer, no routers,
  * nothing but USB (a --token listener counts as Wi-Fi). By default the stand-in is a Pro phone.
@@ -47,6 +53,7 @@ fun main(args: Array<String>) {
     var deviceName: String? = "ETPH stand-in"
     var i = 0
     var free = false
+    var bindAddress: InetAddress? = null
     var paired = emptyList<com.etphonehome.pro.PairedDevice>()
     fun value(): String = args.getOrNull(++i) ?: usage("missing value for ${args[i - 1]}")
     while (i < args.size) {
@@ -62,6 +69,7 @@ fun main(args: Array<String>) {
             "--device-name" -> deviceName = value().ifEmpty { null }
             "--quiet" -> Log.debugEnabled = false
             "--free" -> free = true
+            "--bind-address" -> bindAddress = InetAddress.getByName(value())
             else -> usage("unknown argument ${args[i]}")
         }
         i++
@@ -98,6 +106,9 @@ fun main(args: Array<String>) {
                             null
                         },
                         capabilities = caps,
+                        relayConfig = bindAddress?.let { a ->
+                            com.etphonehome.relay.RelayConfig(socketPreparer = BindTo(a))
+                        } ?: com.etphonehome.relay.RelayConfig(),
                         statsIntervalMs = statsSecs * 1000,
                         keepaliveIntervalMs = keepaliveSecs * 1000,
                         disconnectAfterMs = disconnectAfterSecs?.let { it * 1000 },
@@ -131,6 +142,12 @@ fun main(args: Array<String>) {
     }
 }
 
+/** Binds relayed sockets to one local address (see --bind-address). */
+private class BindTo(private val address: InetAddress) : com.etphonehome.relay.SocketPreparer {
+    override fun prepareTcp(socket: Socket) = socket.bind(java.net.InetSocketAddress(address, 0))
+    override fun prepareUdp(socket: java.net.DatagramSocket) = socket.bind(java.net.InetSocketAddress(address, 0))
+}
+
 /** Logs the counters the app's status screen shows (UI ticks are 1 s). */
 private class StatsLogger(private val everyMs: Long) : SessionListener {
     private var last = 0L
@@ -152,7 +169,7 @@ private fun usage(msg: String): Nothing {
     System.err.println("standin: $msg")
     System.err.println(
         "usage: standin --listen HOST:PORT [--token T] [--require-tls] [--keepalive-secs N] " +
-            "[--stats-secs N] [--disconnect-after-secs N] [--advertise-version 0xMMmm] [--stats-log] [--device-name NAME] [--quiet] [--free]",
+            "[--stats-secs N] [--disconnect-after-secs N] [--advertise-version 0xMMmm] [--stats-log] [--device-name NAME] [--quiet] [--free] [--bind-address IP]",
     )
     exitProcess(2)
 }

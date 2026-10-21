@@ -323,19 +323,118 @@ pub fn setup_routing_via(tun_name: &str, peer: &str) -> Result<()> {
     }
     #[cfg(windows)]
     {
-        let output = Command::new("route")
-            .args(["add", "0.0.0.0", "mask", "0.0.0.0", peer, "metric", "10"])
-            .output()
-            .context("Failed to add route")?;
-        if !output.status.success() {
-            warn!("Failed to add default route (may already exist)");
+        // Two /1 routes, like macOS/BSD: more specific than any default
+        // route, so they win whatever metric Windows gave the other adapters
+        // (a single 0.0.0.0/0 with metric 10 lost to a wired/Wi-Fi default
+        // with a lower automatic interface metric). Gone with the adapter.
+        for (net, mask) in [("0.0.0.0", "128.0.0.0"), ("128.0.0.0", "128.0.0.0")] {
+            let output = Command::new("route")
+                .args(["add", net, "mask", mask, peer, "metric", "1"])
+                .output()
+                .context("Failed to run route.exe")?;
+            if !output.status.success() {
+                warn!(
+                    "Failed to route {}/1 through {}: {}",
+                    net,
+                    tun_name,
+                    String::from_utf8_lossy(&output.stdout).trim()
+                );
+            }
         }
     }
     #[cfg(not(any(target_os = "linux", windows)))]
     {
-        warn!("Routing setup not implemented for this platform");
+        // macOS and the BSDs: one default route per routing table, so take
+        // over the way VPNs do, with two /1 routes that beat the existing
+        // default without deleting it. They vanish with the interface.
+        let mut failed = Vec::new();
+        for net in ["0.0.0.0/1", "128.0.0.0/1"] {
+            let out = Command::new("route")
+                .args(["-n", "add", "-net", net, peer])
+                .output()
+                .context("Failed to run route(8)")?;
+            if !out.status.success() {
+                failed.push(format!(
+                    "{}: {}",
+                    net,
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+        }
+        if !failed.is_empty() {
+            warn!(
+                "Failed to route through {}: {}",
+                tun_name,
+                failed.join("; ")
+            );
+        }
     }
     Ok(())
+}
+
+/// Undo what [`configure_dns`] set up outside the TUN device (macOS: the
+/// scutil DNS service; BSD: the resolvconf entry). Routes and Linux/Windows
+/// per-link DNS go away with the interface itself.
+pub fn cleanup_host(tun_name: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = scutil(&format!(
+            "remove State:/Network/Service/etphonehome-{n}/DNS\nremove State:/Network/Service/etphonehome-{n}/IPv4\n",
+            n = tun_name
+        ));
+    }
+    #[cfg(any(
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    {
+        let _ = Command::new("resolvconf").args(["-d", tun_name]).output();
+    }
+    let _ = tun_name;
+}
+
+/// Feed commands to scutil(8) on stdin.
+#[cfg(target_os = "macos")]
+fn scutil(commands: &str) -> Result<()> {
+    use std::io::Write as _;
+    let mut child = Command::new("scutil")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .context("cannot run scutil")?;
+    child
+        .stdin
+        .take()
+        .context("scutil stdin")?
+        .write_all(commands.as_bytes())?;
+    let st = child.wait()?;
+    if !st.success() {
+        bail!("scutil exited with {}", st);
+    }
+    Ok(())
+}
+
+/// The scutil script that publishes the tunnel as a network service whose
+/// DNS server is the phone's, used for every domain.
+#[cfg(any(target_os = "macos", test))]
+pub fn macos_dns_script(tun_name: &str, local: &str, peer: &str, dns: &str) -> String {
+    format!(
+        "d.init\n\
+         d.add Addresses * {local}\n\
+         d.add DestAddresses * {peer}\n\
+         d.add InterfaceName {tun_name}\n\
+         d.add Router {peer}\n\
+         set State:/Network/Service/etphonehome-{tun_name}/IPv4\n\
+         d.init\n\
+         d.add ServerAddresses * {dns}\n\
+         d.add SupplementalMatchDomains * \"\"\n\
+         d.add SupplementalMatchDomainsNoSearch # 1\n\
+         d.add SearchOrder # 1\n\
+         d.add InterfaceName {tun_name}\n\
+         set State:/Network/Service/etphonehome-{tun_name}/DNS\n"
+    )
 }
 
 /// Point name resolution at the DNS server the phone announced, for names
@@ -393,32 +492,96 @@ pub fn configure_dns(tun_name: &str, dns: &str) {
             );
         }
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(target_os = "macos")]
+    {
+        match scutil(&macos_dns_script(tun_name, TUN_ADDRESS, TUN_PEER, dns)) {
+            Ok(()) => info!("DNS for {} set to {} (scutil)", tun_name, dns),
+            Err(e) => warn!(
+                "Could not set DNS to {} with scutil ({:#}); set it in System Settings > Network",
+                dns, e
+            ),
+        }
+    }
+    #[cfg(any(
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    {
+        use std::io::Write as _;
+        let ok = Command::new("resolvconf")
+            .args(["-a", tun_name])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut c| {
+                if let Some(mut i) = c.stdin.take() {
+                    writeln!(i, "nameserver {}", dns)?;
+                }
+                c.wait()
+            })
+            .map(|st| st.success())
+            .unwrap_or(false);
+        if ok {
+            info!("DNS for {} set to {} (resolvconf)", tun_name, dns);
+        } else {
+            warn!(
+                "Could not set DNS with resolvconf(8); add `nameserver {}` to /etc/resolv.conf",
+                dns
+            );
+        }
+    }
+    #[cfg(not(any(
+        target_os = "linux",
+        windows,
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    )))]
     {
         warn!("Set your DNS server to {} by hand on this platform", dns);
     }
 }
 
 /// Create the TUN device (async, so reads and writes run independently).
-pub fn create_tun(tun_name: &str) -> Result<tun::AsyncDevice> {
+/// Returns it with the interface name the system gave it.
+pub fn create_tun(tun_name: &str) -> Result<(crate::tun_interface::AsyncTun, String)> {
     create_tun_with(tun_name, &host::TunAddressing::default())
 }
 
 /// [`create_tun`] with explicit link addresses.
-pub fn create_tun_with(tun_name: &str, addr: &host::TunAddressing) -> Result<tun::AsyncDevice> {
-    crate::tun_interface::create_async(
+pub fn create_tun_with(
+    tun_name: &str,
+    addr: &host::TunAddressing,
+) -> Result<(crate::tun_interface::AsyncTun, String)> {
+    crate::tun_interface::create_link(
         tun_name,
         &addr.local.to_string(),
+        &addr.peer.to_string(),
         &addr.netmask().to_string(),
     )
     .context(format!(
-        "Failed to create TUN interface '{}'. Run as root/Administrator (sudo etphonehome ...), \
-         make sure the tun module is loaded (sudo modprobe tun) and /dev/net/tun exists; on \
-         Windows wintun.dll must be next to the executable. If the interface already exists, \
-         pick another name with --interface",
-        tun_name
+        "Failed to create TUN interface '{}'. {}",
+        tun_name, TUN_HELP
     ))
 }
+
+/// What to check when the TUN device cannot be created, per platform.
+#[cfg(target_os = "linux")]
+const TUN_HELP: &str = "Run as root (sudo etphonehome ...), make sure the tun module is loaded \
+    (sudo modprobe tun) and /dev/net/tun exists. If the interface already exists, pick another \
+    name with --interface";
+#[cfg(windows)]
+const TUN_HELP: &str = "Run as Administrator, and keep wintun.dll next to etphonehome.exe (the \
+    installer puts it there). If the adapter already exists, pick another name with --interface";
+#[cfg(target_os = "macos")]
+const TUN_HELP: &str = "Run as root (sudo etphonehome ...), or connect from the ETPH menu-bar app \
+    (its helper runs as root)";
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+const TUN_HELP: &str = "Run as root (sudo/doas etphonehome ...) and make sure the tun driver is \
+    available (FreeBSD: kldload if_tun)";
 
 /// ETPH Pro auto-start: what the computer runs on the phone (over USB
 /// debugging) when it finds nothing listening. The phone decides: Pro with
@@ -469,6 +632,19 @@ fn nothing_listening(e: &anyhow::Error) -> bool {
     })
 }
 
+/// Is the adb tool installed? Without it USB goes through the built-in ADB
+/// host (usbfs on Linux, libusb on macOS/Windows/BSD), so a computer needs
+/// no Android SDK at all.
+pub fn adb_tool_available() -> bool {
+    Command::new("adb")
+        .arg("version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Open the transport for a plan (runs `adb forward` first for USB).
 pub async fn open_transport(target: &Target) -> Result<Transport> {
     open_transport_with(target, &HostIntegration::default()).await
@@ -480,7 +656,7 @@ pub async fn open_transport_with(target: &Target, host: &HostIntegration) -> Res
     match target {
         Target::Tcp { opts, adb_port } => {
             if let Some(port) = adb_port {
-                if host.usb_native || host.adb_tcp.is_some() {
+                if host.usb_native || host.adb_tcp.is_some() || !adb_tool_available() {
                     return open_native_usb(*port, host).await;
                 }
                 if let Err(e) = setup_adb_forwarding_for(*port, host.adb_serial.as_deref()) {
@@ -539,7 +715,12 @@ pub fn usb_phone_present(serial: Option<&str>) -> bool {
         let devs = crate::adb::usb::find_devices(std::path::Path::new("/sys/bus/usb/devices"));
         crate::adb::usb::pick(&devs, serial).is_ok()
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(not(target_os = "linux"), feature = "usb-libusb"))]
+    {
+        let devs = crate::adb::usb::find_devices();
+        crate::adb::usb::pick(&devs, serial).is_ok()
+    }
+    #[cfg(not(any(target_os = "linux", feature = "usb-libusb")))]
     {
         let _ = serial;
         false
@@ -549,10 +730,29 @@ pub fn usb_phone_present(serial: Option<&str>) -> bool {
 fn this_host_name() -> String {
     let h = std::fs::read_to_string("/proc/sys/kernel/hostname")
         .ok()
+        .or_else(sys_hostname)
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "router".into());
     format!("etph@{h}")
+}
+
+/// The host name from the OS (macOS, BSD, Windows), for the adb key comment.
+fn sys_hostname() -> Option<String> {
+    #[cfg(unix)]
+    {
+        let mut buf = [0u8; 256];
+        // SAFETY: gethostname writes at most buf.len() bytes.
+        if unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) } == 0 {
+            let n = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+            return Some(String::from_utf8_lossy(&buf[..n]).to_string());
+        }
+        None
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::var("COMPUTERNAME").ok()
+    }
 }
 
 /// USB through the built-in ADB host: the phone's adb interface via usbfs
@@ -566,25 +766,43 @@ async fn open_native_usb(port: u16, host: &HostIntegration) -> Result<Transport>
         // Find the phone before touching the key: creating a key takes a
         // while on router CPUs and is pointless with nothing plugged in.
         let link: std::sync::Arc<dyn crate::adb::Link> = match adb_tcp {
-            Some(addr) => std::sync::Arc::new(crate::adb::TcpLink::connect(&addr, Duration::from_secs(10))?),
+            Some(addr) => std::sync::Arc::new(crate::adb::TcpLink::connect(
+                &addr,
+                Duration::from_secs(10),
+            )?),
             None => {
                 #[cfg(target_os = "linux")]
                 {
-                    let devs = crate::adb::usb::find_devices(std::path::Path::new("/sys/bus/usb/devices"));
-                    let dev = crate::adb::usb::pick(&devs, serial.as_deref()).inspect_err(|_| phone_absent())?;
+                    let devs =
+                        crate::adb::usb::find_devices(std::path::Path::new("/sys/bus/usb/devices"));
+                    let dev = crate::adb::usb::pick(&devs, serial.as_deref())
+                        .inspect_err(|_| phone_absent())?;
                     info!("Phone on USB: {} (serial {})", dev.product, dev.serial);
-                    std::sync::Arc::new(crate::adb::usb::UsbLink::open(&dev).with_context(|| {
-                        format!("cannot open {} (run as root)", dev.dev_node.display())
-                    })?)
+                    std::sync::Arc::new(crate::adb::usb::UsbLink::open(&dev).with_context(
+                        || format!("cannot open {} (run as root)", dev.dev_node.display()),
+                    )?)
                 }
-                #[cfg(not(target_os = "linux"))]
+                #[cfg(all(not(target_os = "linux"), feature = "usb-libusb"))]
+                {
+                    let devs = crate::adb::usb::find_devices();
+                    let dev = crate::adb::usb::pick(&devs, serial.as_deref())
+                        .inspect_err(|_| phone_absent())?;
+                    info!("Phone on USB: {} (serial {})", dev.product, dev.serial);
+                    std::sync::Arc::new(crate::adb::usb::UsbLink::open(&dev).with_context(
+                        || format!("cannot open the phone on USB port {}", dev.sysfs),
+                    )?)
+                }
+                #[cfg(not(any(target_os = "linux", feature = "usb-libusb")))]
                 {
                     let _ = serial;
-                    bail!("the built-in ADB host needs Linux usbfs; use the adb tool on this platform")
+                    bail!("this build has no USB support; use the adb tool on this platform")
                 }
             }
         };
-        let key = crate::adb::key::AdbKey::load_or_create(&crate::adb::key::default_dir(), &this_host_name())?;
+        let key = crate::adb::key::AdbKey::load_or_create(
+            &crate::adb::key::default_dir(),
+            &this_host_name(),
+        )?;
         let observer: &dyn crate::adb::AuthObserver = match &status {
             Some(st) => &**st,
             None => &crate::adb::NoObserver,
@@ -845,17 +1063,17 @@ where
         Target::Bluetooth { .. } => false,
     };
     let transport = open_transport_with(&plan.target, host).await?;
-    let tun = create_tun_with(&plan.tun_name, &host.tun)?;
+    let (tun, ifname) = create_tun_with(&plan.tun_name, &host.tun)?;
     let dns =
         (transport.handshake.dns != 0).then(|| std::net::Ipv4Addr::from(transport.handshake.dns));
     let device = transport.handshake.device_name.clone();
     let phone_pro = transport.handshake.phone_has_pro();
     if host.manage_routes {
-        if let Err(e) = setup_routing_via(&plan.tun_name, &host.tun.peer.to_string()) {
+        if let Err(e) = setup_routing_via(&ifname, &host.tun.peer.to_string()) {
             warn!("Routing setup failed (connection may still work): {:#}", e);
         }
         if let Some(dns) = dns {
-            configure_dns(&plan.tun_name, &dns.to_string());
+            configure_dns(&ifname, &dns.to_string());
         }
     }
     // USB is a cable: "encrypted" only describes TLS over WiFi.
@@ -865,7 +1083,7 @@ where
         Target::Auto { wifi, .. } => !usb_now && wifi.as_ref().is_some_and(|w| w.tls),
     };
     let mut hook = HookInfo {
-        ifname: plan.tun_name.clone(),
+        ifname: ifname.clone(),
         transport: match &plan.target {
             Target::Auto { .. } if usb_now => "usb".to_string(),
             Target::Auto { .. } => "wifi".to_string(),
@@ -878,7 +1096,7 @@ where
     if let Some(d) = &device {
         info!("Phone: {}", d);
     }
-    info!("Tethering connection established on {}", plan.tun_name);
+    info!("Tethering connection established on {}", ifname);
     if let Target::Tcp { opts, .. } = &plan.target {
         info!(
             "Transport security: {}",
@@ -897,6 +1115,7 @@ where
     let service = service.or_else(|| host.status.as_ref().map(|_| ConnectionService::new()));
     let status_pump = match (&host.status, &service) {
         (Some(st), Some(svc)) => {
+            st.interface(&ifname);
             st.connected(device.clone(), encrypted);
             st.phone_pro(phone_pro);
             let st = st.clone();
@@ -920,6 +1139,9 @@ where
     let result = session::forward(transport, tun, opts, shutdown).await;
     if let Some(p) = status_pump {
         p.abort();
+    }
+    if host.manage_routes {
+        cleanup_host(&ifname);
     }
     // `forward` consumed the TUN device: it is gone by now, so the down
     // hook sees the same state as pppd's ip-down.

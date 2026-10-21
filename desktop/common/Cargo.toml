@@ -10,7 +10,6 @@ tokio = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
-tun = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }
@@ -36,8 +35,16 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 # Bluetooth RFCOMM through BlueZ (Linux). On by default for the desktop
 # builds; the OpenWrt router build turns it off (routers have no BlueZ, and
 # it drags in libdbus).
-default = ["bluetooth"]
+default = ["bluetooth", "usb-libusb"]
 bluetooth = ["dep:bluer", "dep:futures", "dep:libdbus-sys"]
+# The built-in ADB host's USB side on macOS/Windows/BSD (Linux uses usbfs
+# directly and ignores this).
+usb-libusb = ["dep:rusb"]
+
+# TUN: the `tun` crate on Linux/Android/Windows (Wintun); macOS utun and the
+# BSDs' tun(4) are driven directly (src/bsdtun.rs).
+[target.'cfg(any(target_os = "linux", target_os = "android", windows))'.dependencies]
+tun = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"], optional = true }
@@ -47,6 +54,13 @@ futures = { version = "0.3", optional = true }
 # can be linked against an old glibc (.forgejo/scripts/build-linux-release.sh)
 # so it runs on every distro we claim, not just ones as new as the CI image.
 libdbus-sys = { version = "0.2", features = ["vendored"], optional = true }
+
+# libusb: built from source and linked in on macOS/Windows (nothing to
+# install); FreeBSD (and its firewalls) ship libusb in the base system.
+[target.'cfg(not(any(target_os = "linux", target_os = "android", target_os = "freebsd")))'.dependencies]
+rusb = { version = "0.9", features = ["vendored"], optional = true }
+[target.'cfg(target_os = "freebsd")'.dependencies]
+rusb = { version = "0.9", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

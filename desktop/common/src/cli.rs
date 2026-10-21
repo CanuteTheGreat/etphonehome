@@ -158,6 +158,31 @@ pub enum Commands {
         net: HostArgs,
     },
 
+    /// Run the background service the menu-bar / tray app talks to (as root
+    /// or LocalSystem: launchd, the Windows service, rc.d start it)
+    Service {
+        /// TUN interface name
+        #[arg(short, long, default_value = "etph0")]
+        interface: String,
+        /// Control socket (Unix)
+        #[arg(long, value_name = "PATH")]
+        control: Option<std::path::PathBuf>,
+        /// Started by the Windows service manager (set by the installer)
+        #[arg(long, hide = true)]
+        windows_service: bool,
+    },
+
+    /// Ask the running service: status | usb | connect PROFILE | disconnect
+    Ctl {
+        /// status, usb, connect, disconnect
+        action: String,
+        /// Profile name for `connect`
+        profile: Option<String>,
+        /// Print the service's JSON reply
+        #[arg(long)]
+        json: bool,
+    },
+
     /// List phones with USB debugging on this computer's USB ports (sysfs;
     /// no adb needed)
     UsbList {
@@ -279,6 +304,10 @@ pub enum Commands {
         /// Description
         #[arg(short, long)]
         description: Option<String>,
+        /// The pairing token the app shows (stored as auth.wifi_token or
+        /// auth.bluetooth_token; also read from $ETPH_TOKEN)
+        #[arg(long, env = "ETPH_TOKEN", hide_env_values = true)]
+        token: Option<String>,
     },
 
     /// Delete a saved profile
@@ -498,10 +527,93 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
             )
             .await
         }
+        Commands::Service {
+            interface,
+            control,
+            windows_service: _,
+        } => {
+            warn_unprivileged(&platform);
+            #[allow(unused_mut)]
+            let mut opts = crate::daemon::Options {
+                interface,
+                ..Default::default()
+            };
+            #[cfg(unix)]
+            if let Some(c) = control {
+                opts.control = c;
+            }
+            #[cfg(not(unix))]
+            let _ = control;
+            crate::daemon::run(opts, runner::ctrl_c_shutdown()).await
+        }
+        Commands::Ctl {
+            action,
+            profile,
+            json,
+        } => {
+            use crate::daemon::Request;
+            let req = match action.as_str() {
+                "status" => Request {
+                    cmd: "status".into(),
+                    ..Default::default()
+                },
+                "usb" => Request {
+                    cmd: "connect".into(),
+                    mode: Some("usb".into()),
+                    ..Default::default()
+                },
+                "connect" => Request {
+                    cmd: "connect".into(),
+                    profile: Some(profile.context("connect needs a profile name")?),
+                    ..Default::default()
+                },
+                "disconnect" => Request {
+                    cmd: "disconnect".into(),
+                    ..Default::default()
+                },
+                other => anyhow::bail!(
+                    "unknown action {other:?}: status, usb, connect PROFILE, disconnect"
+                ),
+            };
+            #[cfg(unix)]
+            let reply = crate::daemon::request(&req, &crate::daemon::default_control()).await?;
+            #[cfg(windows)]
+            let reply = crate::daemon::request(&req).await?;
+            if json {
+                println!("{}", serde_json::to_string(&reply)?);
+            } else {
+                println!("state: {}", reply.state);
+                if let Some(s) = &reply.session {
+                    println!("session: {s}");
+                }
+                if let Some(d) = &reply.device {
+                    println!("phone: {d}");
+                }
+                if let Some(p) = reply.phone_pro {
+                    println!("ETPH Pro on the phone: {}", if p { "yes" } else { "no" });
+                }
+                if let Some(e) = &reply.last_error {
+                    println!("last error: {e}");
+                }
+                println!(
+                    "sent {} bytes, received {} bytes",
+                    reply.bytes_sent, reply.bytes_received
+                );
+                if !reply.profiles.is_empty() {
+                    println!("profiles: {}", reply.profiles.join(", "));
+                }
+            }
+            match reply.error {
+                Some(e) => anyhow::bail!(e),
+                None => Ok(()),
+            }
+        }
         Commands::UsbList { json } => {
             #[cfg(target_os = "linux")]
             let devs = crate::adb::usb::find_devices(std::path::Path::new("/sys/bus/usb/devices"));
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(all(not(target_os = "linux"), feature = "usb-libusb"))]
+            let devs = crate::adb::usb::find_devices();
+            #[cfg(not(any(target_os = "linux", feature = "usb-libusb")))]
             let devs: Vec<crate::adb::usb_info::UsbAdbDevice> = Vec::new();
             if json {
                 let list: Vec<serde_json::Value> = devs
@@ -647,9 +759,19 @@ pub async fn run(cli: Cli, platform: Platform) -> Result<()> {
             port,
             address,
             description,
+            token,
         } => {
             let path = cfg_path()?;
             runner::save_profile_at(&path, &name, &conn_type, host, port, address, description)?;
+            if let Some(t) = token.filter(|t| !t.trim().is_empty()) {
+                let mut cfg = Config::load(&path)?;
+                if conn_type.eq_ignore_ascii_case("bluetooth") {
+                    cfg.auth.bluetooth_token = t.trim().to_string();
+                } else {
+                    cfg.auth.wifi_token = t.trim().to_string();
+                }
+                cfg.save(&path)?;
+            }
             println!("Profile '{}' saved to {}", name, path.display());
             Ok(())
         }

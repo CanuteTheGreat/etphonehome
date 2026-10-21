@@ -1,0 +1,24 @@
+[package]
+name = "etphonehome-tray"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "ETPH menu-bar (macOS) and tray (Windows) app"
+
+[[bin]]
+name = "etph-tray"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+
+# The UI exists on macOS and Windows; on Linux the iced GUI (etphonehome-gui)
+# is the desktop app, so this crate builds to a stub there and pulls in no
+# GTK/appindicator dependencies.
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+etphonehome-common = { path = "../common", default-features = false }
+tray-icon = "0.26"
+tao = "0.37"

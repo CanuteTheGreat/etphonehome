@@ -8,7 +8,7 @@
 # `etphonehome` / `etphonehome.exe`, and it expected `app-release-unsigned.apk`
 # although release builds are signed.)
 #
-# Usage: package.sh <linux|windows|gui|android> <version>
+# Usage: package.sh <linux|windows|gui|android|freebsd> <version>
 set -euo pipefail
 # Never pipe a listing into `grep -q`: grep exits at the first match, the
 # lister gets SIGPIPE, and with pipefail the step fails with exit 141
@@ -33,12 +33,14 @@ case "$KIND" in
     "$STAGE/x/etphonehome" --help >/dev/null
     ;;
   windows)
-    EXE="$ROOT/desktop/target/x86_64-pc-windows-gnu/release/etphonehome.exe"
-    cp "$EXE" "$STAGE/etphonehome.exe"
-    (cd "$STAGE" && zip -q "$DIST/etphonehome-windows-$VER.zip" etphonehome.exe)
-    unzip -l "$DIST/etphonehome-windows-$VER.zip" | has 'etphonehome.exe'
-    # Must be a real PE executable.
-    [ "$(head -c 2 "$STAGE/etphonehome.exe")" = MZ ]
+    # MSI (service, tray app, Wintun, PATH) + the portable zip with the
+    # same files; wintun.dll is what makes the TUN adapter work at all.
+    REL="$ROOT/desktop/target/x86_64-pc-windows-gnu/release"
+    bash "$ROOT/desktop/packaging/windows/build-msi.sh" "$REL" "$VER" "$DIST"
+    for f in etphonehome.exe etph-tray.exe wintun.dll; do
+      unzip -l "$DIST/etphonehome-windows-$VER.zip" | has "$f"
+    done
+    [ -s "$DIST/etph-windows-$VER.msi" ]
     ;;
   gui)
     strip -o "$STAGE/etphonehome-gui" "$ROOT/desktop/target/release/etphonehome-gui"
@@ -51,6 +53,22 @@ case "$KIND" in
     # An APK is a zip with a manifest and dex code.
     unzip -l "$DIST/etphonehome-$VER.apk" | has AndroidManifest.xml
     unzip -l "$DIST/etphonehome-$VER.apk" | has 'classes.*\.dex'
+    ;;
+  freebsd)
+    # FreeBSD pkg (also pfSense CE / OPNsense: `pkg add`) + plain tarball,
+    # amd64 and aarch64; built by .forgejo/scripts/freebsd-cross-env.sh.
+    for a in amd64:x86_64-unknown-freebsd aarch64:aarch64-unknown-freebsd; do
+      arch=${a%%:*}; triple=${a#*:}
+      BIN="$ROOT/desktop/target/$triple/release/etphonehome"
+      [ -f "$BIN" ] || continue
+      STRIP=$(command -v llvm-strip || ls /usr/bin/llvm-strip-* 2>/dev/null | head -1)
+      ${STRIP:-false} -o "$STAGE/etphonehome" "$BIN" 2>/dev/null || cp "$BIN" "$STAGE/etphonehome"
+      python3 "$ROOT/desktop/packaging/freebsd/make-pkg.py" "$STAGE/etphonehome" "$VER" "$DIST" "$arch"
+      cp "$ROOT/desktop/packaging/freebsd/etphonehome.rc" "$STAGE/etphonehome.rc"
+      tar -C "$STAGE" -czf "$DIST/etphonehome-freebsd-$arch-$VER.tar.gz" etphonehome etphonehome.rc
+      file "$STAGE/etphonehome" | has 'FreeBSD'
+    done
+    ls "$DIST"/etphonehome-*-freebsd-amd64.pkg >/dev/null
     ;;
   *)
     echo "unknown kind: $KIND" >&2

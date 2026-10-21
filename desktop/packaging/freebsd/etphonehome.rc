@@ -1,0 +1,44 @@
+#!/bin/sh
+#
+# PROVIDE: etphonehome
+# REQUIRE: NETWORKING
+# KEYWORD: shutdown
+#
+# ETPH: internet from an Android phone (ETPH app) over USB or Wi-Fi.
+#
+# /etc/rc.conf (or `sysrc`):
+#   etphonehome_enable="YES"
+#   etphonehome_args="service"     # default: the control service
+#                                  #   (`etphonehome ctl usb|connect NAME|status`)
+# A firewall/router uplink instead (pfSense, OPNsense: the phone as a WAN):
+#   etphonehome_args="--router auto --host 192.168.1.50 --no-routes --interface etph0"
+#   with the token in /usr/local/etc/etphonehome/token (ETPH_TOKEN).
+
+. /etc/rc.subr
+
+name=etphonehome
+rcvar=etphonehome_enable
+load_rc_config $name
+
+: ${etphonehome_enable:="NO"}
+: ${etphonehome_args:="service"}
+: ${etphonehome_config:="/usr/local/etc/etphonehome/config.toml"}
+: ${etphonehome_log:="/var/log/etphonehome.log"}
+
+pidfile="/var/run/${name}.pid"
+procname="/usr/sbin/daemon"
+command="/usr/sbin/daemon"
+command_args="-r -R 5 -P ${pidfile} -o ${etphonehome_log} -t ${name} /usr/local/bin/etphonehome ${etphonehome_args}"
+start_precmd="${name}_prestart"
+
+etphonehome_prestart()
+{
+	kldstat -q -m if_tun || kldload -n if_tuntap 2>/dev/null || true
+	export ETPHONEHOME_CONFIG="${etphonehome_config}"
+	if [ -r /usr/local/etc/etphonehome/token ]; then
+		ETPH_TOKEN=$(cat /usr/local/etc/etphonehome/token)
+		export ETPH_TOKEN
+	fi
+}
+
+run_rc_command "$1"

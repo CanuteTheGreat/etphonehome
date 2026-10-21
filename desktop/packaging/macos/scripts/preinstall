@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stop a previous version before its files are replaced.
+launchctl bootout system/solutions.errant.etph 2>/dev/null || true
+exit 0

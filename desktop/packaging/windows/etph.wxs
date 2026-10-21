@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ETPH for Windows: the CLI (etphonehome.exe), the tray app (etph-tray.exe),
+  the Wintun driver DLL (signed by WireGuard LLC, so no driver signing of our
+  own is needed) and the ETPH service the tray app talks to.
+  Built on Linux with msitools' wixl (desktop/packaging/windows/build-msi.sh).
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="ETPH" Language="1033" Version="$(var.Version)"
+           Manufacturer="Errant Solutions" UpgradeCode="6B0E2C7A-3F51-4C8E-9C1D-5E7A1B2D4F60">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" 
+             Description="ETPH - internet from your Android phone over USB or Wi-Fi"
+             Manufacturer="Errant Solutions" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ETPH is already installed." />
+    <Media Id="1" Cabinet="etph.cab" EmbedCab="yes" />
+    <Icon Id="etph.ico" SourceFile="$(var.SourceDir)/etph.ico" />
+    <Property Id="ARPPRODUCTICON" Value="etph.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://errant.solutions/etphonehome/" />
+    <Property Id="ARPHELPLINK" Value="https://errant.solutions/etphonehome/#desktop" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="ETPH">
+          <Component Id="Cli" Guid="7F3A9C21-6B4D-4E8A-A1F2-0C9D8E7B6A51" Win64="yes">
+            <File Id="etphonehome.exe" Source="$(var.SourceDir)/etphonehome.exe" KeyPath="yes" />
+            <ServiceInstall Id="EtphService" Name="ETPH" DisplayName="ETPH tethering service"
+                            Description="Runs the ETPH phone connection for the ETPH tray app (Errant Solutions)."
+                            Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem"
+                            Arguments="service --windows-service" />
+            <ServiceControl Id="EtphServiceControl" Name="ETPH" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+            <Environment Id="PathEntry" Name="PATH" Value="[INSTALLDIR]" Action="set" Part="last" System="yes" Permanent="no" />
+          </Component>
+          <Component Id="Wintun" Guid="2C8E4B17-9A6F-4D3B-8E5C-1F0A7B9D2E43" Win64="yes">
+            <File Id="wintun.dll" Source="$(var.SourceDir)/wintun.dll" KeyPath="yes" />
+            <File Id="wintun.license" Name="wintun-LICENSE.txt" Source="$(var.SourceDir)/wintun-LICENSE.txt" />
+          </Component>
+          <Component Id="Tray" Guid="9D1F6A38-2E7C-4B5A-9F80-3C6B1E4D7A29" Win64="yes">
+            <File Id="etph_tray.exe" Name="etph-tray.exe" Source="$(var.SourceDir)/etph-tray.exe" KeyPath="yes" />
+            <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="ETPH"
+                           Type="string" Value="&quot;[INSTALLDIR]etph-tray.exe&quot;" />
+          </Component>
+          <Component Id="Docs" Guid="4E7B2D95-1C3A-4F6E-8B0D-6A9C5E2F1B87" Win64="yes">
+            <File Id="license" Name="LICENSE.txt" Source="$(var.SourceDir)/LICENSE.txt" KeyPath="yes" />
+            <File Id="readme" Name="README.txt" Source="$(var.SourceDir)/README.txt" />
+          </Component>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="MenuDir" Name="ETPH">
+          <Component Id="MenuShortcut" Guid="B3C9E1F4-7A2D-4E6B-9C58-0D1F3A6E8B72" Win64="yes">
+            <Shortcut Id="TrayShortcut" Name="ETPH" Description="ETPH - internet from your phone"
+                      Target="[INSTALLDIR]etph-tray.exe" WorkingDirectory="INSTALLDIR" Icon="etph.ico" />
+            <RemoveFolder Id="RemoveMenuDir" On="uninstall" />
+            <RegistryValue Root="HKCU" Key="Software\Errant Solutions\ETPH" Name="menu" Type="integer" Value="1" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="Main" Title="ETPH" Level="1">
+      <ComponentRef Id="Cli" />
+      <ComponentRef Id="Wintun" />
+      <ComponentRef Id="Tray" />
+      <ComponentRef Id="Docs" />
+      <ComponentRef Id="MenuShortcut" />
+    </Feature>
+  </Product>
+</Wix>

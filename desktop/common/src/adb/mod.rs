@@ -13,9 +13,17 @@ pub mod key;
 pub mod proto;
 #[cfg(target_os = "linux")]
 pub mod usb;
+/// macOS, Windows, the BSDs: the same ADB-over-USB host through libusb.
+#[cfg(all(
+    not(target_os = "linux"),
+    not(target_os = "android"),
+    feature = "usb-libusb"
+))]
+#[path = "usb_libusb.rs"]
+pub mod usb;
 
-/// Stand-in for the device list on platforms without usbfs.
-#[cfg(not(target_os = "linux"))]
+/// Stand-in for the device list on platforms without a USB backend.
+#[cfg(not(any(target_os = "linux", feature = "usb-libusb")))]
 pub mod usb_info {
     #[derive(Debug, Clone)]
     pub struct UsbAdbDevice {

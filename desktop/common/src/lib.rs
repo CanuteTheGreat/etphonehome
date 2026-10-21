@@ -1,8 +1,11 @@
 pub mod adb;
+#[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+pub mod bsdtun;
 pub mod cli;
 pub mod client;
 pub mod config;
 pub mod connection_service;
+pub mod daemon;
 pub mod filter;
 pub mod host;
 pub mod identity;

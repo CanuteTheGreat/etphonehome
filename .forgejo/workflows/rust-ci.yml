@@ -16,6 +16,7 @@ on:
       - '.forgejo/scripts/build-linux-release.sh'
       - '.forgejo/workflows/rust-ci.yml'
       - '.forgejo/scripts/ci-rust-env.sh'
+      - 'store/graphics/icon-512.png'
   pull_request:
     branches: [main]
     paths:
@@ -282,10 +283,10 @@ jobs:
         uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
-      - name: Install mingw-w64
+      - name: Install mingw-w64 and wixl (MSI)
         run: |
           sudo apt-get update
-          sudo apt-get install -y mingw-w64 zip unzip
+          sudo apt-get install -y mingw-w64 zip unzip wixl msitools python3-pil
       - name: Ensure Node.js is present (self-heal)
         run: command -v node || sudo apt-get install -y nodejs
       - name: Compute cache key
@@ -303,7 +304,9 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-build-windows-
       - name: Build release
         working-directory: desktop
-        run: cargo build --release -p etphonehome-windows --target x86_64-pc-windows-gnu
+        run: |
+          cargo build --release -p etphonehome-windows -p etphonehome-tray --target x86_64-pc-windows-gnu
+          cargo clippy --release -p etphonehome-windows -p etphonehome-tray --target x86_64-pc-windows-gnu -- -D warnings
       - name: Package (same script as release.yml)
         run: bash .forgejo/scripts/package.sh windows "ci-${GITHUB_SHA::8}"
       - name: Upload artifact
@@ -311,7 +314,9 @@ jobs:
         with:
           name: etphonehome-windows
           # Binary is etphonehome.exe (was pointed at etphonehome-windows.exe).
-          path: dist/etphonehome-windows-*.zip
+          path: |
+            dist/etphonehome-windows-*.zip
+            dist/etph-windows-*.msi
 
   build-gui:
     name: Build Desktop GUI

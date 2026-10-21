@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The ETPH service (root): owns the tunnel; the menu-bar app talks to it
+     over /var/run/etphonehome.sock. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>solutions.errant.etph</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/etphonehome</string>
+    <string>service</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ETPHONEHOME_CONFIG</key><string>/Library/Application Support/ETPH/config.toml</string>
+    <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>/Library/Logs/ETPH/service.log</string>
+  <key>StandardOutPath</key><string>/Library/Logs/ETPH/service.log</string>
+</dict>
+</plist>

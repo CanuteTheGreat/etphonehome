@@ -1,9 +1,22 @@
+//! TUN devices. Linux, Android and Windows (Wintun) use the `tun` crate;
+//! macOS (utun) and the BSDs (tun(4)) use [`crate::bsdtun`].
+
 use anyhow::{Context, Result};
+#[cfg(any(target_os = "linux", target_os = "android", windows))]
 use log::{debug, info};
+#[cfg(any(target_os = "linux", target_os = "android", windows))]
 use std::io::{Read, Write};
+#[cfg(any(target_os = "linux", target_os = "android", windows))]
 use tun::Device;
 
-/// TUN interface manager
+/// The async TUN device the session forwards packets through.
+#[cfg(any(target_os = "linux", target_os = "android", windows))]
+pub type AsyncTun = tun::AsyncDevice;
+#[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+pub type AsyncTun = crate::bsdtun::AsyncTun;
+
+/// TUN manager (blocking; tests and tools).
+#[cfg(any(target_os = "linux", target_os = "android", windows))]
 pub struct TunInterface {
     device: tun::platform::Device,
 }
@@ -12,6 +25,7 @@ pub struct TunInterface {
 /// ([`crate::session::forward`]). Unlike the blocking [`TunInterface`], the
 /// returned device can be split into independent read and write halves, so
 /// an idle uplink never blocks delivery of downlink packets.
+#[cfg(any(target_os = "linux", target_os = "android", windows))]
 pub fn create_async(name: &str, address: &str, netmask: &str) -> Result<tun::AsyncDevice> {
     info!("Creating TUN interface: {} ({}/{})", name, address, netmask);
     let mut config = tun::Configuration::default();
@@ -28,6 +42,32 @@ pub fn create_async(name: &str, address: &str, netmask: &str) -> Result<tun::Asy
     tun::create_as_async(&config).context("Failed to create TUN device")
 }
 
+/// Create the session's TUN link: `local` here, `peer` the phone end.
+/// Returns the device and the interface name the system gave it (macOS
+/// picks `utunN` itself).
+pub fn create_link(
+    name: &str,
+    local: &str,
+    peer: &str,
+    netmask: &str,
+) -> Result<(AsyncTun, String)> {
+    #[cfg(any(target_os = "linux", target_os = "android", windows))]
+    {
+        let _ = peer;
+        let dev = create_async(name, local, netmask)?;
+        let actual = dev.get_ref().name().unwrap_or_else(|_| name.to_string());
+        Ok((dev, actual))
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+    {
+        let dev = crate::bsdtun::create(name, local, peer, netmask, 1500)
+            .context("Failed to create TUN device")?;
+        let actual = dev.name().to_string();
+        Ok((dev, actual))
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", windows))]
 impl TunInterface {
     /// Create a new TUN interface
     pub fn create(name: &str, address: &str, netmask: &str) -> Result<Self> {
@@ -89,6 +129,7 @@ impl TunInterface {
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "android", windows))]
 impl Drop for TunInterface {
     fn drop(&mut self) {
         info!("Closing TUN interface");

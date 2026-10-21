@@ -121,9 +121,9 @@ jobs:
           grep -E 'BILLING_TEST_HOOKS|PRO_PRODUCT_ID' "$BC" || true
           grep -Eq 'BILLING_TEST_HOOKS *= *false' "$BC" || { echo "BILLING_TEST_HOOKS is not false in the Play build ($BC)" >&2; exit 1; }
           grep -Fq 'PRO_PRODUCT_ID = "pro"' "$BC" || { echo "Pro product id missing ($BC)" >&2; exit 1; }
-          if grep -q 'PLAY_LICENSE_KEY = ""' "$BC"; then
-            echo "::warning::no Play licence key (android/app/play-license-key.txt): purchase signatures are not checked on the phone"
-          fi
+          # The Play licence key must be compiled in, so the phone checks purchase signatures.
+          KEY=$(tr -d ' \n\r' < android/app/play-license-key.txt)
+          grep -Fq "PLAY_LICENSE_KEY = \"$KEY\"" "$BC" || { echo "Play licence key (android/app/play-license-key.txt) not in the Play build ($BC)" >&2; exit 1; }
           echo "sha256=$(sha256sum "$AAB" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "version_code=$VC" >> "$GITHUB_OUTPUT"
           echo "app id $APPID versionCode $VC"; sha256sum "$AAB"

@@ -64,9 +64,9 @@ behind the `BillingGateway` seam; every decision is in `core/.../pro/Entitlement
 Local verification: Play signs each purchase's JSON with the app's RSA licence key;
 `PurchaseVerifier` checks that signature with the public key compiled in from
 `android/app/play-license-key.txt` (Play Console > Monetize with Play > Monetization setup >
-Licensing; it is public, so it is committed), then the package name, product id and state.
-While that file is missing the app can't check signatures and trusts Play's answer as-is
-(`publish-play.yml` warns about it).
+Licensing; it is public, so it is committed; in place since 0.9.0), then the package name,
+product id and state. A purchase without a signature or with one that doesn't match is refused
+(no Pro). `publish-play.yml` refuses a bundle that doesn't carry this key.
 
 Why no backend: ETPH has no accounts and no servers in the data path; Pro is a one-time unlock of
 features that run only on the phone; the app is MIT-licensed, so anyone who wants to bypass the
@@ -81,7 +81,8 @@ beyond sending the purchase token.
 ## Tests
 
 - JVM: `ProGateTest`, `PairedDevicesTest`, `UsageLedgerTest`, `PurchaseVerifierTest` (real RSA
-  signatures), `EntitlementEngineTest` (fake Play: purchase, acknowledge, restore, pending,
+  signatures), `PurchaseVectorTest` (fixed known-good / known-bad signed purchase),
+  `PlayLicenseKeyTest` (the committed key is compiled in, RSA-2048, unsigned/foreign-signed refused), `EntitlementEngineTest` (fake Play: purchase, acknowledge, restore, pending,
   refund, forged purchase, offline grace, no Play Store, test override), `TrafficKindTest`,
   `ServerHandshakeTest` (Pro gate after the token check), shared protocol vectors (Kotlin + Rust),
   `ProTextTest`; Rust: identity, `pro_required` + slow retry, auto-start arguments.

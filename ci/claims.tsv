@@ -46,7 +46,8 @@ android-min	README.md	Android 8.0+ (API Level 26+)	.forgejo/workflows/android-em
 no-root-no-vpn	README.md	No root and no VPN permission needed	.forgejo/scripts/android-emulator-e2e.sh	no VPN/tun0 on the phone
 distros	README.md	tested nightly with a real tunnel on Debian 11/12/13, Ubuntu 20.04/22.04/24.04, Fedora, Arch and openSUSE Tumbleweed	.forgejo/scripts/distro-smoke.sh	debian:11 debian:12 debian:13 ubuntu:20.04 ubuntu:22.04 ubuntu:24.04 fedora:latest archlinux:latest opensuse/tumbleweed:latest
 arm64	README.md	plus the full tunnel test on arm64	.forgejo/workflows/nightly.yml	run: bash .forgejo/scripts/desktop-e2e.sh
-wintun	README.md	put `wintun.dll` next to `etphonehome.exe`	.forgejo/scripts/windows-wine-smoke.sh	without the Wintun driver it stops with a clear wintun.dll message
+wintun	README.md	comes with the installer and the zip	.forgejo/scripts/package.sh	for f in etphonehome.exe etph-tray.exe wintun.dll
+wintun	README.md	copy `wintun.dll` with it	.forgejo/scripts/windows-wine-smoke.sh	without the Wintun driver it stops with a clear wintun.dll message
 legacy-app	README.md	shows a notice with a button to the old app's App info page so you can uninstall it	.forgejo/scripts/android-emulator-e2e.sh	old-app button opens the old app's App info page (Uninstall)
 legacy-app	README.md	the new app installs next to an old copy instead of updating it	.forgejo/scripts/android-emulator-e2e.sh	new app id installs next to the old release
 legacy-app	README.md	shows a notice with a button to the old app's App info page so you can uninstall it	android/app/src/test/java/com/etphonehome/util/LegacyAppTest.kt	warnsWhenTheOldAppIsInstalledNextToTheNewOne
@@ -99,3 +100,15 @@ usb-accessory	README.md	USB without Developer options	desktop/common/src/aoa/usb
 usb-accessory	README.md	USB without Developer options	android/core/src/test/kotlin/com/etphonehome/session/AccessoryPreambleTest.kt	skipsStaleBytesRepeatedHellosAndSplitMessages
 usb-accessory	README.md	USB without Developer options	android/core/src/test/kotlin/com/etphonehome/session/CoalescingOutputStreamTest.kt	framesThatPileUpShareTransfersAndKeepTheirOrder
 usb-any-mode	README.md	USB works in every mode	.forgejo/scripts/android-emulator-e2e.sh	accepted while the app is in Wi-Fi mode (USB works in every mode)
+firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-vm/opnsense-vm-test.py	LAN client: HTTPS still works -- through the phone (failover)
+firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-vm/opnsense-vm-test.py	Interfaces: Assignments offers etph0 (ETPH phone uplink) before the phone is connected
+firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-vm/opnsense-vm-test.py	GUI: Interfaces > Phone uplink (ETPH) page renders its form
+firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-vm/opnsense-vm-test.py	phone back: reconnected by itself, ETPH_GW online again
+firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-vm/pfsense-vm-test.py	LAN client: HTTPS still works -- through the phone (failover)
+firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-vm/pfsense-vm-test.py	Interfaces > Assignments offers etph0
+firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-vm/pfsense-vm-test.py	GUI: Interfaces > Phone uplink (ETPH) page renders its form
+firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-vm/pfsense-vm-test.py	phone back: reconnected by itself, ETPH_GW online again
+macos	README.md	macOS 11+ (`.pkg` for Apple Silicon and Intel	desktop/packaging/macos/e2e.sh	universal binary (Apple Silicon + Intel)
+macos	README.md	installed and tested in CI on Apple Silicon and Intel Macs with real internet through the phone core	desktop/packaging/macos/e2e.sh	HTTPS through the phone
+macos	README.md	a launchd service	desktop/packaging/macos/e2e.sh	launchd runs the ETPH service as root
+macos	README.md	DNS through scutil	desktop/packaging/macos/e2e.sh	scutil: DNS service for

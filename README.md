@@ -40,7 +40,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 | Auto-start on plug-in, keeps waiting after a disconnect | start/stop by hand | yes |
 | Data usage per computer/router and kind of traffic | live numbers only | yes |
 
-### Current Features (v0.9.0)
+### Current Features (v0.9.1)
 - ✅ **Free: USB to one computer** - no speed cap and no time limit; a second computer or a router is refused by the phone with "Pro required on the phone", and the phone lists paired computers with Forget
 - ✅ **ETPH Pro is enforced by the phone** - one-time Google Play purchase (Play Billing, acknowledged, restored on reinstall or a new phone, pending purchases and refunds handled); the handshake tells computers and routers whether the phone has Pro, nothing is ever licensed on them
 - ✅ **Auto-start on plug-in (Pro)** - the computer asks the phone over USB debugging to start sharing (once per plug-in); the phone keeps waiting for the computer after a disconnect
@@ -53,7 +53,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 - ✅ **USB works in every mode** - computers and routers on the cable are served whether the app was started in USB, Wi-Fi or Bluetooth mode
 - ✅ **WiFi Tethering** (Pro) - token-authenticated and **encrypted by default** (TLS 1.3, certificate pinned to the pairing token, fails closed)
 - ✅ **Bluetooth Tethering** (Pro) - RFCOMM, Linux (BlueZ) desktop only; the Windows client has no Bluetooth. Verified with real internet on a real phone (Samsung, Android 13); CI has no Bluetooth radio, so it checks the session code and that app and desktop agree on the service
-- ✅ **Cross-Platform desktop** - Windows and Linux CLI, Linux GUI
+- ✅ **Cross-Platform desktop** - Linux, Windows (MSI with a tray app and a service), macOS 11+ (`.pkg` for Apple Silicon and Intel: menu-bar app, CLI and a launchd service; utun tunnel, DNS through scutil) and FreeBSD 14/15 (`pkg`), Linux GUI. The macOS package is installed and tested in CI on Apple Silicon and Intel Macs with real internet through the phone core
 - ✅ **DNS set up for you** - the desktop points DNS for the tunnel at the phone's DNS server (systemd-resolved on Linux, verified in CI; `netsh` on Windows, not yet exercised in CI)
 - ✅ **Live statistics on the phone** - connected desktop, data each way, open connections, uptime; the status only says "connected" once a desktop really is
 - ✅ **Traffic filter** - a connection profile's allow/block rules are applied on the computer and sent to the phone, which enforces them on the connections it opens
@@ -61,12 +61,12 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 - ✅ **mDNS Discovery**, **IP Discovery** (ADB), **Connection Profiles**
 - ✅ **Open Protocol** - documented binary protocol, shared test vectors between the Rust and Kotlin sides
 - ✅ **Routers (OpenWrt, GL.iNet)** (Pro) - the phone becomes a router's internet (WAN) for every device behind it, over USB (built-in ADB host, no adb package) or Wi-Fi: packages for OpenWrt 24.10 (opkg, also GL.iNet 4.x) and 25.x (apk) on aarch64, armv7, mips, mipsel and x86_64, a normal network interface (`proto etph`: firewall zones, metrics, mwan3 failover) and a LuCI page with status and pairing. Tested in CI on real OpenWrt 24.10 and 25.12 VMs. See [docs/OPENWRT.md](docs/OPENWRT.md)
+- ✅ **Firewalls (OPNsense, pfSense CE)** (Pro) - the phone as an interface of the firewall (`etph0`) with its own gateway, for WAN failover in a gateway group or as the only uplink: the OPNsense plugin `os-etph` and the pfSense package `pfSense-pkg-etph`, each with a page under Interfaces (settings, phone status, ETPH Pro), a service, and the client from the FreeBSD packages. Tested in CI on real OPNsense 26.7 and pfSense CE 2.7.2 VMs: a LAN client keeps HTTPS through the phone when the primary WAN fails. See [docs/DESKTOP.md](docs/DESKTOP.md)
 
 ### Planned Features
 
 - 🔲 Root mode (kernel NAT on rooted phones). It is **not** in the app: an earlier, unreachable and wrongly designed implementation was removed in v0.6.0
 - 🔲 Bluetooth in the Windows client
-- 🔲 macOS client
 - 🔲 IPv6 through the tunnel (IPv4 only today)
 - 🔲 Several computers at the same time (Pro pairs several, but the phone serves one at a time)
 
@@ -87,7 +87,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 
 **Windows:**
 - Administrator privileges
-- Wintun driver: download it from https://www.wintun.net and put `wintun.dll` next to `etphonehome.exe` (the client uses Wintun, not TAP-Windows)
+- Nothing to install besides ETPH: the Wintun driver (`wintun.dll`, signed by WireGuard LLC) comes with the installer and the zip (the client uses Wintun, not TAP-Windows)
 - ADB (Android Debug Bridge)
 
 ## 🏗️ Project Structure
@@ -381,7 +381,7 @@ lsmod | grep tun
 ```
 
 **Windows TUN adapter:**
-- The client uses the Wintun driver: put `wintun.dll` (https://www.wintun.net) next to `etphonehome.exe`
+- The client uses the Wintun driver, which comes with ETPH (`wintun.dll` next to `etphonehome.exe` in `C:\Program Files\ETPH`); if you copy `etphonehome.exe` elsewhere, copy `wintun.dll` with it
 - Run as Administrator
 
 See [FAQ.md](docs/FAQ.md) for more troubleshooting help.
@@ -431,7 +431,7 @@ See [FAQ.md](docs/FAQ.md) for more security information.
 |Traffic leaves from phone app sockets (not the hotspot path)|✅|✅|✅|❌|
 |Phone keeps its own internet|✅|✅|✅|✅|
 |Desktop GUI|✅ (Linux)|✅|✅|N/A|
-|macOS client|❌|✅|✅|✅|
+|macOS client|✅|✅|✅|✅|
 
 ## 📄 License
 
@@ -452,4 +452,4 @@ You are free to use, modify, and distribute this software for any purpose, inclu
 
 ---
 
-**Note:** Current version is v0.9.0 (Beta). Downloads (Linux/Windows CLI, Linux GUI, Android APK, OpenWrt router packages): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.
+**Note:** Current version is v0.9.1 (Beta). Downloads (Linux/Windows/macOS/FreeBSD clients, Linux GUI, Android APK, OpenWrt router packages, OPNsense plugin, pfSense package): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.

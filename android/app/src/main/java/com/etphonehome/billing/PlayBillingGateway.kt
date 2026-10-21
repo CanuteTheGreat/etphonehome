@@ -59,14 +59,7 @@ class PlayBillingGateway(
                 }
             })
         }
-        // Only after a failure, and only for the message: a phone without Play's billing service
-        // (no Play Store, de-Googled ROMs, emulator images with Play services only) can never
-        // connect, so say "isn't available" instead of a misleading "lost the connection".
-        if (r.responseCode != BillingResponseCode.OK && !playBillingServicePresent()) {
-            return@withLock BillingResult.newBuilder().setResponseCode(BillingResponseCode.BILLING_UNAVAILABLE)
-                .setDebugMessage("no Google Play billing service on this phone").build()
-        }
-        r
+        normalize(r)
     }
 
     override suspend fun queryPurchases(): PurchaseQuery {
@@ -78,7 +71,7 @@ class PlayBillingGateway(
                 val answer = if (result.responseCode == BillingResponseCode.OK) {
                     PurchaseQuery.Ok(purchases.map { PlayPurchase(it.originalJson, it.signature) })
                 } else {
-                    failed(result)
+                    failed(normalize(result))
                 }
                 if (cont.isActive) cont.resume(answer)
             }
@@ -121,7 +114,7 @@ class PlayBillingGateway(
                 } else if (result.responseCode == BillingResponseCode.OK) {
                     Product.Unavailable("ETPH Pro isn't on sale in Google Play yet. Everything free keeps working.")
                 } else {
-                    Product.Unavailable(describe(result))
+                    Product.Unavailable(describe(normalize(result)))
                 }
                 if (cont.isActive) cont.resume(answer)
             }
@@ -135,8 +128,24 @@ class PlayBillingGateway(
         val params = BillingFlowParams.newBuilder()
             .setProductDetailsParamsList(listOf(BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(d).build()))
             .build()
-        return client.launchBillingFlow(activity, params)
+        return normalize(client.launchBillingFlow(activity, params))
     }
+
+    /**
+     * Only after a failure, and only for the message: a phone without Play's billing service (no
+     * Play Store, de-Googled ROMs, emulator images with Play services only) can never get an
+     * answer, so it says "isn't available" instead of a misleading "lost the connection" (with
+     * automatic reconnection the failure can surface on any call, not just the connection).
+     */
+    private fun normalize(r: BillingResult): BillingResult =
+        if (r.responseCode == BillingResponseCode.OK || r.responseCode == BillingResponseCode.USER_CANCELED ||
+            r.responseCode == BillingResponseCode.ITEM_ALREADY_OWNED || playBillingServicePresent()
+        ) {
+            r
+        } else {
+            BillingResult.newBuilder().setResponseCode(BillingResponseCode.BILLING_UNAVAILABLE)
+                .setDebugMessage("no Google Play billing service on this phone").build()
+        }
 
     /** The Play Store's billing service, the one the Billing Library binds to. */
     @Suppress("DEPRECATION") // queryIntentServices(Intent, Int): the flags overload works on every API level

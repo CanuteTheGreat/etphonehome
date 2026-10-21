@@ -190,7 +190,7 @@ service sshd restart || service sshd start
         check(rc == 0 and "Example Domain" in out, "HTTPS through the phone (example.com)", out)
         rc, out = vm.ssh("drill -Q @8.8.8.8 example.com A || host example.com 8.8.8.8", 60)
         check(rc == 0 and out.strip() != "", "DNS through the phone (8.8.8.8 over the tunnel)", out)
-        rc, out = vm.ssh("fetch -T 60 -o /tmp/5m 'https://speed.cloudflare.com/__down?bytes=5000000' && "
+        rc, out = vm.ssh("fetch -q -T 60 -o /tmp/5m 'https://speed.cloudflare.com/__down?bytes=5000000' && "
                          "stat -f %z /tmp/5m", 120)
         check(rc == 0 and out.strip().endswith("5000000"), "5 MB download through the phone, intact size", out)
         rc, out = vm.ssh("kill -INT $(cat /tmp/cli.pid 2>/dev/null || pgrep -f 'etphonehome wifi'); sleep 4; "

@@ -31,6 +31,11 @@ IMAGE=${IMAGE:-openwrt/rootfs:armsr-armv8-25.12.6}
 CT=etph-rt-usb
 NET=etph-rt-net
 DL_BYTES=${DL_BYTES:-25000000}
+# CPUS=0.04 makes the container about as fast as a 775 MHz MIPS 74Kc (GL-AR750S) is next to one
+# crystalcave core (busybox md5sum/gzip: 25-30x slower): a stand-in for a slow router's CPU.
+# DL_URL: plain HTTP keeps the downloader's own TLS cost out of that budget.
+CPUS=${CPUS:-2}
+DL_URL=${DL_URL:-https://speed.cloudflare.com/__down?bytes=$DL_BYTES}
 PASS=0; FAIL=0
 pass() { echo "PASS: $*"; PASS=$((PASS + 1)); }
 fail() { echo "FAIL: $*"; FAIL=$((FAIL + 1)); }
@@ -65,7 +70,7 @@ cleanup() {
   echo "--- cleanup"
   docker rm -f "$CT" >/dev/null 2>&1
   docker network rm "$NET" >/dev/null 2>&1
-  adb start-server >/dev/null 2>&1
+  adb_back
   for _ in $(seq 20); do adb get-state >/dev/null 2>&1 && break; sleep 1; done
   tap stopButton >/dev/null 2>&1
   # Leave accessory mode: back to the phone's normal USB functions.
@@ -135,6 +140,13 @@ X "rm -f /etc/resolv.conf; echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
 X "ip -4 route show default | grep -q . && echo STILL-ROUTED; ubus call network get_proto_handlers | grep -q '\"etph\"'" && pass "netifd has the etph protocol handler" || fail "netifd: no etph handler"
 X "wget -q -T 5 -O /dev/null https://example.com" && fail "router still has internet without the phone" || pass "router has no internet before the phone"
 
+if [ "$CPUS" != 2 ]; then docker update --cpus "$CPUS" "$CT" >/dev/null && echo "router CPU limited to $CPUS of a crystalcave core"; fi
+
+adb_back() {
+  if [ "${ADB_UNIT:-0}" = 1 ]; then systemctl --user start adb-server.service; ADB_UNIT=0; else adb start-server >/dev/null 2>&1; fi
+  for _ in $(seq 20); do adb get-state >/dev/null 2>&1 && break; sleep 1; done
+}
+
 run_mode() {
   local mode=$1 t0
   echo "=== USB link: $mode"
@@ -143,7 +155,11 @@ run_mode() {
   echo "$st" | grep -qi "waiting" || { tap startButton; sleep 3; }
   echo "phone: $(text_of statusText | head -1)"
   if [ "$mode" = adb ]; then
-    # The router needs the phone's adb interface: no adb server may hold it meanwhile.
+    # The router needs the phone's adb interface: no adb server may hold it meanwhile
+    # (crystalcave runs one as the systemd user unit adb-server.service, Restart=always).
+    if systemctl --user is-active -q adb-server.service 2>/dev/null; then
+      systemctl --user stop adb-server.service; ADB_UNIT=1
+    fi
     for _ in $(seq 10); do adb kill-server >/dev/null 2>&1; sleep 1; pgrep -x adb >/dev/null || break; done
     pgrep -ax adb && echo "NOTE: an adb server is running anyway (another session?)"
   fi
@@ -178,7 +194,7 @@ PY
     pass "[$mode] netifd: proto etph up over USB to the real phone ($(( $(date +%s) - t0 ))s)"
   else
     fail "[$mode] uplink not up: $(X 'logread | grep -i etph | tail -12'; cat "$OUT/status-$mode.json")"
-    X "ifdown phone"; [ "$mode" = adb ] && adb start-server; return
+    X "ifdown phone"; [ "$mode" = adb ] && adb_back; return
   fi
   X "ip -4 route show default; ip route get 1.1.1.1" | tee "$OUT/routes-$mode.txt"
   grep -q "dev etph-phone" "$OUT/routes-$mode.txt" && pass "[$mode] default route via the phone" || fail "[$mode] no route via the phone"
@@ -190,10 +206,11 @@ PY
   cpu() { X 'awk "{print \$14+\$15}" /proc/$(pidof etphonehome)/stat'; }
   c0=$(cpu)
   for i in 1 2; do
-    X "curl -s -m 120 -o /dev/null -w '%{size_download} %{time_total} %{speed_download}\n' 'https://speed.cloudflare.com/__down?bytes=$DL_BYTES'" | tee -a "$OUT/speed-$mode.txt"
+    X "curl -s -m 300 -o /dev/null -w '%{size_download} %{time_total} %{speed_download}\n' '$DL_URL'" | tee -a "$OUT/speed-$mode.txt"
   done
   c1=$(cpu); hz=$(X "getconf CLK_TCK 2>/dev/null || echo 100")
-  echo "client CPU: $(awk -v a="$c0" -v b="$c1" -v hz="$hz" -v n="$DL_BYTES" 'BEGIN{printf "%.3f s per 100 MB downloaded", (b-a)/hz/(2*n)*1e8}')" | tee -a "$OUT/speed-$mode.txt"
+  got=$(awk '$1 ~ /^[0-9]+$/ {s += $1} END {print s+0}' "$OUT/speed-$mode.txt")
+  echo "client CPU: $(awk -v a="$c0" -v b="$c1" -v hz="$hz" -v n="$got" 'BEGIN{printf "%.3f s per 100 MB downloaded", (n > 0) ? (b-a)/hz/n*1e8 : 0}')" | tee -a "$OUT/speed-$mode.txt"
   X "head -c 5000000 /dev/urandom > /tmp/up.bin; curl -s -m 120 -o /dev/null -w 'up %{size_upload} %{time_total} %{speed_upload}\n' --data-binary @/tmp/up.bin https://speed.cloudflare.com/__up; rm -f /tmp/up.bin" | tee -a "$OUT/speed-$mode.txt"
   best=$(awk '$1 ~ /^[0-9]+$/ && $1 > 0 {print $3}' "$OUT/speed-$mode.txt" | sort -n | tail -1)
   [ -n "$best" ] && awk -v b="$best" 'BEGIN{exit !(b > 0)}' && pass "[$mode] download $(awk -v b="$best" 'BEGIN{printf "%.2f MB/s (%.1f Mbit/s)", b/1e6, b*8/1e6}')" || fail "[$mode] download failed"
@@ -205,7 +222,7 @@ PY
   X "top -bn1 | grep -m1 etphonehome; grep -E 'VmRSS' /proc/\$(pidof etphonehome)/status" | tee "$OUT/rss-$mode.txt"
   grep -o '"device": "[^"]*"' "$OUT/status-$mode.json"
   X "ifdown phone"; sleep 2
-  if [ "$mode" = adb ]; then adb start-server >/dev/null; for _ in $(seq 20); do adb get-state >/dev/null 2>&1 && break; sleep 1; done; fi
+  if [ "$mode" = adb ]; then adb_back; fi
   ST=$(text_of statusText | head -1); D=$(text_of statsText | head -1)
   echo "phone after: $ST / $D"
 }

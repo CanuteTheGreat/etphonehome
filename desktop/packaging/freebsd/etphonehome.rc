@@ -25,10 +25,12 @@ load_rc_config $name
 : ${etphonehome_config:="/usr/local/etc/etphonehome/config.toml"}
 : ${etphonehome_log:="/var/log/etphonehome.log"}
 
+# -f: daemon(8) lets go of the caller's stdin/stdout/stderr (-o still logs the
+# client's output), so `service etphonehome start` over ssh returns at once.
 pidfile="/var/run/${name}.pid"
 procname="/usr/sbin/daemon"
 command="/usr/sbin/daemon"
-command_args="-r -R 5 -P ${pidfile} -o ${etphonehome_log} -t ${name} /usr/local/bin/etphonehome ${etphonehome_args}"
+command_args="-f -r -R 5 -P ${pidfile} -o ${etphonehome_log} -t ${name} /usr/local/bin/etphonehome ${etphonehome_args}"
 start_precmd="${name}_prestart"
 
 etphonehome_prestart()

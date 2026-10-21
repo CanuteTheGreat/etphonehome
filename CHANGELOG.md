@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Auto-start on plug-in (Pro):** when the computer finds the phone on USB with nothing listening, it asks the phone to start sharing (`adb shell am start ... AutoStartActivity`, also through the routers' built-in ADB host), once per plug-in, so a Stop on the phone is respected until the cable is replugged. Switch "Start when the computer asks" on the phone.
 - **Data usage (Pro):** per computer/router (today, this month, 30 days) and by kind of traffic (web, QUIC, DNS, email, SSH, calls, VPN, NTP, ping), kept on the phone only.
 - Desktop: `--router` (set by OpenWrt's `proto etph`), `$ETPH_CLIENT_ID`/`$ETPH_CLIENT_NAME`; the status file has `phone_pro`.
+- **USB without Developer options (routers and Linux computers).** The client talks to the phone as an Android Open Accessory: plug the phone in, tap OK on "Open ETPH ...?" once, and the link comes up; no USB debugging, no adb. The ADB route stays as a fallback (`--usb-link auto|aoa|adb`, LuCI "USB link"). The phone coalesces frames into 16 KiB accessory transfers.
+- **USB works in every app mode:** a phone in Wi-Fi or Bluetooth mode still accepts a computer or router on USB.
+- **The phone names what it shares with** ("Router: slate (GL.iNet GL-AR750S, OpenWrt)", or the computer's host name).
+- **Windows installer:** `etph-windows-<version>.msi` (CLI, tray app, the ETPH tethering service, bundled Wintun) and winget manifests (`etph-winget-<version>.zip`).
+- **FreeBSD 14 packages** (amd64, aarch64): `pkg add`, an rc.d service and `etphonehome ctl`, tun(4) + resolvconf(8); tested on a real FreeBSD 14.4 VM.
+
+### Known limits
+- macOS, pfSense and OPNsense clients come in a 0.9.x update.
+- Windows USB still needs USB debugging (the accessory link is Linux/router only).
 
 ### Changed
 - Free: when the computer disconnects, sharing stops (tap Start again); Pro keeps waiting for it.

@@ -1,13 +1,13 @@
-# ETPH on computers: Linux, Windows, macOS, FreeBSD (and pfSense / OPNsense)
+# ETPH on computers: Linux, Windows, FreeBSD (macOS coming)
 
 The phone runs the ETPH app; the computer runs the ETPH client. Every
 platform uses the same client core (`desktop/common`): the same protocol,
 cert-pinned TLS 1.3 for Wi-Fi, the same built-in ADB host for USB (no
 Android SDK or adb tool needed), the same traffic filter and profiles.
 
-| | Linux | Windows 10/11 | macOS 11+ | FreeBSD 14+ (pfSense CE, OPNsense) |
+| | Linux | Windows 10/11 | macOS 11+ (coming in a 0.9.x update) | FreeBSD 14+ |
 |---|---|---|---|---|
-| Download | `etphonehome-linux-*.tar.gz`, GUI | `etph-windows-*.msi` (or the zip) | `etph-macos-*.pkg` (universal) | `etphonehome-*-freebsd-amd64.pkg` / `-aarch64.pkg` |
+| Download | `etphonehome-linux-*.tar.gz`, GUI | `etph-windows-*.msi` (or the zip) | not released yet | `etphonehome-*-freebsd-amd64.pkg` / `-aarch64.pkg` |
 | App | GUI (`etphonehome-gui`) | tray app (notification area) | menu-bar app | - (CLI + rc.d service) |
 | Tunnel | TUN (`/dev/net/tun`) | Wintun (bundled, signed by WireGuard LLC) | utun (kernel control socket, no kext) | tun(4), renamed `etph0` |
 | USB | usbfs (built in) | WinUSB through libusb (built in) | IOKit through libusb (built in) | base-system libusb |
@@ -47,7 +47,9 @@ service log is `%ProgramData%\ETPH\service.log`. winget: each release has
 `etph-winget-<version>.zip` (manifests for the Windows Package Manager;
 `winget install --manifest <unzipped folder>`).
 
-## macOS
+## macOS (coming in a 0.9.x update)
+
+The macOS client is not in a release yet; these are the steps it will have.
 
 1. Open `etph-macos-<version>.pkg` (Apple Silicon and Intel, macOS 11+).
 2. The package installs `/Applications/ETPH.app` (menu bar, starts at login),
@@ -87,25 +89,10 @@ with two /1 routes through it and the phone's DNS added with resolvconf(8);
 all of it is removed when the session ends. The CLI works directly too:
 `etphonehome wifi --host ... --token ...` (as root).
 
-### pfSense CE / OPNsense: the phone as a WAN (failover)
+pfSense CE and OPNsense (both FreeBSD based) get their own packages with a
+web-UI page in a later 0.9.x update; until then they are not supported.
 
-Both are FreeBSD 14 based and take the same package (`pkg add` from the
-shell; Netgate ARM boxes use the aarch64 package). Run the client in router
-mode so the firewall, not ETPH, owns routes and DNS:
-
-    sysrc etphonehome_enable=YES
-    sysrc etphonehome_args="--router wifi --host 192.168.1.50 --no-routes --interface etph0 --reconnect"
-    echo '<token>' > /usr/local/etc/etphonehome/token && chmod 600 /usr/local/etc/etphonehome/token
-    service etphonehome start
-
-Then in the web UI: assign `etph0` as an interface (IPv4 "None": ETPH sets
-10.0.0.1), add a gateway 10.0.0.2 on it, and put it in a gateway group
-behind your normal WAN (Tier 2) for failover, with outbound NAT for the new
-interface. USB instead of Wi-Fi: `--router usb --native --no-routes ...`.
-Routers need ETPH Pro on the phone.
-
-CI tests the package, the rc.d service and the tunnel on plain FreeBSD 14.4;
-the pfSense/OPNsense web-UI steps above are not yet exercised in CI.
+CI tests the package, the rc.d service and the tunnel on a real FreeBSD 14.4 VM.
 
 ## Linux
 

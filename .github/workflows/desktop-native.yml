@@ -13,13 +13,13 @@
 #   Forgejo's release workflow copies them into the Forgejo release.
 name: Desktop (macOS + Windows, native)
 
-# Runs ONLY on release tags and manual dispatch: GitHub emails the owner
-# (the mirror pushes as his account) about every failing run, so fixes are
-# proven locally / in Forgejo's cross-build jobs first and this is
-# dispatched only when expected to pass. Never cancel these runs.
+# Runs ONLY on manual dispatch: GitHub emails the owner (the mirror pushes as
+# his account) about every failing run, so fixes are proven locally / in
+# Forgejo's cross-build jobs first and this is dispatched only when expected
+# to pass. Never cancel these runs. Release tags (v*) do not trigger it until
+# the macOS client ships (0.9.x): then add `push: tags: ['v*']` back and
+# re-enable macos-from-github in .forgejo/workflows/release.yml.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:

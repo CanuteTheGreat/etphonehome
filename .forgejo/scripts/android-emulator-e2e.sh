@@ -283,6 +283,10 @@ if [ -n "$PREV_APK" ]; then
     OLDV=$(adb shell dumpsys package $PKG | grep -m1 versionName | tr -d ' \r')
     launch; tap radioWifi; sleep 1
     TOK1=$(text_of wifiIpText | grep -o 'Auth Token: [^ ]*' | head -1 | cut -d' ' -f3)
+    # Since 0.9.0 the Wi-Fi token panel is Pro-only, and a release APK has no test hook to
+    # make it Pro: a free previous release shows the Pro panel and never creates a token.
+    OLDPRO=
+    [ -z "$TOK1" ] && OLDPRO=$(text_of proRequiredText)
     if adb install -r "$APK" >"$LOG/install-up.log" 2>&1; then
       NEWV=$(adb shell dumpsys package $PKG | grep -m1 versionName | tr -d ' \r')
       # Wi-Fi (and its token panel) is Pro since 0.9.0: look at the token as a Pro user would.
@@ -291,7 +295,10 @@ if [ -n "$PREV_APK" ]; then
       TOK2=$(text_of wifiIpText | grep -o 'Auth Token: [^ ]*' | head -1 | cut -d' ' -f3)
       pro_hook clear
       pass "upgrade in place: $OLDV -> $NEWV installed over the previous release (adb install -r)"
-      if [ "$HAS_WIFI" = 1 ]; then
+      if [ "$HAS_WIFI" = 1 ] && [ -n "$OLDPRO" ]; then
+        echo "SKIP: [API $API] upgrade token check: previous release $OLDV is Free here (Wi-Fi token is Pro-only, releases have no test hook), so it has no token to keep"
+        [ -n "$TOK2" ] && pass "upgraded app (Pro) shows a pairing token" || fail "upgraded app (Pro) shows no pairing token"
+      elif [ "$HAS_WIFI" = 1 ]; then
         [ -n "$TOK1" ] && [ "$TOK1" = "$TOK2" ] && pass "upgrade kept the pairing token (saved desktops keep working)" \
           || fail "upgrade changed/lost the pairing token ('$TOK1' -> '$TOK2')"
       fi

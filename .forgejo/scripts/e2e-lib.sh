@@ -169,10 +169,16 @@ case "\$*" in
     ;;
   "forward tcp:"*" tcp:"*)
     a=\${2#tcp:}; b=\${3#tcp:}
-    [ -f /e2e/fwd-\$a.pid ] && kill "\$(cat /e2e/fwd-\$a.pid)" 2>/dev/null
+    # Re-forwarding a port replaces the old forward, like real adb. Wait for
+    # the old socat to exit first: binding while it still listens fails
+    # (EADDRINUSE), and the new forward then silently never comes up.
+    if [ -f /e2e/fwd-\$a.pid ]; then
+      old=\$(cat /e2e/fwd-\$a.pid); kill "\$old" 2>/dev/null
+      n=0; while [ \$n -lt 50 ] && kill -0 "\$old" 2>/dev/null; do sleep 0.1; n=\$((n+1)); done
+    fi
     setsid socat TCP-LISTEN:\$a,bind=127.0.0.1,fork,reuseaddr,nodelay TCP:$PHONE_IP:\$b,nodelay >/dev/null 2>&1 &
     echo \$! > /e2e/fwd-\$a.pid
-    for _ in 1 2 3 4 5 6 7 8 9 10; do ss -ltn | grep -q "127.0.0.1:\$a " && break; sleep 0.1; done
+    n=0; while [ \$n -lt 50 ] && ! ss -ltn | grep -q "127.0.0.1:\$a "; do sleep 0.1; n=\$((n+1)); done
     echo "\$a"
     ;;
   "reverse tcp:"*" tcp:"*)

@@ -293,10 +293,14 @@ where
     F: Future<Output = ()> + Send,
 {
     let Transport {
-        read: mut net_read,
+        read: net_read,
         write: mut net_write,
         ..
     } = transport;
+    // Frames are read 5 header bytes + payload at a time: buffer the stream so
+    // that is one read per batch of frames, not two per packet (on a router's
+    // MIPS CPU the per-read overhead of the USB bridge decided the speed).
+    let mut net_read = tokio::io::BufReader::with_capacity(64 * 1024, net_read);
     let (mut dev_read, mut dev_write) = tokio::io::split(device);
     let filter = Arc::new(FilterEngine::new(opts.filter.clone()));
     let counters = Arc::new(Counters::default());
@@ -307,9 +311,34 @@ where
     // frames can never interleave.
     let (out_tx, mut out_rx) = mpsc::channel::<Message>(256);
     let mut writer = tokio::spawn(async move {
-        while let Some(msg) = out_rx.recv().await {
-            let last = matches!(msg, Message::Disconnect(_));
-            if let Err(e) = write_message(&mut net_write, &msg).await {
+        // Everything already queued goes out in one write (up to ~64 KiB):
+        // one syscall / USB transfer / ADB WRTE per batch instead of per
+        // packet. A single queued message is written at once, so latency
+        // is unchanged.
+        let mut buf: Vec<u8> = Vec::with_capacity(80 * 1024);
+        while let Some(first) = out_rx.recv().await {
+            buf.clear();
+            let mut msg = first;
+            let mut last;
+            loop {
+                last = matches!(msg, Message::Disconnect(_));
+                if let Err(e) = msg.write_to(&mut buf) {
+                    return SessionEnd::TransportClosed(format!("write to Android failed: {}", e));
+                }
+                if last || buf.len() >= 64 * 1024 {
+                    break;
+                }
+                match out_rx.try_recv() {
+                    Ok(m) => msg = m,
+                    Err(_) => break,
+                }
+            }
+            if let Err(e) = async {
+                net_write.write_all(&buf).await?;
+                net_write.flush().await
+            }
+            .await
+            {
                 return SessionEnd::TransportClosed(format!("write to Android failed: {}", e));
             }
             if last {

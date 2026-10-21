@@ -59,7 +59,9 @@ impl AccessoryStrings {
         Self {
             manufacturer: MANUFACTURER.into(),
             model: MODEL.into(),
-            description: format!("Internet sharing for {name} ({kind})"),
+            // Android shows it: "Open Errant Solutions ETPH to handle Internet sharing for router
+            // slate (GL.iNet GL-AR750S, OpenWrt)?"
+            description: format!("Internet sharing for {kind} {name}"),
             version: VERSION.into(),
             uri: URI.into(),
             serial: crate::identity::current().id,
@@ -181,7 +183,7 @@ mod tests {
         let s = AccessoryStrings {
             manufacturer: MANUFACTURER.into(),
             model: MODEL.into(),
-            description: "Internet sharing for slate (router)".into(),
+            description: "Internet sharing for router slate (GL.iNet GL-AR750S, OpenWrt)".into(),
             version: "1".into(),
             uri: URI.into(),
             serial: "abc".into(),

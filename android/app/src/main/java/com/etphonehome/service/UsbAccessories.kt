@@ -48,6 +48,7 @@ class UsbAccessories(private val context: Context) {
     @Volatile private var stopped = false
     @Volatile private var opening: ParcelFileDescriptor? = null
     private var askedFor: UsbAccessory? = null
+    private var firstSeenMs = 0L
 
     fun wake() = synchronized(lock) { lock.notifyAll() }
 
@@ -64,58 +65,76 @@ class UsbAccessories(private val context: Context) {
 
     /** Blocks until a host has said START on our accessory; null once stopped. */
     fun accept(running: () -> Boolean): Connection? {
-        val usb = usb ?: return null
         while (!stopped && running()) {
-            val acc = usb.accessoryList?.firstOrNull(::isOurs)
-            if (acc == null) {
-                askedFor = null
-                pause(1500)
-                continue
-            }
-            if (!usb.hasPermission(acc)) {
-                // Normally granted with "Open ETPH ...?"; if that was dismissed, ask once per plug-in.
-                if (askedFor != acc) {
-                    askedFor = acc
-                    Log.i(tag, "USB accessory ${acc.description}: asking for permission")
-                    val pi = PendingIntent.getBroadcast(
-                        context, 0, Intent(ACTION_PERMISSION).setPackage(context.packageName), PendingIntent.FLAG_IMMUTABLE,
-                    )
-                    usb.requestPermission(acc, pi)
-                }
-                pause(1000)
-                continue
-            }
-            val pfd = try {
-                usb.openAccessory(acc)
-            } catch (e: Exception) {
-                Log.w(tag, "Cannot open the USB accessory yet: ${e.message}")
+            val c = try {
+                tryOnce()
+            } catch (e: SecurityException) {
+                // Samsung's UsbManager can throw instead of answering hasPermission(): no permission yet.
+                Log.i(tag, "USB accessory: no permission yet (${e.message?.take(80)})")
                 null
             }
-            if (pfd == null) {
-                pause(1000)
-                continue
-            }
-            opening = pfd
-            try {
-                val input = AccessoryInputStream(FileInputStream(pfd.fileDescriptor))
-                val output = FileOutputStream(pfd.fileDescriptor)
-                Log.i(tag, "USB accessory open (${acc.description}): waiting for the computer/router")
-                val stream = AccessoryPreamble.accept(input, output) {
-                    Log.i(tag, "USB accessory: the computer/router said hello")
-                }
-                opening = null
-                return Connection(pfd, stream, output, acc.description ?: acc.model ?: "USB accessory")
-            } catch (e: IOException) {
-                opening = null
-                Log.i(tag, "USB accessory closed before a session started: ${e.message}")
-                try {
-                    pfd.close()
-                } catch (_: IOException) {
-                }
-                pause(1000)
-            }
+            if (c != null) return c
         }
         return null
+    }
+
+    /** One look: a connection, or null after a pause (nothing there, no permission, busy). */
+    private fun tryOnce(): Connection? {
+        val usb = usb ?: run { pause(5000); return null }
+        val acc = usb.accessoryList?.firstOrNull(::isOurs)
+        if (acc == null) {
+            askedFor = null
+            firstSeenMs = 0
+            pause(1500)
+            return null
+        }
+        if (!usb.hasPermission(acc)) {
+            // Android asks "Open ETPH to handle ...?" by itself when the accessory attaches (OK
+            // grants it; AccessoryActivity then wakes us). Only if that didn't happen (dismissed, or
+            // the accessory was already there), ask once per plug-in.
+            val now = System.currentTimeMillis()
+            if (firstSeenMs == 0L) firstSeenMs = now
+            if (askedFor != acc && now - firstSeenMs > ASK_AFTER_MS) {
+                askedFor = acc
+                Log.i(tag, "USB accessory ${acc.description}: asking for permission")
+                val pi = PendingIntent.getBroadcast(
+                    context, 0, Intent(ACTION_PERMISSION).setPackage(context.packageName), PendingIntent.FLAG_IMMUTABLE,
+                )
+                usb.requestPermission(acc, pi)
+            }
+            pause(1000)
+            return null
+        }
+        val pfd = try {
+            usb.openAccessory(acc)
+        } catch (e: Exception) {
+            Log.w(tag, "Cannot open the USB accessory yet: ${e.message}")
+            null
+        }
+        if (pfd == null) {
+            pause(1000)
+            return null
+        }
+        opening = pfd
+        try {
+            val input = AccessoryInputStream(FileInputStream(pfd.fileDescriptor))
+            val output = FileOutputStream(pfd.fileDescriptor)
+            Log.i(tag, "USB accessory open (${acc.description}): waiting for the computer/router")
+            val stream = AccessoryPreamble.accept(input, output) {
+                Log.i(tag, "USB accessory: the computer/router said hello")
+            }
+            opening = null
+            return Connection(pfd, stream, output, acc.description ?: acc.model ?: "USB accessory")
+        } catch (e: IOException) {
+            opening = null
+            Log.i(tag, "USB accessory closed before a session started: ${e.message}")
+            try {
+                pfd.close()
+            } catch (_: IOException) {
+            }
+            pause(1000)
+            return null
+        }
     }
 
     companion object {
@@ -123,6 +142,8 @@ class UsbAccessories(private val context: Context) {
         const val MANUFACTURER = "Errant Solutions"
         const val MODEL = "ETPH"
         private const val ACTION_PERMISSION = "solutions.errant.etph.USB_ACCESSORY_PERMISSION"
+        /** Give Android's own "Open ETPH ...?" this long before asking ourselves. */
+        private const val ASK_AFTER_MS = 8000L
 
         fun isOurs(a: UsbAccessory): Boolean = a.manufacturer == MANUFACTURER && a.model == MODEL
     }

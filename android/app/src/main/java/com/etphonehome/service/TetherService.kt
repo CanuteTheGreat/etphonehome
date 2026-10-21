@@ -374,10 +374,17 @@ class TetherService : Service() {
             onSessionError = { e -> Log.w(tag, "USB accessory session failed: ${e.message}") },
         )
         sessionLoops += loop
-        try {
-            loop.run()
-        } catch (e: Exception) {
-            if (running) Log.w(tag, "USB accessory link stopped: ${e.message}")
+        while (running) {
+            try {
+                loop.run()
+                return
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Never let one bad moment end USB accessory support for the rest of the run.
+                if (running) Log.w(tag, "USB accessory link error, retrying: ${e.message}")
+                kotlinx.coroutines.delay(2000)
+            }
         }
     }
 

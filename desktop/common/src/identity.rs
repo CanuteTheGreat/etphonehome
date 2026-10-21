@@ -61,6 +61,23 @@ pub fn router_name(host: &str, model: Option<&str>) -> String {
                 Some(i) if m.ends_with(')') => &m[..i],
                 _ => m,
             };
+            // "NVIDIA NVIDIA Jetson ..." -> "NVIDIA Jetson ..."
+            let words: Vec<&str> = m.split_whitespace().collect();
+            let mut m = if words.len() > 1 && words[0] == words[1] {
+                words[1..].join(" ")
+            } else {
+                words.join(" ")
+            };
+            // The handshake carries 64 bytes of name: keep ", OpenWrt)" in it.
+            let room = crate::protocol::MAX_CLIENT_FIELD.saturating_sub(host.len() + 12);
+            if m.len() > room {
+                let mut cut = room.saturating_sub(1);
+                while cut > 0 && !m.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                m.truncate(cut);
+                m = format!("{}…", m.trim_end());
+            }
             format!("{host} ({m}, OpenWrt)")
         }
         None => format!("{host} (OpenWrt router)"),
@@ -196,6 +213,15 @@ mod tests {
             "OpenWrt (QEMU Standard PC, OpenWrt)"
         );
         assert_eq!(router_name("gw", None), "gw (OpenWrt router)");
+        let long = router_name(
+            "etph-usb-router",
+            Some("NVIDIA NVIDIA Jetson AGX Orin Developer Kit"),
+        );
+        assert!(long.len() <= crate::protocol::MAX_CLIENT_FIELD, "{long}");
+        assert!(
+            long.starts_with("etph-usb-router (NVIDIA Jetson") && long.ends_with(", OpenWrt)"),
+            "{long}"
+        );
     }
 
     #[test]

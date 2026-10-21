@@ -117,8 +117,11 @@ if [ -n "${BIN:-}" ]; then
 fi
 V=$(X "etphonehome --version"); echo "router client: $V"
 [ -n "$V" ] && pass "router: etph installed in OpenWrt $(X '. /etc/openwrt_release; echo $DISTRIB_RELEASE') ($V)" || { fail "etph not installed"; exit 1; }
-# The router's adb key = crystalcave's (already allowed on the test phone).
+# The router's adb key = crystalcave's (already allowed on the test phone). The package makes its
+# own key in the background at install: let that finish first, or it overwrites ours.
+for _ in $(seq 60); do X "pgrep -f adb-keygen >/dev/null" || break; sleep 2; done
 X "mkdir -p /etc/etph/.android"; docker cp ~/.android/adbkey "$CT:/etc/etph/.android/adbkey"; docker cp ~/.android/adbkey.pub "$CT:/etc/etph/.android/adbkey.pub"
+X "HOME=/etc/etph etphonehome adb-fingerprint 2>/dev/null | tail -1"
 # The phone uplink, then cut the container's own uplink: from here on the phone is the only way out.
 X "uci -q delete network.wan; uci -q delete network.wan6;
    uci set network.phone=interface; uci set network.phone.proto=etph; uci set network.phone.transport=usb;

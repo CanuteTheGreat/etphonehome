@@ -12,7 +12,7 @@
 //! disappears when the device is dropped.
 
 use anyhow::{bail, Context, Result};
-use log::{debug, info, warn};
+use log::{debug, info};
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::pin::Pin;
@@ -113,6 +113,7 @@ fn configure(name: &str, local: &str, peer: &str, netmask: &str, mtu: u16) -> Re
 pub fn create(name: &str, local: &str, peer: &str, netmask: &str, mtu: u16) -> Result<AsyncTun> {
     let (fd, sys_name, destroy) = open_device(name)?;
     set_nonblocking(fd.as_raw_fd())?;
+    #[allow(unused_mut)] // renamed below on the BSDs only
     let mut tun = AsyncTun {
         // `new` is deprecated in newest tokio for I/O-safety reasons that
         // don't apply here: we own this descriptor exclusively (OwnedFd).
@@ -128,7 +129,7 @@ pub fn create(name: &str, local: &str, peer: &str, netmask: &str, mtu: u16) -> R
     if !name.is_empty() && name != tun.name {
         match run("ifconfig", &[&tun.name, "name", name]) {
             Ok(()) => tun.name = name.to_string(),
-            Err(e) => warn!("keeping interface name {} ({:#})", tun.name, e),
+            Err(e) => log::warn!("keeping interface name {} ({:#})", tun.name, e),
         }
     }
     configure(&tun.name, local, peer, netmask, mtu)?;

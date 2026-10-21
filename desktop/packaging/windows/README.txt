@@ -14,12 +14,14 @@ maker's USB driver (or Google's USB driver) installed once.
 Wi-Fi (ETPH Pro on the phone): save the phone once from an Administrator
 command prompt, with the token the phone shows:
 
-  etphonehome --config "%ProgramData%\ETPH\config.toml" save-profile phone -t wifi --host <phone IP> --token <token>
+  "C:\Program Files\ETPH\etphonehome.exe" --config "%ProgramData%\ETPH\config.toml" save-profile phone -t wifi --host <phone IP> --token <token>
 
 then pick it under "Connect to a saved phone" in the ETPH menu.
 
-Command line: etphonehome --help (Administrator prompt for usb/wifi;
-`etphonehome ctl status` works from any prompt while the ETPH service runs).
+Command line: Start menu > ETPH > "ETPH command prompt" opens a prompt in
+the install folder (right-click > Run as administrator for usb/wifi);
+`etphonehome ctl status` works without Administrator while the ETPH service
+runs. Elsewhere use the full path: "C:\Program Files\ETPH\etphonehome.exe".
 
 Files: C:\Program Files\ETPH. Service: "ETPH tethering service" (log in
 %ProgramData%\ETPH\service.log). Uninstall from Settings > Apps.

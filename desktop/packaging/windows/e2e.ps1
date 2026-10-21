@@ -29,8 +29,9 @@ if ($sig.Status -eq "Valid" -and $sig.SignerCertificate.Subject -match "WireGuar
 $svc = Get-Service ETPH -ErrorAction SilentlyContinue
 for ($i = 0; $i -lt 20 -and $svc.Status -ne "Running"; $i++) { Start-Sleep 1; $svc = Get-Service ETPH -ErrorAction SilentlyContinue }
 if ($svc.Status -eq "Running") { Pass "ETPH service running (LocalSystem)" } else { Fail "service: $($svc.Status)"; Get-Content C:\ProgramData\ETPH\service.log -Tail 30 -ErrorAction SilentlyContinue }
-$machinePath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
-if ($machinePath -like "*Program Files\ETPH*") { Pass "installer added ETPH to PATH" } else { Fail "PATH not updated" }
+$ap = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\etphonehome.exe" -ErrorAction SilentlyContinue)."(default)"
+if ($ap -eq $Exe) { Pass "App Paths entry for etphonehome.exe" } else { Fail "App Paths: $ap" }
+if (Test-Path "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\ETPH\ETPH command prompt.lnk") { Pass "Start menu: ETPH + ETPH command prompt" } else { Fail "Start menu shortcuts"; Get-ChildItem "C:\ProgramData\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter *.lnk | Select-Object -First 20 FullName }
 $st = & $Exe ctl status --json 2>&1 | Out-String
 if ($st -match '"state":"idle"') { Pass "ctl talks to the service (idle)" } else { Fail "ctl status: $st" }
 $usb = & $Exe usb-list --json 2>&1 | Out-String

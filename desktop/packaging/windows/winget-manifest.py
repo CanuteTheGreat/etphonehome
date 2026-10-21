@@ -31,8 +31,6 @@ InstallModes:
 - interactive
 - silent
 UpgradeBehavior: install
-Commands:
-- etphonehome
 Installers:
 - Architecture: x64
   InstallerUrl: {BASE}/{tag}/{name}

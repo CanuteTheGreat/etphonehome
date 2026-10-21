@@ -28,7 +28,11 @@
                             Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem"
                             Arguments="service --windows-service" />
             <ServiceControl Id="EtphServiceControl" Name="ETPH" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
-            <Environment Id="PathEntry" Name="PATH" Value="[INSTALLDIR]" Action="set" Part="last" System="yes" Permanent="no" />
+            <!-- No PATH change (msitools' wixl on the build runners has no
+                 <Environment>): Win+R / Start-Process find it through App
+                 Paths, and the Start menu has an "ETPH command prompt". -->
+            <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\etphonehome.exe"
+                           Type="string" Value="[INSTALLDIR]etphonehome.exe" />
           </Component>
           <Component Id="Wintun" Guid="2C8E4B17-9A6F-4D3B-8E5C-1F0A7B9D2E43" Win64="yes">
             <File Id="wintun.dll" Source="$(var.SourceDir)/wintun.dll" KeyPath="yes" />
@@ -50,6 +54,9 @@
           <Component Id="MenuShortcut" Guid="B3C9E1F4-7A2D-4E6B-9C58-0D1F3A6E8B72" Win64="yes">
             <Shortcut Id="TrayShortcut" Name="ETPH" Description="ETPH - internet from your phone"
                       Target="[INSTALLDIR]etph-tray.exe" WorkingDirectory="INSTALLDIR" Icon="etph.ico" />
+            <Shortcut Id="PromptShortcut" Name="ETPH command prompt" Description="Command prompt for the etphonehome CLI (right-click > Run as administrator to connect)"
+                      Target="[SystemFolder]cmd.exe" Arguments="/k title ETPH command prompt &amp;&amp; etphonehome --help"
+                      WorkingDirectory="INSTALLDIR" Icon="etph.ico" />
             <RemoveFolder Id="RemoveMenuDir" On="uninstall" />
             <RegistryValue Root="HKCU" Key="Software\Errant Solutions\ETPH" Name="menu" Type="integer" Value="1" KeyPath="yes" />
           </Component>

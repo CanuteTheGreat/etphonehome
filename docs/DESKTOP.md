@@ -24,8 +24,8 @@ reason.
 ## Windows
 
 1. Run `etph-windows-<version>.msi`. It installs to `C:\Program Files\ETPH`:
-   `etphonehome.exe` (CLI, added to PATH), `etph-tray.exe` (started at
-   login), `wintun.dll`, and the **ETPH tethering service** (runs as
+   `etphonehome.exe` (CLI; Start menu > ETPH > "ETPH command prompt"),
+   `etph-tray.exe` (started at login), `wintun.dll`, and the **ETPH tethering service** (runs as
    LocalSystem; the tray app asks it to connect, so no UAC prompt per
    connection).
 2. Phone: Developer options > USB debugging on, ETPH in USB mode, plug in.
@@ -40,7 +40,7 @@ Google's USB driver) once.
 Wi-Fi (ETPH Pro): from an Administrator prompt, save the phone for the
 service, then pick it in the tray menu under **Connect to a saved phone**:
 
-    etphonehome --config "%ProgramData%\ETPH\config.toml" save-profile phone -t wifi --host 192.168.1.50 --token <token from the app>
+    "C:\Program Files\ETPH\etphonehome.exe" --config "%ProgramData%\ETPH\config.toml" save-profile phone -t wifi --host 192.168.1.50 --token <token from the app>
 
 `etphonehome ctl status` shows the service's session from any prompt. The
 service log is `%ProgramData%\ETPH\service.log`. winget: each release has

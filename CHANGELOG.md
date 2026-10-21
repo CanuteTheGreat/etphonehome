@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-21
+
+### Added
+- **macOS client:** `etph-macos-<version>.pkg` (Apple Silicon + Intel, macOS 11+): menu-bar app, CLI and a launchd service that owns the tunnel (utun, no kernel extension), DNS for the tunnel through scutil, `etph-uninstall`. Installed and tested in CI on an Apple Silicon and an Intel Mac (HTTPS, DNS and a 5 MB download through the phone core, the service and `ctl`, clean uninstall). Not notarized yet: the first open needs Control-click > Open (docs/DESKTOP.md).
+- **OPNsense plugin `os-etph`:** Interfaces > Phone uplink (ETPH) (settings, phone status, ETPH Pro, traffic), a configd-driven service, and `etph0` offered under Interfaces > Assignments even while the phone is away, so the phone can be a gateway in a gateway group (WAN failover). Tested on a real OPNsense 26.7 VM.
+- **pfSense CE package `pfSense-pkg-etph`:** Interfaces > Phone uplink (ETPH) with a Status tab, the ETPH service under Status > Services, `etph0` assignable as an interface for gateways and gateway groups. Tested on a real pfSense CE 2.7.2 VM.
+- Both firewall tests run in CI (`firewall-vms`): a LAN client keeps HTTPS through the phone when the primary WAN goes down, the firewall's own default route follows, the uplink survives the WAN coming back and the phone going away and returning, and the packages uninstall cleanly.
+- FreeBSD packages for FreeBSD 14 and 15 (`-freebsd14-`, `-freebsd15-`): pkg(8) refuses a package built for another major version.
+
+### Fixed
+- BSD firewalls: when the firewall reconfigures the assigned phone interface (pfSense "IPv4 Configuration Type: None" strips its addresses), the client puts the link address back within seconds and re-runs the up hook instead of leaving the uplink dead until the next reconnect.
+- OPNsense: after the phone reconnects, its gateway comes back online (the link returns with the same address, and OPNsense's address-change hook skipped it as "no IP change", leaving gateway monitoring on the old device).
+
+### Known limits
+- Firewalls: the phone connects over Wi-Fi (tested); USB to a phone plugged into the firewall is offered but not yet tested there.
+- The macOS package is ad-hoc signed, not notarized (no Apple Developer ID yet).
+
 ## [0.9.0] - 2026-10-21
 
 ### Added

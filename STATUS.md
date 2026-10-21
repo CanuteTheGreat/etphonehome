@@ -1,7 +1,7 @@
 # ET Phone Home - Project Status
 
-**Last updated:** 2026-10-17
-**Version:** 0.9.0 ([releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases))
+**Last updated:** 2026-10-21
+**Version:** 0.9.1 ([releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases))
 
 Every "Done" below is something a user can do in the shipped app/client and
 that a CI-executed test (or the real-phone QA rotation) exercises. Re-verify
@@ -32,7 +32,7 @@ against code, CI logs and the phone before changing a row.
   design redirected the phone's own traffic. A correct design needs kernel
   NAT (a tun device on the phone, `ip_forward`, MASQUERADE out of the
   phone's uplink for the tether subnet) and is not started.
-- Windows Bluetooth, macOS client, IPv6 through the tunnel, multi-device,
+- Windows Bluetooth, IPv6 through the tunnel, multi-device,
   mobile-data usage tracking, Play Store listing.
 
 ## Where the evidence lives

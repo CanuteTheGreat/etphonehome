@@ -16,7 +16,7 @@ on **GL.iNet travel routers** (firmware 4.x is OpenWrt-based; it uses opkg).
 | Router | OpenWrt 23.05 or newer (or GL.iNet 4.x), ~4 MB free flash, ~8 MB free RAM |
 | CPU | aarch64 (GL.iNet MT3000/MT6000/AX1800/AXT1800 and other ipq60xx/mt798x, RPi 3/4/5), ARMv7 with FPU (ipq40xx, ipq806x, mvebu, mt7623), MIPS 24Kc (ath79: GL-AR750S, AR300M, many TP-Link), MIPSel (ramips MT7621/MT76x8: GL-MT300N, MT1300), x86_64 |
 | Phone | Android 8.0+, the ETPH app 0.8.0+ |
-| USB | a USB host port on the router, a data cable, *USB debugging* on the phone (no adb package: the client has its own ADB host) |
+| USB | a USB host port on the router and a data cable. No Developer options: the router talks to the phone as a USB accessory (Android Open Accessory, ETPH 0.9.0+ on both ends); phones with *USB debugging* on also work over adb (the client has its own ADB host, no adb package) |
 
 Not supported: ARMv7 routers without an FPU (e.g. Broadcom bcm53xx), MIPS64,
 routers with 8 MB of flash or less. Bluetooth is not offered on routers
@@ -34,8 +34,9 @@ sh /tmp/etph-install.sh            # --no-adb: Wi-Fi only; --no-luci: no web pag
 
 It installs `kmod-tun` from the official feeds, then the ETPH package for
 your router's architecture and the LuCI page. Nothing else is needed for
-USB: the client talks to the phone's USB debugging interface itself
-(usbfs), so the adb package and an adb server are not used. Or by hand: pick
+USB: the client switches the phone into USB accessory mode itself (usbfs),
+or talks to its USB debugging interface when that is on, so neither the adb
+package nor an adb server is used. Or by hand: pick
 `etph_0.8.0-r1_<arch>.ipk` (opkg) / `etph-0.8.0-r1_<arch>.apk` (apk) and
 `luci-app-etph` from the [release](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases),
 then `opkg install ./etph_*.ipk ./luci-app-etph_*.ipk` or
@@ -52,15 +53,25 @@ release are in `sizes.tsv` on the release page.
 GL's own web UI does not show this interface, LuCI does).
 
 **USB cable**
-1. On the phone: Settings > About phone > tap *Build number* 7 times;
-   Settings > Developer options > *USB debugging* on.
-2. Open ETPH, choose **USB**, tap **Start**.
-3. LuCI: *Add a phone uplink*, Connection **USB cable** (or **USB when
+1. LuCI: *Add a phone uplink*, Connection **USB cable** (or **USB when
    plugged in, else Wi-Fi**), **Set up**.
-4. Plug the phone into the router and unlock it. The phone asks *Allow USB
-   debugging?*: compare the fingerprint with the one the LuCI page shows,
-   tick *Always allow from this computer*, tap **Allow**. That is the
-   pairing; while it waits, LuCI says *Unlock your phone and tap Allow*.
+2. Plug the phone into the router and unlock it. The router switches it to
+   USB accessory mode and Android asks *Open Errant Solutions ETPH to handle
+   Internet sharing for router <name>?* (some phones first ask *Allow
+   Errant Solutions ETPH to access ...?*). Tick *Always open Errant Solutions
+   ETPH when ... is connected* and tap **OK**: ETPH starts sharing (ETPH Pro
+   with *Start when the computer asks* on; otherwise tap **Start** in ETPH,
+   any mode). While it waits, LuCI says *Phone found (...) - open ETPH on the
+   phone and tap OK*.
+3. Older ETPH on the phone, or *USB link: USB debugging (adb) only* in the
+   interface's advanced settings: turn on Settings > Developer options >
+   *USB debugging*; the phone asks *Allow USB debugging?* once: compare the
+   fingerprint with the one the LuCI page shows, tick *Always allow from this
+   computer*, tap **Allow**. Samsung phones with **Auto Blocker** on
+   (Settings > Security and privacy > Auto Blocker) block USB debugging on the
+   cable. The accessory link needs no USB debugging; if the phone shows no
+   *Open ETPH ...?* prompt when plugged in, turn Auto Blocker off (it blocks
+   "commands by USB cable", which may include accessory mode).
 
 Plugging the phone in starts the uplink right away (hotplug); unplugging
 it takes the interface down, and with `auto` the router falls back to the

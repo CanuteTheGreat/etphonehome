@@ -130,14 +130,15 @@ return view.extend({
 		var body = [];
 		var phones = [];
 		try { phones = JSON.parse(st.usb_phones || '[]'); } catch (e) {}
-		body.push(E('p', phones.length ? _('Phones with USB debugging on this router\'s USB port:')
-			: _('No phone with USB debugging on the USB port. On the phone: Settings > About phone > tap Build number 7 times; Settings > Developer options > USB debugging on. Open ETPH, choose USB, tap Start, then plug it in.')));
+		body.push(E('p', phones.length ? _('Phones on this router\'s USB port:')
+			: _('No phone on the USB port. Plug the phone in with a data cable and unlock it: it asks "Open Errant Solutions ETPH to handle Internet sharing for router ...?" - tap OK (tick "Always open" so it connects by itself next time). No Developer options or USB debugging needed.')));
 		if (phones.length)
 			body.push(E('ul', phones.map(function(d) {
-				return E('li', [ E('strong', d.product || d.serial), ' (', d.serial, ')' ]);
+				var how = d.accessory_mode ? _('connected as a USB accessory') : (d.adb ? _('USB debugging on') : _('waiting for "Open ETPH ...?" on the phone'));
+				return E('li', [ E('strong', d.product || d.serial), ' (', d.serial, ', ', how, ')' ]);
 			})));
 		if (st.adb_fingerprint)
-			body.push(E('p', [ _('The first time, the phone asks "Allow USB debugging?": unlock it, check that it shows this router\'s key fingerprint, tick "Always allow from this computer" and tap Allow.'), E('br'), E('code', st.adb_fingerprint) ]));
+			body.push(E('p', [ _('Phones with USB debugging on may instead ask "Allow USB debugging?" the first time: check that it shows this router\'s key fingerprint, tick "Always allow from this computer" and tap Allow.'), E('br'), E('code', st.adb_fingerprint) ]));
 		else if (st.adb_key_pending)
 			body.push(E('p', [ _('The router is creating its USB (adb) key; this takes up to a minute or two on small routers. '),
 				E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(this, function() {

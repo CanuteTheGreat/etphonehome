@@ -989,9 +989,16 @@ async fn open_adb_usb(port: u16, host: &HostIntegration) -> Result<Transport> {
                     let dev = crate::adb::usb::pick(&devs, serial.as_deref())
                         .inspect_err(|_| phone_absent())?;
                     info!("Phone on USB: {} (serial {})", dev.product, dev.serial);
-                    std::sync::Arc::new(crate::adb::usb::UsbLink::open(&dev).with_context(
-                        || format!("cannot open {} (run as root)", dev.dev_node.display()),
-                    )?)
+                    std::sync::Arc::new(crate::adb::usb::UsbLink::open(&dev).map_err(|e| {
+                        if e.raw_os_error() == Some(libc::EBUSY) {
+                            anyhow::anyhow!(
+                                "the phone's USB debugging interface is in use by another program (an adb \
+                                 server: run `adb kill-server`)"
+                            )
+                        } else {
+                            anyhow::Error::new(e).context(format!("cannot open {} (run as root)", dev.dev_node.display()))
+                        }
+                    })?)
                 }
                 #[cfg(all(not(target_os = "linux"), feature = "usb-libusb"))]
                 {

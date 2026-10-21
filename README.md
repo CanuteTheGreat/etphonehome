@@ -49,6 +49,8 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 - ✅ **Real internet for the computer, no root** - the app relays the computer's TCP, UDP (DNS included) and ping traffic through ordinary phone sockets (a userspace relay). Verified in CI against public HTTPS and on a real phone (Samsung, Android 13)
 - ✅ **The phone keeps its internet** - no phone VPN is used, so the phone's own apps are never affected
 - ✅ **USB Tethering** - via `adb forward`, fastest and most reliable
+- ✅ **USB without Developer options** - routers and Linux computers switch the phone into USB accessory mode (Android Open Accessory); Android asks "Open Errant Solutions ETPH to handle ...?", tap OK, no USB debugging needed. Falls back to adb when the phone's ETPH is older. Verified on a real phone (Samsung, Android 13) with the official OpenWrt arm64 image (`scripts/router-usb-realphone.sh`); CI covers the switch, the stream preamble and the phone's side with fakes
+- ✅ **USB works in every mode** - computers and routers on the cable are served whether the app was started in USB, Wi-Fi or Bluetooth mode
 - ✅ **WiFi Tethering** (Pro) - token-authenticated and **encrypted by default** (TLS 1.3, certificate pinned to the pairing token, fails closed)
 - ✅ **Bluetooth Tethering** (Pro) - RFCOMM, Linux (BlueZ) desktop only; the Windows client has no Bluetooth. Verified with real internet on a real phone (Samsung, Android 13); CI has no Bluetooth radio, so it checks the session code and that app and desktop agree on the service
 - ✅ **Cross-Platform desktop** - Windows and Linux CLI, Linux GUI
@@ -72,7 +74,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 
 ### Android Device
 - Android 8.0+ (API Level 26+)
-- USB debugging enabled (for USB tethering)
+- For USB: nothing to enable with routers and Linux computers (USB accessory link); USB debugging (Developer options) for Windows and for computers that use the adb tool
 - No root and no VPN permission needed
 
 ### Desktop Computer

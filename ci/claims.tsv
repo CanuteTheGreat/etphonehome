@@ -55,7 +55,7 @@ routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	netifd inte
 routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	mwan3 tracks the phone uplink as online
 routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	LuCI page backend via rpcd ACL: status shows the connected phone
 routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	phone back: uplink up again by itself
-routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	USB uplink without a phone: built-in ADB host says to plug in a phone with USB debugging
+routers	README.md	Routers (OpenWrt, GL.iNet)	openwrt/test/vm-test.py	USB uplink without a phone: the client says to plug a phone in (no USB debugging needed)
 routers	README.md	Routers (OpenWrt, GL.iNet)	.forgejo/workflows/openwrt.yml	OpenWrt 25.12 (apk)
 routers	README.md	Routers (OpenWrt, GL.iNet)	android/core/src/test/kotlin/com/etphonehome/relay/UpstreamPolicyTest.kt	routerOnThePhonesWifiPinsMobileDataEvenWhenTheWifiIsDefault
 routers	README.md	Routers (OpenWrt, GL.iNet)	.forgejo/scripts/android-emulator-e2e.sh	router USB path: tunnel up through the built-in ADB host (real adbd, no adb tool)
@@ -92,3 +92,10 @@ listing-free-pro	store/listing-en-US-full-description.txt	- Auto-start: sharing 
 listing-free-pro	store/listing-en-US-full-description.txt	- Data usage history per computer/router and by kind of traffic	.forgejo/scripts/android-emulator-e2e.sh	pro: data usage per computer and by kind of traffic
 listing-free-pro	store/listing-en-US-full-description.txt	comes back on a reinstall or a new phone with the same Google account	android/core/src/test/kotlin/com/etphonehome/pro/EntitlementEngineTest.kt	fun restoreOnANewPhoneIsJustAQuery
 listing-free-pro	store/listing-en-US-full-description.txt	Computers and routers never need a licence	.forgejo/scripts/desktop-e2e-inner.sh	no licence asked of the computer
+usb-accessory	README.md	USB without Developer options	desktop/common/src/aoa/mod.rs	switches_a_phone_to_accessory_mode_with_our_strings
+usb-accessory	README.md	USB without Developer options	desktop/common/src/aoa/mod.rs	strings_match_the_app_filter
+usb-accessory	README.md	USB without Developer options	desktop/common/src/aoa/preamble.rs	waits_for_the_app_and_ignores_stale_bytes
+usb-accessory	README.md	USB without Developer options	desktop/common/src/aoa/usb.rs	classifies_phones_hubs_sticks_and_accessories
+usb-accessory	README.md	USB without Developer options	android/core/src/test/kotlin/com/etphonehome/session/AccessoryPreambleTest.kt	skipsStaleBytesRepeatedHellosAndSplitMessages
+usb-accessory	README.md	USB without Developer options	android/core/src/test/kotlin/com/etphonehome/session/CoalescingOutputStreamTest.kt	framesThatPileUpShareTransfersAndKeepTheirOrder
+usb-any-mode	README.md	USB works in every mode	.forgejo/scripts/android-emulator-e2e.sh	accepted while the app is in Wi-Fi mode (USB works in every mode)

@@ -428,9 +428,9 @@ def main():
                "uci set network.usbphone.transport=usb; uci set network.usbphone.ipaddr=10.0.9.1/24; uci commit network; "
                "/etc/init.d/network reload; sleep 12")
         rc, out = con.sh("cat /var/run/etph/usbphone.json; ps w | grep -v grep | grep 'usb --native'", 60)
-        check('"transport": "usb"' in out and "no phone with USB debugging" in out and '"retrying"' in out
+        check('"transport": "usb"' in out and "no phone on the USB port" in out and '"retrying"' in out
               and "usb --native" in out,
-              "USB uplink without a phone: built-in ADB host says to plug in a phone with USB debugging, keeps retrying", out)
+              "USB uplink without a phone: the client says to plug a phone in (no USB debugging needed), keeps retrying", out)
         # Remove while the client is still running (retrying): nothing may stay behind.
         rc, out = con.sh("/usr/libexec/etph-luci remove usbphone; uci -q get network.usbphone || echo GONE; "
                          "ls /var/run/etph/usbphone.json 2>/dev/null || echo NOSTATUS; "

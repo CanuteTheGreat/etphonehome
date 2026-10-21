@@ -143,7 +143,9 @@ run_mode() {
   echo "$st" | grep -qi "waiting" || { tap startButton; sleep 3; }
   echo "phone: $(text_of statusText | head -1)"
   if [ "$mode" = adb ]; then
-    adb kill-server; sleep 2   # the router needs the phone's adb interface
+    # The router needs the phone's adb interface: no adb server may hold it meanwhile.
+    for _ in $(seq 10); do adb kill-server >/dev/null 2>&1; sleep 1; pgrep -x adb >/dev/null || break; done
+    pgrep -ax adb && echo "NOTE: an adb server is running anyway (another session?)"
   fi
   X "uci set network.phone.usb_link=$mode; uci commit network; ifup phone"
   sleep 1; X "ps w | grep -v grep | grep 'etphonehome --router' | head -1"

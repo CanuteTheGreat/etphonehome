@@ -9,6 +9,7 @@ import android.os.ParcelFileDescriptor
 import com.etphonehome.log.Log
 import com.etphonehome.session.AccessoryInputStream
 import com.etphonehome.session.AccessoryPreamble
+import com.etphonehome.session.CoalescingOutputStream
 import java.io.Closeable
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -35,6 +36,10 @@ class UsbAccessories(private val context: Context) {
         val description: String,
     ) : Closeable {
         override fun close() {
+            try {
+                output.close()
+            } catch (_: IOException) {
+            }
             try {
                 pfd.close()
             } catch (_: IOException) {
@@ -116,17 +121,22 @@ class UsbAccessories(private val context: Context) {
             return null
         }
         opening = pfd
+        var output: CoalescingOutputStream? = null
         try {
             val input = AccessoryInputStream(FileInputStream(pfd.fileDescriptor))
-            val output = FileOutputStream(pfd.fileDescriptor)
+            // Frames are coalesced into 16 KiB USB transfers (see CoalescingOutputStream); the
+            // descriptor itself is closed with pfd.
+            val out = CoalescingOutputStream(FileOutputStream(pfd.fileDescriptor), closeOut = false)
+            output = out
             Log.i(tag, "USB accessory open (${acc.description}): waiting for the computer/router")
-            val stream = AccessoryPreamble.accept(input, output) {
+            val stream = AccessoryPreamble.accept(input, out) {
                 Log.i(tag, "USB accessory: the computer/router said hello")
             }
             opening = null
-            return Connection(pfd, stream, output, acc.description ?: acc.model ?: "USB accessory")
+            return Connection(pfd, stream, out, acc.description ?: acc.model ?: "USB accessory")
         } catch (e: IOException) {
             opening = null
+            output?.close()
             Log.i(tag, "USB accessory closed before a session started: ${e.message}")
             try {
                 pfd.close()

@@ -126,12 +126,17 @@ pub fn pick(devs: &[UsbAdbDevice], serial: Option<&str>) -> io::Result<UsbAdbDev
         io::Error::new(
             io::ErrorKind::NotFound,
             match (serial, devs.is_empty()) {
-                (_, true) => "no phone with USB debugging on the USB port (plug it in, unlock it, and turn on \
-                              Developer options > USB debugging)"
-                    .to_string(),
+                (_, true) => {
+                    "no phone on the USB port (plug it in with a data cable and unlock it; \
+                              the phone then asks \"Open ETPH ...?\": tap OK)"
+                        .to_string()
+                }
                 (Some(s), false) => format!(
                     "no phone with serial {s} on USB (found: {})",
-                    devs.iter().map(|d| d.serial.as_str()).collect::<Vec<_>>().join(", ")
+                    devs.iter()
+                        .map(|d| d.serial.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ),
                 _ => unreachable!(),
             },
@@ -384,7 +389,7 @@ mod tests {
         assert!(pick(&[], None)
             .unwrap_err()
             .to_string()
-            .contains("USB debugging"));
+            .contains("no phone on the USB port"));
         let _ = fs::remove_dir_all(&root);
     }
 }

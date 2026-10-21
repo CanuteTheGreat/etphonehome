@@ -6,8 +6,12 @@
 #   e2e.sh <etph-macos-*.pkg> <standin install dir>
 #
 # The stand-in binds its relay sockets to the Mac's real address
-# (--bind-address), so its own traffic leaves through en0 instead of looping
-# into the tunnel's routes; everything else on the Mac goes through utun.
+# (--bind-address). macOS is a weak-host system: a bound source address does
+# not pick the route, so without help the stand-in's own traffic would follow
+# the tunnel's 0/1 + 128/1 routes back into utun (a loop; every DNS query
+# timed out). A pf anchor routes packets from that address out the real
+# interface (route-to); everything else on the Mac goes through utun. (On a
+# real setup the phone is another device, so nothing like this is needed.)
 set -uo pipefail
 PKG=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 STANDIN=$2
@@ -20,7 +24,15 @@ fail() { echo "FAIL: $*"; FAIL=$((FAIL + 1)); }
 cleanup() {
   sudo pkill -INT -f 'etphonehome wifi' 2>/dev/null
   [ -n "${SP:-}" ] && kill "$SP" 2>/dev/null
+  sudo pfctl -a com.apple/etph-e2e -F all >/dev/null 2>&1
+  [ -n "${PFTOKEN:-}" ] && sudo pfctl -X "$PFTOKEN" >/dev/null 2>&1
   true
+}
+diag() {
+  echo "--- client log (tail)"; tail -25 "$W/cli.log" 2>/dev/null
+  echo "--- stand-in log (tail)"; tail -25 "$W/standin.log" 2>/dev/null
+  echo "--- pf anchor"; sudo pfctl -a com.apple/etph-e2e -sr 2>&1; sudo pfctl -s info 2>&1 | head -3
+  netstat -rn -f inet | head -20
 }
 trap cleanup EXIT
 echo "macOS $(sw_vers -productVersion) $(uname -m)"
@@ -45,8 +57,18 @@ etphonehome usb-list --json | grep -q '^\[' && pass "usb-list enumerates USB thr
 
 # ---- the phone ------------------------------------------------------------
 DEFIF=$(route -n get default | awk '/interface:/{print $2}')
+GW=$(route -n get default | awk '/gateway:/{print $2}')
 IP=$(ipconfig getifaddr "$DEFIF")
-echo "Mac address for the stand-in's own traffic: $IP ($DEFIF)"
+echo "Mac address for the stand-in's own traffic: $IP ($DEFIF, gateway $GW)"
+# Test plumbing only (see the top): the stand-in's packets leave via $DEFIF.
+printf 'pass out quick on lo0 all\npass out quick on ! %s route-to (%s %s) inet from %s to any keep state\n' \
+  "$DEFIF" "$DEFIF" "$GW" "$IP" >"$W/pf.conf"
+# The stock ruleset (/etc/pf.conf) evaluates every com.apple/* anchor.
+sudo pfctl -q -f /etc/pf.conf 2>&1 | grep -v -i 'ALTQ\|flushing\|No ALTQ' || true
+sudo pfctl -a com.apple/etph-e2e -f "$W/pf.conf" 2>&1 | grep -v -i 'ALTQ\|flushing' || true
+PFTOKEN=$(sudo pfctl -E 2>&1 | sed -n 's/^Token : //p')
+sudo pfctl -a com.apple/etph-e2e -sr | grep -q route-to && echo "pf: stand-in traffic from $IP routed out $DEFIF" \
+  || { echo "pf anchor did not load:"; cat "$W/pf.conf"; }
 "$STANDIN/bin/standin" --listen 127.0.0.1:9301 --token "$TOKEN" --require-tls --stats-log --stats-secs 2 \
   --bind-address "$IP" >"$W/standin.log" 2>&1 &
 SP=$!
@@ -74,7 +96,7 @@ else
   echo "INFO: scutil --dns does not list 8.8.8.8:"; scutil --dns | sed -n 1,30p
 fi
 B0=$(netstat -ibn -I "$IF" | awk 'NR==2{print $(NF-4)}')
-if curl -sS -m 30 https://example.com | grep -q "Example Domain"; then pass "HTTPS through the phone"; else fail "curl"; fi
+if curl -sS -m 30 https://example.com | grep -q "Example Domain"; then pass "HTTPS through the phone"; else fail "curl"; diag; fi
 B1=$(netstat -ibn -I "$IF" | awk 'NR==2{print $(NF-4)}')
 [ "${B1:-0}" -gt "${B0:-0}" ] && pass "the request really crossed $IF ($B0 -> $B1 bytes in)" || fail "no bytes on $IF ($B0 -> $B1)"
 dscacheutil -q host -a name example.org | grep -q ip_address && pass "name resolution while tethered" || fail "dscacheutil"

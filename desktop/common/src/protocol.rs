@@ -338,17 +338,16 @@ impl HandshakeRequest {
 
         // Optional client id and name: best effort, never fail the handshake.
         fn field(rest: &mut &[u8]) -> Option<String> {
-            if rest.len() < 2 {
-                return None;
-            }
-            let n = u16::from_be_bytes([rest[0], rest[1]]) as usize;
-            if rest.len() < 2 + n {
+            let r: &[u8] = *rest;
+            let (len, tail) = r.split_first_chunk::<2>()?;
+            let n = u16::from_be_bytes(*len) as usize;
+            let Some(v) = tail.get(..n) else {
                 *rest = &[];
                 return None;
-            }
-            let v = &rest[2..2 + n];
-            *rest = &rest[2 + n..];
-            (n > 0 && n <= MAX_CLIENT_FIELD)
+            };
+            *rest = &tail[n..];
+            // An empty field is dropped by the final filter.
+            (n <= MAX_CLIENT_FIELD)
                 .then(|| std::str::from_utf8(v).ok())
                 .flatten()
                 .map(|s| {
@@ -397,11 +396,7 @@ impl HandshakeResponse {
         buf.extend_from_slice(&self.ip_address.to_be_bytes());
         buf.extend_from_slice(&self.dns.to_be_bytes());
         if let Some(name) = &self.device_name {
-            let mut end = name.len().min(MAX_DEVICE_NAME);
-            while !name.is_char_boundary(end) {
-                end -= 1;
-            }
-            let bytes = &name.as_bytes()[..end];
+            let bytes = truncate_utf8(name, MAX_DEVICE_NAME).as_bytes();
             buf.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
             buf.extend_from_slice(bytes);
         }
@@ -415,7 +410,8 @@ impl HandshakeResponse {
         // Optional, best effort: a malformed name never fails the handshake.
         let device_name = (data.len() >= 16)
             .then(|| u16::from_be_bytes([data[14], data[15]]) as usize)
-            .filter(|n| *n > 0 && *n <= MAX_DEVICE_NAME && data.len() >= 16 + n)
+            // An empty name is dropped by the final filter.
+            .filter(|n| *n <= MAX_DEVICE_NAME && data.len() >= 16 + n)
             .and_then(|n| std::str::from_utf8(&data[16..16 + n]).ok())
             .map(|s| {
                 s.chars()
@@ -749,5 +745,140 @@ mod tests {
 
         let result = ErrorMessage::from_bytes(&bad_data);
         assert!(matches!(result, Err(ProtocolError::MessageTooShort)));
+    }
+
+    /// 63 ASCII bytes then a 2-byte char straddling the 64-byte cap.
+    fn straddling_name() -> String {
+        format!("{}é", "a".repeat(63))
+    }
+
+    fn request_wire(fields: &[&[u8]]) -> Vec<u8> {
+        let mut b = PROTOCOL_VERSION.to_be_bytes().to_vec();
+        b.extend_from_slice(&capabilities::USB.to_be_bytes());
+        b.extend_from_slice(&0u16.to_be_bytes()); // no token
+        for f in fields {
+            b.extend_from_slice(&(f.len() as u16).to_be_bytes());
+            b.extend_from_slice(f);
+        }
+        b
+    }
+
+    fn response_wire(name: &[u8]) -> Vec<u8> {
+        let mut b = PROTOCOL_VERSION.to_be_bytes().to_vec();
+        b.extend_from_slice(&0u32.to_be_bytes());
+        b.extend_from_slice(&0x0A00_0002u32.to_be_bytes());
+        b.extend_from_slice(&0x0808_0808u32.to_be_bytes());
+        b.extend_from_slice(&(name.len() as u16).to_be_bytes());
+        b.extend_from_slice(name);
+        b
+    }
+
+    #[test]
+    fn client_fields_and_device_name_are_cut_at_a_char_boundary_within_64_bytes() {
+        let mut req = HandshakeRequest::new(capabilities::USB);
+        req.client_id = Some(straddling_name());
+        req.client_name = Some(straddling_name());
+        let bytes = req.to_bytes();
+        // 6 fixed + 2 empty token + 2 x (2 + 63)
+        assert_eq!(bytes.len(), 6 + 2 + 2 * (2 + 63));
+        let parsed = HandshakeRequest::from_bytes(&bytes).unwrap();
+        assert_eq!(parsed.client_id.as_deref(), Some(&*"a".repeat(63)));
+        assert_eq!(parsed.client_name.as_deref(), Some(&*"a".repeat(63)));
+
+        let resp = HandshakeResponse {
+            version: PROTOCOL_VERSION,
+            capabilities: 0,
+            ip_address: 0,
+            dns: 0,
+            device_name: Some(straddling_name()),
+        };
+        let bytes = resp.to_bytes();
+        assert_eq!(bytes.len(), 14 + 2 + 63);
+        let parsed = HandshakeResponse::from_bytes(&bytes).unwrap();
+        assert_eq!(parsed.device_name.as_deref(), Some(&*"a".repeat(63)));
+    }
+
+    #[test]
+    fn a_client_id_alone_is_still_sent() {
+        let mut req = HandshakeRequest::new(capabilities::USB);
+        req.client_id = Some("id-1".into());
+        let parsed = HandshakeRequest::from_bytes(&req.to_bytes()).unwrap();
+        assert_eq!(parsed.client_id.as_deref(), Some("id-1"));
+        assert_eq!(parsed.client_name, None);
+
+        let mut req = HandshakeRequest::new(capabilities::USB);
+        req.client_name = Some("laptop".into());
+        let parsed = HandshakeRequest::from_bytes(&req.to_bytes()).unwrap();
+        assert_eq!(parsed.client_id, None);
+        assert_eq!(parsed.client_name.as_deref(), Some("laptop"));
+    }
+
+    #[test]
+    fn for_identity_sets_router_without_clearing_one_already_asked_for() {
+        let id = |router| crate::identity::ClientIdentity {
+            id: "id".into(),
+            name: "box".into(),
+            router,
+        };
+        let both = capabilities::USB | capabilities::ROUTER;
+        assert_eq!(
+            HandshakeRequest::for_identity(both, None, &id(true)).capabilities,
+            both
+        );
+        assert_eq!(
+            HandshakeRequest::for_identity(capabilities::USB, None, &id(true)).capabilities,
+            both
+        );
+        assert_eq!(
+            HandshakeRequest::for_identity(capabilities::USB, None, &id(false)).capabilities,
+            capabilities::USB
+        );
+    }
+
+    #[test]
+    fn an_over_long_client_field_on_the_wire_is_skipped_not_misread() {
+        let long = [b'x'; MAX_CLIENT_FIELD + 1];
+        let parsed =
+            HandshakeRequest::from_bytes(&request_wire(&[&long[..], &b"box"[..]])).unwrap();
+        assert_eq!(parsed.client_id, None);
+        assert_eq!(parsed.client_name.as_deref(), Some("box"));
+
+        let max = [b'x'; MAX_CLIENT_FIELD];
+        let parsed = HandshakeRequest::from_bytes(&request_wire(&[&max[..], &b""[..]])).unwrap();
+        assert_eq!(
+            parsed.client_id.as_deref(),
+            Some(&*"x".repeat(MAX_CLIENT_FIELD))
+        );
+        assert_eq!(parsed.client_name, None);
+
+        // A field that claims more bytes than are left ends the optional part.
+        let mut cut = request_wire(&[&b"id"[..]]);
+        cut.extend_from_slice(&10u16.to_be_bytes());
+        cut.extend_from_slice(b"abc");
+        let parsed = HandshakeRequest::from_bytes(&cut).unwrap();
+        assert_eq!(parsed.client_id.as_deref(), Some("id"));
+        assert_eq!(parsed.client_name, None);
+    }
+
+    #[test]
+    fn an_over_long_device_name_on_the_wire_is_ignored() {
+        let long = [b'p'; MAX_DEVICE_NAME + 1];
+        let parsed = HandshakeResponse::from_bytes(&response_wire(&long)).unwrap();
+        assert_eq!(parsed.device_name, None);
+        assert_eq!(parsed.ip_address, 0x0A00_0002);
+
+        let max = [b'p'; MAX_DEVICE_NAME];
+        let parsed = HandshakeResponse::from_bytes(&response_wire(&max)).unwrap();
+        assert_eq!(
+            parsed.device_name.as_deref(),
+            Some(&*"p".repeat(MAX_DEVICE_NAME))
+        );
+
+        assert_eq!(
+            HandshakeResponse::from_bytes(&response_wire(b""))
+                .unwrap()
+                .device_name,
+            None
+        );
     }
 }

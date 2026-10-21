@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """Build the FreeBSD package (pkg(8) format) on any OS.
 
-    make-pkg.py <etphonehome binary> <version> <out dir> [amd64|aarch64]
+    make-pkg.py <etphonehome binary> <version> <out dir> [amd64|aarch64] [major ...]
+
+One package per FreeBSD major version (default 14 and 15): pkg(8) refuses a
+package whose ABI names another major. The binary is the same (built
+against the oldest supported release, 14.x; FreeBSD keeps libc.so.7
+backward compatible), which the FreeBSD 14 VM and the OPNsense 26.7
+(FreeBSD 15) VM tests both run.
 
 A pkg is a compressed tar whose first members are +COMPACT_MANIFEST and
 +MANIFEST (JSON is valid UCL), followed by the files at their absolute
@@ -37,6 +43,12 @@ echo "Then: etphonehome ctl usb   (or save a Wi-Fi phone, see etphonehome --help
 def main():
     binary, version, out = sys.argv[1], sys.argv[2].lstrip("v"), sys.argv[3]
     arch = sys.argv[4] if len(sys.argv) > 4 else "amd64"
+    majors = sys.argv[5:] or ["14", "15"]
+    for major in majors:
+        build(binary, version, out, arch, major)
+
+
+def build(binary, version, out, arch, major):
     if not version[:1].isdigit():
         version = "0.0.0." + version.replace("-", ".")
     pkg_arch = {"amd64": ("amd64", "x86:64"), "aarch64": ("aarch64", "aarch64:64")}[arch]
@@ -53,8 +65,8 @@ def main():
         "comment": COMMENT,
         "maintainer": "support@errant.solutions",
         "www": "https://errant.solutions/etphonehome/",
-        "abi": f"FreeBSD:14:{pkg_arch[0]}",
-        "arch": f"freebsd:14:{pkg_arch[1]}",
+        "abi": f"FreeBSD:{major}:{pkg_arch[0]}",
+        "arch": f"freebsd:{major}:{pkg_arch[1]}",
         "prefix": "/usr/local",
         "flatsize": flatsize,
         "licenselogic": "single",
@@ -67,7 +79,7 @@ def main():
     manifest["directories"] = {"/usr/local/share/licenses/etphonehome/": "y"}
     manifest["scripts"] = {"post-install": POST_INSTALL}
     os.makedirs(out, exist_ok=True)
-    path = os.path.join(out, f"etphonehome-{version}-freebsd-{arch}.pkg")
+    path = os.path.join(out, f"etphonehome-{version}-freebsd{major}-{arch}.pkg")
     now = int(time.time())
     with tarfile.open(path, "w:xz", format=tarfile.PAX_FORMAT) as tar:
         for name, data, mode in [

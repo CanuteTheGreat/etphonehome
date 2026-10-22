@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-10-22
+
+### Fixed
+- Installers, packages and docs no longer mention or contact the project's private git host: the OpenWrt/GL.iNet installer downloads from `https://errant.solutions/download/etphonehome/<tag>/<file>` and finds the latest release through the public GitHub API; winget manifests, the README and the docs link errant.solutions or the public GitHub repository. CI now fails if the private host's name appears in a shipped file or in any release package.
+
 ### Changed
 - `etphonehome list-profiles` prints `WARNING: connect will refuse this profile: ...` under a profile whose enabled filter can't be sent to the phone (a rule with an address/port typo, more than 1024 rules, or rules too large for one message). This is the same check `connect` runs. Before, the listing looked normal and the problem only showed up when a connect attempt failed. The desktop app's profile list marks such a profile with "Filter problem: won't connect".
 
@@ -111,7 +116,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Traffic filter on the phone:** right after the handshake the desktop sends the profile's filter (mode and every rule) to the phone, which enforces it on the connections it opens and resets connections a new rule blocks.
 - **DNS on the desktop:** the client points DNS for the tunnel at the phone's DNS server (`resolvectl` on Linux, `netsh` on Windows).
 - **Real-internet end-to-end CI:** the e2e job now runs the app's actual networking core (`android/core`, as the JVM `standin`) and checks, from a desktop container whose only way out is the tunnel: public HTTPS and HTTP, DNS, a 5 MiB download, TCP echo both ways, UDP, ICMP, 20 parallel connections, USB, filter rules, wrong tokens, plaintext refusal, reconnects.
-- **Releases are published on Forgejo** (the workflow used a GitHub-only action and never created one) and checked to contain all four packages.
+- **Releases are published by the CI workflow** (the workflow used a GitHub-only action and never created one) and checked to contain all four packages.
 
 ### Removed
 - **Root mode.** It was claimed as implemented, but nothing could start it, and its iptables rules redirected all of the phone's own traffic to the desktop. Removed until a correct kernel-NAT design exists.
@@ -613,9 +618,9 @@ sudo etphonehome discover-wifi
 
 ## Links
 
-- **Repository:** https://git.canutethegreat.com/CanuteTheGreat/etphonehome
+- **Repository:** https://github.com/CanuteTheGreat/etphonehome
 - **Documentation:** [docs/](docs/)
-- **Issue Tracker:** https://git.canutethegreat.com/CanuteTheGreat/etphonehome/issues
+- **Issue Tracker:** https://github.com/CanuteTheGreat/etphonehome/issues
 
 ---
 

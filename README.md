@@ -4,12 +4,12 @@ A modern, open-source tethering solution for Android with companion apps for Win
 
 Your computer uses the phone's internet over USB, WiFi or Bluetooth. No root, no VPN on the phone, and the phone keeps its own internet the whole time.
 
-Website and downloads: https://errant.solutions/etphonehome/ (latest release files: [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases)).
+Website and downloads: https://errant.solutions/etphonehome/ (latest release files: [Releases](https://errant.solutions/etphonehome/)).
 
 Google Play: the Android app is coming to Google Play as **Errant Solutions ETPH** (ETPH = ET Phone Home, app id `solutions.errant.etph`); until it is live, install the APK from the releases. Since 0.7.0 the app id is `solutions.errant.etph` (it was `com.etphonehome`), so the new app installs next to an old copy instead of updating it, and shows a notice with a button to the old app's App info page so you can uninstall it.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](https://git.canutethegreat.com/CanuteTheGreat/etphonehome)
+[![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](https://github.com/CanuteTheGreat/etphonehome)
 
 ## 🚀 Quick Start
 
@@ -40,7 +40,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 | Auto-start on plug-in, keeps waiting after a disconnect | start/stop by hand | yes |
 | Data usage per computer/router and kind of traffic | live numbers only | yes |
 
-### Current Features (v0.9.1)
+### Current Features (v0.9.2)
 - ✅ **Free: USB to one computer** - no speed cap and no time limit; a second computer or a router is refused by the phone with "Pro required on the phone", and the phone lists paired computers with Forget
 - ✅ **ETPH Pro is enforced by the phone** - one-time Google Play purchase (Play Billing, acknowledged, restored on reinstall or a new phone, pending purchases and refunds handled); the handshake tells computers and routers whether the phone has Pro, nothing is ever licensed on them
 - ✅ **Auto-start on plug-in (Pro)** - the computer asks the phone over USB debugging to start sharing (once per plug-in); the phone keeps waiting for the computer after a disconnect
@@ -448,8 +448,8 @@ You are free to use, modify, and distribute this software for any purpose, inclu
 ## 📞 Support
 
 - 📖 [Documentation](docs/)
-- 🐛 [Issue Tracker](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/issues)
+- 🐛 [Issue Tracker](https://github.com/CanuteTheGreat/etphonehome/issues)
 
 ---
 
-**Note:** Current version is v0.9.1 (Beta). Downloads (Linux/Windows/macOS/FreeBSD clients, Linux GUI, Android APK, OpenWrt router packages, OPNsense plugin, pfSense package): [Releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.
+**Note:** Current version is v0.9.2 (Beta). Downloads (Linux/Windows/macOS/FreeBSD clients, Linux GUI, Android APK, OpenWrt router packages, OPNsense plugin, pfSense package): [Releases](https://errant.solutions/etphonehome/). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.

@@ -432,7 +432,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for details.
 
 ### How can I report bugs?
 
-Create an issue on the [issue tracker](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/issues) with:
+Create an issue on the [issue tracker](https://github.com/CanuteTheGreat/etphonehome/issues) with:
 1. Description of the problem
 2. Steps to reproduce
 3. Your device/OS information

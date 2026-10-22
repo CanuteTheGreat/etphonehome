@@ -184,7 +184,7 @@ ET Phone Home v0.4.0 introduces several new dependencies:
 ### Build Notes
 
 **Bluetooth on Linux:**
-libdbus is compiled from source as part of the build and linked statically, so neither building nor running the client needs a system libdbus. Release binaries are built with `.forgejo/scripts/build-linux-release.sh` (cargo-zigbuild, glibc 2.31 baseline) so they run on Debian 11+/Ubuntu 20.04+ and newer distros.
+libdbus is compiled from source as part of the build and linked statically, so neither building nor running the client needs a system libdbus. Release binaries are built with `CI build-linux-release.sh` (cargo-zigbuild, glibc 2.31 baseline) so they run on Debian 11+/Ubuntu 20.04+ and newer distros.
 
 **mDNS Discovery:**
 The `mdns-sd` crate works on all platforms without additional dependencies.

@@ -138,7 +138,7 @@ impl Drop for TunInterface {
 
 // These need CAP_NET_ADMIN and /dev/net/tun, so they are #[ignore]d for the
 // plain `cargo test` run and executed explicitly with `--ignored` by the
-// `e2e` job in .forgejo/workflows/rust-ci.yml inside a container started with
+// `e2e` job in CI rust-ci.yml inside a container started with
 // --cap-add NET_ADMIN --device /dev/net/tun.
 #[cfg(all(test, target_os = "linux"))]
 mod tests {

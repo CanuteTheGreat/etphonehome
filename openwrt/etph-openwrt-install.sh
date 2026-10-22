@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install Errant Solutions ETPH (phone as WAN) on OpenWrt / GL.iNet:
 #
-#   wget -O /tmp/etph-install.sh https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases/download/<tag>/etph-openwrt-install.sh
+#   wget -O /tmp/etph-install.sh https://errant.solutions/download/etphonehome/<tag>/etph-openwrt-install.sh
 #   sh /tmp/etph-install.sh [--no-luci] [<tag>]
 #
 # Picks the package for this router's architecture and package manager
@@ -10,8 +10,8 @@
 # else: the client has its own ADB host) and
 # its LuCI page (Network > Phone uplink).
 set -e
-REPO=https://git.canutethegreat.com/CanuteTheGreat/etphonehome
-API=https://git.canutethegreat.com/api/v1/repos/CanuteTheGreat/etphonehome
+SITE=https://errant.solutions/etphonehome
+API=https://api.github.com/repos/CanuteTheGreat/etphonehome
 LUCI=1
 TAG=
 for a in "$@"; do
@@ -27,11 +27,11 @@ done
 ARCH=$DISTRIB_ARCH
 [ -n "$ARCH" ] || { echo "cannot tell this router's architecture (/etc/openwrt_release)" >&2; exit 1; }
 if [ -z "$TAG" ]; then
-	TAG=$(wget -q -O - "$API/releases/latest" | sed -n 's/.*"tag_name":"\([^"]*\)".*/\1/p')
+	TAG=$(wget -q -O - "$API/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 	[ -n "$TAG" ] || { echo "cannot find the latest release (no internet yet? pass the tag)" >&2; exit 1; }
 fi
 VER=${TAG#v}-r1
-DL=$REPO/releases/download/$TAG
+DL=https://errant.solutions/download/etphonehome/$TAG
 cd /tmp
 
 if command -v apk >/dev/null 2>&1; then
@@ -40,7 +40,7 @@ if command -v apk >/dev/null 2>&1; then
 	apk update
 	EXTRA=kmod-tun
 	apk add $EXTRA
-	wget -q -O "$PKG" "$DL/$PKG" || { echo "no ETPH package for $ARCH in $TAG (see $REPO/releases)" >&2; exit 1; }
+	wget -q -O "$PKG" "$DL/$PKG" || { echo "no ETPH package for $ARCH in $TAG (see $SITE)" >&2; exit 1; }
 	FILES=$PKG
 	if [ "$LUCI" = 1 ] && [ -e /www/luci-static ]; then
 		wget -q -O "$LUCIPKG" "$DL/$LUCIPKG" && FILES="$FILES $LUCIPKG"
@@ -52,7 +52,7 @@ else
 	opkg update
 	EXTRA=kmod-tun
 	opkg install $EXTRA
-	wget -q -O "$PKG" "$DL/$PKG" || { echo "no ETPH package for $ARCH in $TAG (see $REPO/releases)" >&2; exit 1; }
+	wget -q -O "$PKG" "$DL/$PKG" || { echo "no ETPH package for $ARCH in $TAG (see $SITE)" >&2; exit 1; }
 	FILES=/tmp/$PKG
 	if [ "$LUCI" = 1 ] && [ -e /www/luci-static ]; then
 		wget -q -O "$LUCIPKG" "$DL/$LUCIPKG" && FILES="$FILES /tmp/$LUCIPKG"
@@ -62,4 +62,4 @@ fi
 rm -f /tmp/etph*.apk /tmp/etph*.ipk /tmp/luci-app-etph*
 echo
 echo "ETPH $TAG installed. Set up the phone uplink in LuCI: Network > Phone uplink"
-echo "(GL.iNet: open http://<router>/cgi-bin/luci), or see $REPO/src/branch/main/docs/OPENWRT.md"
+echo "(GL.iNet: open http://<router>/cgi-bin/luci), or see $SITE/"

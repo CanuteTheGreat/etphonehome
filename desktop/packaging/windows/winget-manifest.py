@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 PKG_ID = "ErrantSolutions.ETPH"
-BASE = "https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases/download"
+BASE = "https://github.com/CanuteTheGreat/etphonehome/releases/download"
 
 
 def main():
@@ -45,7 +45,7 @@ PublisherSupportUrl: https://errant.solutions/etphonehome/
 PackageName: ETPH
 PackageUrl: https://errant.solutions/etphonehome/
 License: MIT
-LicenseUrl: https://git.canutethegreat.com/CanuteTheGreat/etphonehome/src/branch/main/LICENSE
+LicenseUrl: https://github.com/CanuteTheGreat/etphonehome/blob/main/LICENSE
 ShortDescription: Internet from your Android phone over USB or Wi-Fi (with the ETPH app).
 Description: ETPH shares an Android phone's internet with this PC through the ETPH app, over USB (no Android SDK needed) or Wi-Fi with cert-pinned TLS 1.3. Includes a tray app, a service and the etphonehome command line.
 Tags:

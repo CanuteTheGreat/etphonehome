@@ -31,7 +31,7 @@ PRIVACY
 The app collects nothing: no account, no ads, no analytics, no crash reporting. Your computer's traffic goes straight from the phone to where it is headed and never passes through our servers. The pairing tokens, the device list and the usage history stay on the phone. The Pro purchase is handled by Google Play and checked on the phone; nothing about it is sent to us.
 
 OPEN SOURCE
-Open source (MIT license): https://git.canutethegreat.com/CanuteTheGreat/etphonehome
+Open source (MIT license): https://github.com/CanuteTheGreat/etphonehome
 
 Your mobile plan's tethering rules still apply: check with your carrier if you're not sure tethering is allowed.
 

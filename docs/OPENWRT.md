@@ -28,7 +28,7 @@ On the router (SSH), with internet still working through another uplink
 (cable, Wi-Fi or the phone's own hotspot):
 
 ```sh
-wget -O /tmp/etph-install.sh https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases/download/v0.8.0/etph-openwrt-install.sh
+wget -O /tmp/etph-install.sh https://errant.solutions/download/etphonehome/v0.9.2/etph-openwrt-install.sh
 sh /tmp/etph-install.sh            # --no-adb: Wi-Fi only; --no-luci: no web page
 ```
 
@@ -38,7 +38,7 @@ USB: the client switches the phone into USB accessory mode itself (usbfs),
 or talks to its USB debugging interface when that is on, so neither the adb
 package nor an adb server is used. Or by hand: pick
 `etph_0.8.0-r1_<arch>.ipk` (opkg) / `etph-0.8.0-r1_<arch>.apk` (apk) and
-`luci-app-etph` from the [release](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases),
+`luci-app-etph` from the [release](https://errant.solutions/etphonehome/),
 then `opkg install ./etph_*.ipk ./luci-app-etph_*.ipk` or
 `apk add --allow-untrusted ./etph-*.apk ./luci-app-etph-*.apk`
 (`<arch>` = `DISTRIB_ARCH` in `/etc/openwrt_release`).
@@ -152,7 +152,7 @@ Status for scripts: `/var/run/etph/<interface>.json`.
 
 ## What is tested
 
-- CI (`.forgejo/workflows/openwrt.yml`, every change and nightly): builds the
+- CI (`CI openwrt.yml`, every change and nightly): builds the
   five CPU families and both package formats, then boots real OpenWrt 24.10
   (opkg) and 25.12 (apk) x86_64 VMs with no internet except through the
   phone's networking core: install, LuCI setup, interface up with the

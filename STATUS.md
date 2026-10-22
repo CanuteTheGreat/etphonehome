@@ -1,7 +1,7 @@
 # ET Phone Home - Project Status
 
 **Last updated:** 2026-10-21
-**Version:** 0.9.1 ([releases](https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases))
+**Version:** 0.9.2 ([releases](https://github.com/CanuteTheGreat/etphonehome/releases))
 
 Every "Done" below is something a user can do in the shipped app/client and
 that a CI-executed test (or the real-phone QA rotation) exercises. Re-verify
@@ -11,7 +11,7 @@ against code, CI logs and the phone before changing a row.
 
 | Feature | Status | Proof |
 |---|---|---|
-| Desktop gets the phone's internet, no root | Done (v0.6.0) | Userspace relay `android/core/src/main/kotlin/com/etphonehome/relay/UserspaceRelay.kt`. CI e2e (`.forgejo/scripts/desktop-e2e*.sh`): from a container whose only way out is the tunnel, public HTTPS/HTTP, DNS, 5 MiB TCP, TCP echo both ways, UDP, ICMP, 20 parallel connections. Unit tests `UserspaceRelayTest`. Real phone: see the QA ledger |
+| Desktop gets the phone's internet, no root | Done (v0.6.0) | Userspace relay `android/core/src/main/kotlin/com/etphonehome/relay/UserspaceRelay.kt`. CI e2e (`CI desktop-e2e*.sh`): from a container whose only way out is the tunnel, public HTTPS/HTTP, DNS, 5 MiB TCP, TCP echo both ways, UDP, ICMP, 20 parallel connections. Unit tests `UserspaceRelayTest`. Real phone: see the QA ledger |
 | Phone keeps its own internet during a session | Done (v0.6.0) | No phone VPN at all (`TetherService` is a plain foreground service); real-phone QA checks the phone's own ping/HTTP during a session |
 | USB (adb forward) | Done | e2e USB scenarios (adb shim with real forward/reverse semantics), real phone |
 | WiFi + token | Done | e2e, real phone |
@@ -24,7 +24,7 @@ against code, CI logs and the phone before changing a row.
 | DNS for the tunnel on the desktop | Done (v0.6.0) | `runner::configure_dns` (resolvectl / netsh); e2e asserts the resolvectl call |
 | Auto-reconnect, Ctrl-C disconnect, profiles, mDNS, discover-ip, setup-adb | Done | Unit tests + e2e (mDNS only unit-tested; not testable from CI containers) |
 | Desktop GUI | Linux build ships; connects from saved profiles | `desktop/gui`; no Windows GUI build |
-| Releases | Published to Forgejo by `release.yml` (Linux/Windows CLI, Linux GUI, APK), verified by the workflow | |
+| Releases | Published by the `release.yml` CI workflow (Linux/Windows CLI, Linux GUI, APK), verified by the workflow | |
 
 ## Not implemented (and not claimed)
 
@@ -37,7 +37,7 @@ against code, CI logs and the phone before changing a row.
 
 ## Where the evidence lives
 
-- CI: Forgejo Actions `Rust CI` (fmt, clippy, audit, tests, e2e, builds) and
+- CI: `Rust CI` (fmt, clippy, audit, tests, e2e, builds) and
   `Android CI` (lint, app + core unit tests, debug/release APK).
 - Real device: `~/.hermes/state/qa-findings/etphonehome.md` (QA ledger) and
   the etphonehome-real-device-qa procedure.

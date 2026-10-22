@@ -210,6 +210,8 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           path: artifacts
+      - name: No release file names the private git host (canutethegreat.com / forgejo)
+        run: python3 .forgejo/scripts/check-no-internal-hosts.py artifacts
       - name: Create release and upload packages
         env:
           TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}

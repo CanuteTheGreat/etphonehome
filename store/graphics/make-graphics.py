@@ -7,7 +7,7 @@
   feature-graphic.png     1024x500 24-bit PNG (no alpha): brand dark background, the icon, the
                           app name and the tagline.
 
-Phone screenshots come from the real app on the CI emulator (.forgejo/scripts/store-screenshots.sh,
+Phone screenshots come from the real app on the CI emulator (CI store-screenshots.sh,
 workflow store-screenshots.yml) and are copied into phone/ by hand from that run's artifact.
 
 Needs rsvg-convert (librsvg2-bin) and Pillow. Run from the repo root:

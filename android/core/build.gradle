@@ -1,13 +1,13 @@
 plugins {
     id 'org.jetbrains.kotlin.jvm' version '2.0.21'
     id 'java-library'
-    // Mutation testing (weekly CI, .forgejo/workflows/mutation.yml):
+    // Mutation testing (weekly CI, CI mutation.yml):
     // ./gradlew pitest -> build/reports/pitest/mutations.xml
     id 'info.solidsoft.pitest' version '1.19.0'
 }
 
 group = 'com.etphonehome'
-version = '0.9.1'
+version = '0.9.2'
 
 java {
     toolchain {
@@ -88,7 +88,7 @@ pitest {
 }
 
 // Mutation testing runs only on the colo host (rw-man-01): rw-man-02..05 are EC2 instances under
-// GuardDuty, which flags mutated code as malware. Same check as .forgejo/scripts/ec2-guard.sh, so a
+// GuardDuty, which flags mutated code as malware. Same check as CI ec2-guard.sh, so a
 // hand-run `./gradlew pitest` on an EC2 box refuses too (DMI is visible inside containers).
 tasks.named('pitest') {
     doFirst {

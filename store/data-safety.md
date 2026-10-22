@@ -3,13 +3,13 @@
 `store/data-safety.csv` is the declaration in Play's own CSV import format (same layout as
 SSHerpa's: one row per response, `TRUE`/`FALSE` in "Response value"). It is submitted through
 the Android Publisher API (`applications.dataSafety`) by the `data-safety` job in
-`.forgejo/workflows/play-listing.yml`:
+`CI play-listing.yml`:
 
     git tag set-play-data-safety-<n> && git push origin set-play-data-safety-<n>
 
 Play has no read-back endpoint: success is a 2xx from the API. If Play rejects the file, its error
 names the exact missing or forbidden question; fix that row and push a new tag.
-`.forgejo/scripts/check-store-listing.py` (claims workflow, every push) fails if the release build
+`CI check-store-listing.py` (claims workflow, every push) fails if the release build
 gains an analytics/crash-reporting/ads SDK or a network call home while this file still says
 "no data collected".
 

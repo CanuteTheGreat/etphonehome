@@ -106,7 +106,7 @@ point on an OPT port, or the LAN). The settings also offer USB (phone
 plugged into the firewall, through FreeBSD's libusb); that path is not yet
 tested on a firewall, Wi-Fi is.
 
-Both are tested in CI on real VMs (.forgejo/workflows/desktop-os.yml,
+Both are tested in CI on real VMs (CI desktop-os.yml,
 `firewall-vms`): install with `pkg add`, the GUI page, the service, the phone
 assigned as an interface with its gateway, a gateway group "WAN first, then
 the phone" as the LAN's gateway, and a LAN client that keeps HTTPS when the

@@ -279,6 +279,33 @@ impl Counters {
     }
 }
 
+/// Bytes of frames written to the transport in one go (and the read buffer).
+const FRAME_BATCH: usize = 65_536;
+
+/// Serialises `first` and whatever is already queued behind it into `buf`
+/// (replacing its contents): up to about [`FRAME_BATCH`] bytes, never past a
+/// Disconnect, which must be the last thing sent. Returns whether the batch
+/// ends with that Disconnect.
+fn batch_frames(
+    first: Message,
+    rx: &mut mpsc::Receiver<Message>,
+    buf: &mut Vec<u8>,
+) -> std::result::Result<bool, ProtocolError> {
+    buf.clear();
+    let mut msg = first;
+    loop {
+        let last = matches!(msg, Message::Disconnect(_));
+        msg.write_to(buf)?;
+        if last || buf.len() >= FRAME_BATCH {
+            return Ok(last);
+        }
+        match rx.try_recv() {
+            Ok(m) => msg = m,
+            Err(_) => return Ok(false),
+        }
+    }
+}
+
 /// Forward packets between `device` and the Android transport until either
 /// side ends or `shutdown` resolves. On shutdown a Disconnect message is
 /// sent to Android (best effort) so it can tear its side down cleanly.
@@ -300,7 +327,7 @@ where
     // Frames are read 5 header bytes + payload at a time: buffer the stream so
     // that is one read per batch of frames, not two per packet (on a router's
     // MIPS CPU the per-read overhead of the USB bridge decided the speed).
-    let mut net_read = tokio::io::BufReader::with_capacity(64 * 1024, net_read);
+    let mut net_read = tokio::io::BufReader::with_capacity(FRAME_BATCH, net_read);
     let (mut dev_read, mut dev_write) = tokio::io::split(device);
     let filter = Arc::new(FilterEngine::new(opts.filter.clone()));
     let counters = Arc::new(Counters::default());
@@ -315,24 +342,14 @@ where
         // one syscall / USB transfer / ADB WRTE per batch instead of per
         // packet. A single queued message is written at once, so latency
         // is unchanged.
-        let mut buf: Vec<u8> = Vec::with_capacity(80 * 1024);
+        let mut buf: Vec<u8> = Vec::with_capacity(FRAME_BATCH);
         while let Some(first) = out_rx.recv().await {
-            buf.clear();
-            let mut msg = first;
-            let mut last;
-            loop {
-                last = matches!(msg, Message::Disconnect(_));
-                if let Err(e) = msg.write_to(&mut buf) {
-                    return SessionEnd::TransportClosed(format!("write to Android failed: {}", e));
+            let last = match batch_frames(first, &mut out_rx, &mut buf) {
+                Ok(last) => last,
+                Err(e) => {
+                    return SessionEnd::TransportClosed(format!("write to Android failed: {}", e))
                 }
-                if last || buf.len() >= 64 * 1024 {
-                    break;
-                }
-                match out_rx.try_recv() {
-                    Ok(m) => msg = m,
-                    Err(_) => break,
-                }
-            }
+            };
             if let Err(e) = async {
                 net_write.write_all(&buf).await?;
                 net_write.flush().await
@@ -1068,5 +1085,69 @@ pub(crate) mod tests {
         })
         .await;
         assert!(bad.is_err(), "wrong pairing token must not connect");
+    }
+
+    /// What is already queued goes out as one write, a Disconnect ends the
+    /// batch (nothing may follow it), and a batch stops once it holds
+    /// FRAME_BATCH bytes.
+    #[test]
+    fn queued_frames_are_batched_up_to_a_disconnect_or_the_size_limit() {
+        let frame = |m: &Message| {
+            let mut v = Vec::new();
+            m.write_to(&mut v).unwrap();
+            v
+        };
+        let pkt = |n: usize| Message::IpPacket(IpPacket::new(vec![7u8; n]));
+        let (tx, mut rx) = mpsc::channel::<Message>(16);
+        let mut buf = vec![1, 2, 3];
+
+        // A lone message: just it, and the stale buffer content is gone.
+        assert!(!batch_frames(pkt(10), &mut rx, &mut buf).unwrap());
+        assert_eq!(buf, frame(&pkt(10)));
+
+        // Everything queued joins the batch, in order.
+        tx.try_send(pkt(20)).unwrap();
+        tx.try_send(Message::Keepalive).unwrap();
+        assert!(!batch_frames(pkt(10), &mut rx, &mut buf).unwrap());
+        assert_eq!(
+            buf,
+            [frame(&pkt(10)), frame(&pkt(20)), frame(&Message::Keepalive)].concat()
+        );
+
+        // A Disconnect is the last frame of its batch even with more queued.
+        tx.try_send(Message::Disconnect(Disconnect::new("bye")))
+            .unwrap();
+        tx.try_send(pkt(30)).unwrap();
+        assert!(batch_frames(pkt(10), &mut rx, &mut buf).unwrap());
+        assert_eq!(
+            buf,
+            [
+                frame(&pkt(10)),
+                frame(&Message::Disconnect(Disconnect::new("bye")))
+            ]
+            .concat()
+        );
+        assert!(!batch_frames(Message::Keepalive, &mut rx, &mut buf).unwrap());
+        assert_eq!(buf, [frame(&Message::Keepalive), frame(&pkt(30))].concat());
+
+        // A Disconnect first: nothing after it.
+        tx.try_send(pkt(5)).unwrap();
+        assert!(
+            batch_frames(Message::Disconnect(Disconnect::new("x")), &mut rx, &mut buf).unwrap()
+        );
+        assert_eq!(buf, frame(&Message::Disconnect(Disconnect::new("x"))));
+        assert!(!batch_frames(Message::Keepalive, &mut rx, &mut buf).unwrap());
+
+        // The size limit: a batch reaching FRAME_BATCH bytes ends there.
+        let big = FRAME_BATCH - 5; // + 5-byte header = exactly FRAME_BATCH
+        tx.try_send(pkt(100)).unwrap();
+        assert!(!batch_frames(pkt(big), &mut rx, &mut buf).unwrap());
+        assert_eq!(buf.len(), FRAME_BATCH);
+        assert!(!batch_frames(Message::Keepalive, &mut rx, &mut buf).unwrap());
+        assert_eq!(buf, [frame(&Message::Keepalive), frame(&pkt(100))].concat());
+        // one byte under the limit still takes the next frame
+        tx.try_send(pkt(100)).unwrap();
+        assert!(!batch_frames(pkt(big - 1), &mut rx, &mut buf).unwrap());
+        assert_eq!(buf.len(), FRAME_BATCH - 1 + 105);
     }
 }

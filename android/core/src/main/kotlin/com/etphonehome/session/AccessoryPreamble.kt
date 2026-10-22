@@ -55,8 +55,11 @@ object AccessoryPreamble {
      * EOFException). Returns the stream to run the session on: bytes that came after START, then
      * [input]. [onHello] is called when a host first says HELLO (for the UI).
      */
-    fun accept(input: InputStream, output: OutputStream, onHello: () -> Unit = {}): InputStream {
-        var buf = ByteArray(READ_SIZE * 2)
+    fun accept(input: InputStream, output: OutputStream, onHello: (() -> Unit)? = null): InputStream {
+        // Never grows: after each pass at most READ_SIZE - 1 bytes are kept (what followed the
+        // newest HELLO, which ends inside the last read, or a possible partial message), so one
+        // more read (at most READ_SIZE) always fits, exactly in the worst case.
+        val buf = ByteArray(READ_SIZE * 2 - 1)
         var len = 0
         var answered: ByteArray? = null
         val chunk = ByteArray(READ_SIZE)
@@ -64,7 +67,6 @@ object AccessoryPreamble {
             val n = input.read(chunk, 0, chunk.size)
             if (n < 0) throw EOFException("accessory closed")
             if (n == 0) continue
-            if (len + n > buf.size) buf = buf.copyOf(maxOf(buf.size * 2, len + n))
             System.arraycopy(chunk, 0, buf, len, n)
             len += n
 
@@ -87,7 +89,7 @@ object AccessoryPreamble {
                 newestEnd = from
             }
             if (newest != null && (answered == null || !answered.contentEquals(newest))) {
-                if (answered == null) onHello()
+                if (answered == null) onHello?.invoke()
                 output.write(message(READY, newest))
                 output.flush()
                 answered = newest
@@ -95,10 +97,8 @@ object AccessoryPreamble {
             // Drop what can no longer matter: everything before the newest HELLO's end, and if
             // nothing matched, all but a possible partial message at the end.
             val keepFrom = if (newestEnd > 0) newestEnd else maxOf(0, len - (MSG_LEN - 1))
-            if (keepFrom > 0) {
-                System.arraycopy(buf, keepFrom, buf, 0, len - keepFrom)
-                len -= keepFrom
-            }
+            System.arraycopy(buf, keepFrom, buf, 0, len - keepFrom)
+            len -= keepFrom
         }
     }
 }

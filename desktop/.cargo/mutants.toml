@@ -1,0 +1,18 @@
+# cargo-mutants (nightly mutation.yml, run from desktop/). Excluded: code whose only effect is on
+# the operating system or real hardware, which `cargo test --lib` can't observe; what it does is
+# checked by the end-to-end jobs instead (real TUN + routes + DNS in rust-ci e2e and the
+# macOS/Windows/FreeBSD/firewall VMs, real phones over USB/Bluetooth in the real-device scripts).
+# Decisions are kept out of these functions (runner.rs: usb_skips_adb_tool, plan_uses_usb,
+# link_facts, wants_accessory_in, ...) so they stay mutated and unit-tested.
+exclude_re = [
+    # routes, DNS (resolvectl / netsh / scutil / resolvconf), undoing them
+    "\\b(setup_routing|setup_routing_via|configure_dns|cleanup_host|scutil|wait_windows_address)\\b",
+    # pfSense/OPNsense address keeper: BSD only, compiled out on the Linux mutation runner
+    "\\baddress_keeper\\b",
+    # BlueZ RFCOMM and the phone's USB interfaces (usbfs / libusb)
+    "\\b(connect_bluetooth|open_native_usb|open_adb_usb)\\b",
+    # whether the adb tool happens to be installed on this machine
+    "\\badb_tool_available\\b",
+    # log lines only
+    "\\blog_handshake\\b",
+]

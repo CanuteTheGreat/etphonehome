@@ -50,7 +50,7 @@ class PurchaseVerifier(base64PublicKey: String?) {
         }
         val json = FlatJson(originalJson)
         if (json.string("packageName") != packageName) return Result.Invalid("purchase is for another app")
-        val products = json.stringArray("productIds") + listOfNotNull(json.string("productId"))
+        val products = json.stringArray("productIds").orEmpty() + listOfNotNull(json.string("productId"))
         if (productId !in products) return Result.Invalid("purchase is for another product")
         val token = json.string("purchaseToken") ?: return Result.Invalid("no purchase token")
         // Play's JSON: purchaseState 0 = purchased, 4 = pending (anything else is not owned).
@@ -97,14 +97,16 @@ internal class FlatJson(private val s: String) {
         }
     }
 
-    fun stringArray(key: String): List<String> {
-        var i = valueStart(key) ?: return emptyList()
-        if (i >= s.length || s[i] != '[') return emptyList()
+    /** null: no such key, or its value isn't an array. */
+    fun stringArray(key: String): List<String>? {
+        var i = valueStart(key) ?: return null
+        if (i >= s.length || s[i] != '[') return null
         i++
         val out = mutableListOf<String>()
         while (i < s.length) {
             when (s[i]) {
-                ']' -> return out
+                // '[': a nested array is not a flat string array; stop there
+                ']', '[' -> return out
                 '"' -> {
                     val (v, end) = readString(i)
                     out += v

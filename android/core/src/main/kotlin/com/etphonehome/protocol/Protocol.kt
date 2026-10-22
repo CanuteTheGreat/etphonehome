@@ -222,7 +222,8 @@ data class HandshakeRequest(
             var token: String? = null
             var clientId: String? = null
             var clientName: String? = null
-            if (buffer.remaining() >= 2) {
+            // `> 1`, not `>= 2`: the same test, written so a mutated bound reads past the end
+            if (buffer.remaining() > 1) {
                 val tokenLength = buffer.getShort().toInt() and 0xFFFF
                 if (buffer.remaining() >= tokenLength) {
                     if (tokenLength > 0) {
@@ -246,7 +247,7 @@ data class HandshakeRequest(
 
         /** One optional u16-length UTF-8 field; best effort (bad or oversized = null). */
         private fun readClientField(buffer: ByteBuffer): String? {
-            if (buffer.remaining() < 2) return null
+            if (buffer.remaining() <= 1) return null
             val n = buffer.getShort().toInt() and 0xFFFF
             if (n > buffer.remaining()) {
                 buffer.position(buffer.limit())
@@ -335,7 +336,7 @@ data class HandshakeResponse(
             val dns = buffer.getInt()
             // Optional trailing name: best effort, never fails the handshake.
             var deviceName: String? = null
-            if (payload.size >= PAYLOAD_SIZE + 2) {
+            if (payload.size > PAYLOAD_SIZE + 1) {
                 val n = buffer.getShort().toInt() and 0xFFFF
                 if (n in 1..MAX_DEVICE_NAME && payload.size >= PAYLOAD_SIZE + 2 + n) {
                     val decoder = Charsets.UTF_8.newDecoder()

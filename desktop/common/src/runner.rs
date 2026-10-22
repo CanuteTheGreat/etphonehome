@@ -3252,7 +3252,9 @@ mod tests {
             },
             rx,
             None,
-            |_| async {
+            |n| async move {
+                // more than the budget = a retry loop that never ends (fail fast, don't hang)
+                assert!(n <= 3, "attempt {n} of a 3-attempt budget");
                 Err::<SessionEnd, _>(anyhow::Error::new(ProtocolError::PeerError {
                     code: ErrorCode::ProRequired,
                     message: "needs Pro".into(),
@@ -3284,7 +3286,8 @@ mod tests {
             },
             rx,
             Some(svc),
-            move |_| {
+            move |n| {
+                assert!(n <= 2, "attempt {n} of a 2-attempt budget");
                 seen2.lock().unwrap().push(svc2.state());
                 async {
                     Err::<SessionEnd, _>(anyhow::Error::new(ProtocolError::PeerError {

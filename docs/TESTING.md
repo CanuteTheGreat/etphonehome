@@ -370,10 +370,7 @@ Current coverage status:
 - Client: ~40% (connection tests need mocking)
 - TUN: ~20% (requires root, mostly integration tests)
 
-**Android:**
-- Protocol: 0% (TODO)
-- VPN Service: 0% (TODO: add unit tests)
-- UI: 0% (TODO: add instrumented tests)
+(Historical figures from 2025. Today the phone's core has JVM unit tests and mutation testing, and the real app runs in the emulator e2e on API 26/34/36; see STATUS.md and the Forgejo workflows.)
 
 ## Adding New Tests
 

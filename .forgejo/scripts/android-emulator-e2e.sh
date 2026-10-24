@@ -207,7 +207,7 @@ for i in $(seq -w 0 29); do head -c 262144 /dev/urandom >"$SRV/p$i"; done
 (cd "$SRV" && sha256sum p* >par.sha256)
 (cd "$SRV" && exec python3 -m http.server 8080 --bind 127.0.0.1 >"$LOG/http.log" 2>&1) &
 PIDS+=($!)
-python3 "$HERE/e2e-target-services.py" >"$LOG/services.log" 2>&1 &
+DNS_BIND=127.0.0.1 DNS_ANSWER=10.0.2.2 python3 "$HERE/e2e-target-services.py" >"$LOG/services.log" 2>&1 &
 PIDS+=($!)
 HOST_FROM_PHONE=10.0.2.2
 
@@ -403,6 +403,18 @@ if wait_iface 30; then
   traffic "USB"
   D "cd /tmp && rm -rf par && mkdir par && cd par && for i in \$(seq -w 0 29); do curl -sS -m 120 -o p\$i http://$HOST_FROM_PHONE:8080/p\$i & done; wait; cp $SRV/par.sha256 . && sha256sum -c par.sha256 >/tmp/par.check 2>&1"
   [ "$(grep -c ': OK$' /tmp/par.check)" = 30 ] && pass "USB: 30 parallel downloads, all intact" || fail "USB parallel ($(grep -c ': OK$' /tmp/par.check)/30)"
+  # The real-phone QA step that lost 2 of 20 (v0.9.2): parallel downloads each
+  # by their own name, so 40 DNS queries (A + AAAA) cross the real app's
+  # sockets at once. The stub DNS server (e2e-target-services.py :53) is on the
+  # host, which the phone reaches as 10.0.2.2.
+  echo "nameserver $HOST_FROM_PHONE" >"/etc/netns/$NS/resolv.conf"
+  for ROUND in 1 2 3; do
+    D "cd /tmp && rm -rf dpar && mkdir dpar && cd dpar && for i in \$(seq -w 0 19); do (curl -sS -m 120 -o p\$i http://r${ROUND}n\$i.etph.test:8080/p\$i 2>e\$i; echo \$? >rc\$i) & done; wait; for i in \$(seq -w 0 19); do cmp -s p\$i $SRV/p\$i && echo OK \$i || echo \"BAD \$i rc=\$(cat rc\$i) \$(cat e\$i)\"; done" >/tmp/dpar.check 2>&1
+    DPOK=$(grep -c '^OK' /tmp/dpar.check)
+    [ "$DPOK" = 20 ] && pass "USB: 20 parallel downloads by name (round $ROUND), every name resolved through the app, all intact" \
+      || { grep -v '^OK' /tmp/dpar.check | head; fail "USB parallel downloads by name round $ROUND ($DPOK/20)"; }
+  done
+  echo "nameserver 8.8.8.8" >"/etc/netns/$NS/resolv.conf"
   head -c 16777216 /dev/urandom >/tmp/up.bin
   UP=$(D "socat -t 60 -T 60 - TCP:$HOST_FROM_PHONE:7002,shut-down </tmp/up.bin")
   [ "$UP" = "$(sha256sum </tmp/up.bin | cut -d' ' -f1)" ] && pass "USB: 16 MiB upload through the phone, sha256 intact at the far end" || fail "USB upload ($UP)"

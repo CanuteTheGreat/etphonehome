@@ -138,6 +138,31 @@ if wait_for_iface etph0; then
   for i in $(seq 1 20); do grep -qx 200 "$LOGS/par-$i.out" && OK=$((OK + 1)); done
   [ "$OK" -eq 20 ] && pass "20 parallel TCP connections all succeeded" || fail "parallel connections ($OK/20)"
 
+  # The real-phone QA's failing step (v0.9.2: 2 of 20 parallel downloads died
+  # with "Could not resolve host"): 20 downloads started at once, each by its
+  # OWN name, so 20 getaddrinfo calls put 40 queries (A + AAAA from one socket,
+  # like glibc) through the relay at the same moment, with a real DNS server
+  # (e2e-target-services.py, UDP :53) behind it. Three rounds, 5 MiB each in
+  # the first, digest-checked; any lost query or reply shows as a name that
+  # did not resolve.
+  echo "nameserver $TARGET_IP" >/etc/resolv.conf
+  WANTB=$(curl -sS -m 20 "http://$TARGET_IP:8080/blob.sha256")
+  for ROUND in 1 2 3; do
+    rm -rf /tmp/dnspar && mkdir -p /tmp/dnspar
+    for i in $(seq 1 20); do
+      (curl -sS -m 90 -o "/tmp/dnspar/f$i" "http://r${ROUND}p$i.etph.test:8080/blob.bin" 2>"/tmp/dnspar/e$i"; echo $? >"/tmp/dnspar/rc$i") &
+    done
+    wait_jobs=$(jobs -p | grep -v "^$CLI$")
+    for j in $wait_jobs; do wait "$j" 2>/dev/null; done
+    DOK=0
+    for i in $(seq 1 20); do
+      [ "$(sha256sum <"/tmp/dnspar/f$i" 2>/dev/null | cut -d' ' -f1)" = "$WANTB" ] && DOK=$((DOK + 1)) || { echo "round $ROUND download $i: rc=$(cat /tmp/dnspar/rc$i 2>/dev/null) $(cat /tmp/dnspar/e$i 2>/dev/null)"; }
+    done
+    [ "$DOK" -eq 20 ] && pass "20 parallel downloads by name, round $ROUND: every name resolved (A+AAAA) and all 20 digests intact" \
+      || fail "parallel downloads by name round $ROUND ($DOK/20 intact)"
+  done
+  echo "nameserver 8.8.8.8" >/etc/resolv.conf
+
   sleep 1.5
   stop $CLI
   grep -q "Desktop requested disconnect" "$PEER/wifi-tls.log" && pass "Ctrl-C sends Disconnect to the phone" \

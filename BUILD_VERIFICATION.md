@@ -1,5 +1,8 @@
 # ET Phone Home - Build Verification Report
 
+> **Historical document (October 2025, v0.2/0.3).** Its status, limitation and coverage lists are out of date: WiFi (TLS), Bluetooth, auto-reconnect and the GUI have shipped since. Current status: [STATUS.md](STATUS.md).
+
+
 **Date:** October 27, 2025
 **Status:** ✅ ALL BUILDS SUCCESSFUL
 

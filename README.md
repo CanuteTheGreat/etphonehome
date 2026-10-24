@@ -54,7 +54,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 - ✅ **WiFi Tethering** (Pro) - token-authenticated and **encrypted by default** (TLS 1.3, certificate pinned to the pairing token, fails closed)
 - ✅ **Bluetooth Tethering** (Pro) - RFCOMM, Linux (BlueZ) desktop only; the Windows client has no Bluetooth. Verified with real internet on a real phone (Samsung, Android 13); CI has no Bluetooth radio, so it checks the session code and that app and desktop agree on the service
 - ✅ **Cross-Platform desktop** - Linux, Windows (MSI with a tray app and a service), macOS 11+ (`.pkg` for Apple Silicon and Intel: menu-bar app, CLI and a launchd service; utun tunnel, DNS through scutil) and FreeBSD 14/15 (`pkg`), Linux GUI. The macOS package is installed and tested in CI on Apple Silicon and Intel Macs with real internet through the phone core
-- ✅ **DNS set up for you** - the desktop points DNS for the tunnel at the phone's DNS server (systemd-resolved on Linux, verified in CI; `netsh` on Windows, not yet exercised in CI)
+- ✅ **DNS set up for you** - the desktop points DNS for the tunnel at the phone's DNS server (systemd-resolved on Linux, verified in CI; `netsh` on Windows, asserted in the Windows e2e (`packaging/windows/e2e.ps1`))
 - ✅ **Live statistics on the phone** - connected desktop, data each way, open connections, uptime; the status only says "connected" once a desktop really is
 - ✅ **Traffic filter** - a connection profile's allow/block rules are applied on the computer and sent to the phone, which enforces them on the connections it opens
 - ✅ **Auto-Reconnect** - exponential backoff retry
@@ -139,7 +139,7 @@ etphonehome/
 **For Android:**
 - Android Studio (latest)
 - JDK 17+
-- Android SDK API 26-34
+- Android SDK API 36 (minSdk 26)
 
 **For Desktop:**
 - Rust (latest stable)

@@ -450,27 +450,39 @@ Follow Rust style guide:
 
 ## Roadmap and TODOs
 
-Current priorities (re-verified against actual code/git history — see
-STATUS.md for full detail and evidence):
+The authoritative, evidence-backed status (what is shipped, tested and
+not implemented) is [STATUS.md](../STATUS.md); the README lists what is
+planned. Summary as of 0.9.2:
 
-- [x] USB connection implementation
-- [x] WiFi tethering mode
-- [x] Bluetooth tethering (Android + Linux desktop; Windows desktop
-      Bluetooth is intentionally unimplemented, see `connect_bluetooth` in
-      `desktop/windows/src/main.rs`)
-- [x] Root mode support (Android iptables routing)
-- [x] Desktop GUI (`desktop/gui`, iced-based; now built/packaged in CI and
-      Linux releases)
-- [ ] Connection encryption — PSK/TLS crypto code exists on both sides
-      (`desktop/common/src/tls/`, `android/.../tls/`) but is not yet wired
-      into the live handshake; traffic is still plaintext on the wire. Top
-      priority.
-- [x] Traffic filtering (enforced on Android and, as of this audit, desktop)
-- [ ] Improve error handling
-- [x] Comprehensive protocol/filter/config unit tests (26 passing in
-      `etphonehome-common` alone)
-- [ ] Performance optimizations
-- [ ] Multi-device support
+Shipped:
+
+- [x] USB (adb forward, and Android Open Accessory for routers/Linux
+      without Developer options), Wi-Fi and Bluetooth tethering
+      (Bluetooth: Android + Linux desktop only; Windows, macOS and FreeBSD
+      desktop Bluetooth is intentionally unimplemented)
+- [x] Internet without root and without a phone VPN: the app relays the
+      computer's TCP/UDP/ICMP with its own sockets (`UserspaceRelay.kt`)
+- [x] Connection encryption on Wi-Fi: TLS 1.3 with a certificate pinned
+      through the pairing token (`desktop/common/src/tls/certpin.rs`,
+      `android/core/.../tls/CertPin.kt`), on by default for Wi-Fi. USB and
+      Bluetooth links are not encrypted (a cable or a paired radio link).
+      `tls/psk.rs` / `PskKeyDerivation.kt` are not used by the live handshake.
+- [x] Traffic filtering (the profile's rules are sent to the phone in a
+      ConfigUpdate and enforced there and on the desktop)
+- [x] Desktop GUI (`desktop/gui`), profiles and settings in `config.toml`
+- [x] Windows, macOS, FreeBSD, OpenWrt/GL.iNet, OPNsense and pfSense
+      clients; Free + Pro tiers enforced on the phone
+
+Not implemented (also disclosed in the README):
+
+- [ ] Root mode (kernel NAT). The old iptables implementation was removed
+      in 0.6.0 because it routed all phone traffic to the desktop; the
+      intended design is only a note in STATUS.md
+- [ ] IPv6 through the tunnel
+- [ ] Several computers at the same time (several are paired, the phone
+      serves one at a time)
+- [ ] Bluetooth on Windows, macOS and FreeBSD desktops
+- [ ] Token regeneration in the app
 
 ## Resources
 

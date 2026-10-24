@@ -141,17 +141,19 @@ Log levels: `error`, `warn`, `info`, `debug`, `trace`
 
 ### Config File
 
-(Future feature - not yet implemented)
+Profiles, filter rules and the GUI settings (dark mode, auto-reconnect)
+live in `~/.config/etphonehome/config.toml` (Windows:
+`%APPDATA%\etphonehome\config.toml`; under sudo, the invoking user's).
 
 ```bash
-# Create config
-cp config.example.toml config.toml
+# Start from the checked example
+cp ../config.example.toml ~/.config/etphonehome/config.toml
 
-# Edit config
-nano config.toml
+# Edit it, then connect with a saved profile
+sudo etphonehome connect <profile>
 
-# Run with config
-etphonehome --config config.toml usb
+# Or read another file
+etphonehome --config /path/to/config.toml list-profiles
 ```
 
 ## Architecture

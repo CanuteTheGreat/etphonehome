@@ -500,6 +500,11 @@ fi
 # =============================================================================
 if want performance; then
   section "performance baseline (USB, plaintext, the fastest path)"
+  # Shared runners are noisy (2026-10-26: p95 4 ms and a 23 MiB/s upload on a
+  # runner running 45% slow, green the days before and after). One over-limit
+  # measurement is re-taken once; a real regression repeats and still fails.
+  PERF_TRY=1
+  while :; do
   client perf-usb usb --port 8891 --interface etph0
   if wait_iface 20; then
     WANT=$(D "curl -sS -m 20 http://$TARGET_IP:8080/big.sha256")
@@ -559,9 +564,16 @@ if want performance; then
   cat "$OUT/perf.json"
   if python3 "$HERE/perf-compare.py" "$ROOT/ci/perf-baseline.json" "$OUT/perf.json" "$PERF_FACTOR"; then
     pass "performance within ${PERF_FACTOR}x of ci/perf-baseline.json"
+    break
+  elif [ "$PERF_TRY" -lt 2 ]; then
+    echo "performance over the limit on attempt $PERF_TRY: re-measuring once to rule out runner noise"
+    PERF_TRY=$((PERF_TRY+1))
+    continue
   else
-    fail "performance regression against ci/perf-baseline.json (see table above)"
+    fail "performance regression against ci/perf-baseline.json, reproduced on $PERF_TRY attempts (see tables above)"
+    break
   fi
+  done
 fi
 
 # =============================================================================

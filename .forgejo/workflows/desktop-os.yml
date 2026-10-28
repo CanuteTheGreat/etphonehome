@@ -130,6 +130,12 @@ jobs:
             /tmp/fbsd-vm/serial.log
             /tmp/fbsd-vm/standin-*.log
 
+      - name: Remove the VM work dir (disks, NVRAM, logs already uploaded)
+        if: always()
+        run: |
+          sudo pkill -x qemu-system-x86_64 || true   # this job container only
+          sudo rm -rf /tmp/fbsd-vm
+
   firewall-vms:
     name: Real OPNsense + pfSense CE VMs (plugin/package, phone as gateway, WAN failover)
     needs: freebsd
@@ -184,6 +190,12 @@ jobs:
             /tmp/opn-vm/standin-*.log
             /tmp/pf-vm/serial-*.log
             /tmp/pf-vm/standin-*.log
+
+      - name: Remove the VM work dirs (disks, NVRAM, logs already uploaded)
+        if: always()
+        run: |
+          sudo pkill -x qemu-system-x86_64 || true   # this job container only
+          sudo rm -rf /tmp/opn-vm /tmp/pf-vm
 
   native-macos-windows:
     name: macOS (Apple Silicon + Intel) and Windows e2e, on the GitHub mirror

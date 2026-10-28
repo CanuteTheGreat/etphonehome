@@ -114,3 +114,9 @@ jobs:
           path: |
             /tmp/owrt-vm/serial-*.log
             /tmp/etph-vm-standin.log
+
+      - name: Remove the VM work dir (disks, NVRAM, logs already uploaded)
+        if: always()
+        run: |
+          sudo pkill -x qemu-system-x86_64 || true   # this job container only
+          sudo rm -rf /tmp/owrt-vm /tmp/etph-vm-standin.log

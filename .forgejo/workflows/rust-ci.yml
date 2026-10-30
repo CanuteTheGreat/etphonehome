@@ -312,6 +312,9 @@ jobs:
             echo "branch=$GITHUB_REF_NAME"
             echo "client_version=$(tar -xzOf dist/etphonehome-linux-aarch64-ci-${GITHUB_SHA::8}.tar.gz etphonehome > /tmp/etph && chmod +x /tmp/etph && /tmp/etph --version)"
             echo "arch=aarch64"
+            echo "tarball=$(basename dist/etphonehome-linux-aarch64-ci-${GITHUB_SHA::8}.tar.gz)"
+            echo "sha256_tarball=$(sha256sum dist/etphonehome-linux-aarch64-ci-${GITHUB_SHA::8}.tar.gz | cut -d' ' -f1)"
+            echo "sha256_binary=$(sha256sum /tmp/etph | cut -d' ' -f1)"
             echo "built_at=$(date -u +%FT%TZ)"
           } > dist/etph-build-info.txt
           cat dist/etph-build-info.txt

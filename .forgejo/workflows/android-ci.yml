@@ -164,6 +164,7 @@ jobs:
             echo "version_name=$(sed -n 's/.*versionName "\(.*\)"/\1/p' android/app/build.gradle | head -1)"
             echo "version_code=$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)"
             echo "billing_test_hooks=true"
+            echo "sha256_app_debug_apk=$(sha256sum android/app/build/outputs/apk/debug/app-debug.apk | cut -d' ' -f1)"
             echo "built_at=$(date -u +%FT%TZ)"
           } > android/app/build/outputs/apk/debug/etph-build-info.txt
           cat android/app/build/outputs/apk/debug/etph-build-info.txt

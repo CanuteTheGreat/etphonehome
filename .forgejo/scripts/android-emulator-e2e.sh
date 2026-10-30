@@ -686,6 +686,27 @@ else
   echo "info: [API $API] this image has no emulated WiFi: WiFi checks run on the image that has it"
 fi
 
+# --- Dark/light: the app follows the DEVICE's mode, live (owner rule 2026-10-30) ---------------
+# `cmd uimode night` is the same switch as Settings > Display > Dark theme (API 29+). The activity
+# must come up light, dark, light again, each time without touching the app's own settings;
+# a pixel of the plain screen background (left edge, mid-height) proves what was really drawn.
+if [ "$API" -ge 29 ]; then
+  NIGHT0=$(adb shell cmd uimode night 2>/dev/null | tr -d '\r' | grep -o 'yes\|no\|auto' | tail -1)
+  adb shell am force-stop $PKG; launch
+  night_luma() { # yes|no -> luminance of the screen background
+    adb shell cmd uimode night "$1" >/dev/null 2>&1; sleep 4
+    adb exec-out screencap -p >"$LOG/night-$1.png"
+    python3 "$(dirname "$0")/png-luma.py" "$LOG/night-$1.png" 0.02 0.5
+  }
+  L_NO=$(night_luma no); L_YES=$(night_luma yes); L_NO2=$(night_luma no)
+  python3 -c "import sys; sys.exit(0 if float('$L_NO') > 0.6 else 1)" && pass "theme: light mode draws a light screen (luma $L_NO)" || fail "theme: light mode background not light (luma $L_NO)"
+  python3 -c "import sys; sys.exit(0 if float('$L_YES') < 0.1 else 1)" && pass "theme: switching the device to dark mode while the app is open makes it dark (luma $L_YES)" || fail "theme: dark mode background not dark (luma $L_YES)"
+  python3 -c "import sys; sys.exit(0 if float('$L_NO2') > 0.6 else 1)" && pass "theme: switching back to light restores the light theme (luma $L_NO2)" || fail "theme: back to light failed (luma $L_NO2)"
+  adb shell cmd uimode night "${NIGHT0:-auto}" >/dev/null 2>&1
+else
+  echo "info: [API $API] cmd uimode night needs API 29+: theme check runs on the newer images"
+fi
+
 adb logcat -d >"$LOG/logcat.txt" 2>&1
 echo
 echo "emulator API $API summary: $PASS passed, $FAIL failed"

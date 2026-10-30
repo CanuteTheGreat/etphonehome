@@ -2,9 +2,9 @@
 <installer-gui-script minSpecVersion="2">
   <title>ETPH</title>
   <welcome file="welcome.html" mime-type="text/html"/>
-  <!-- Apple silicon only: the installer refuses Intel Macs. -->
-  <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
-  <!-- macOS @MIN_MACOS@ or newer only. -->
+  <!-- Universal package: no hostArchitectures restriction. -->
+  <options customize="never" require-scripts="false"/>
+  <!-- Oldest macOS Apple still security-patches. -->
   <allowed-os-versions>
     <os-version min="@MIN_MACOS@"/>
   </allowed-os-versions>
@@ -14,7 +14,7 @@
       if (system.compareVersions(system.version.ProductVersion, '@MIN_MACOS@') &lt; 0) {
         my.result.type = 'Fatal';
         my.result.title = 'macOS @MIN_MACOS@ or newer required';
-        my.result.message = 'ETPH needs macOS @MIN_MACOS@ or newer on a Mac with Apple silicon. This Mac runs macOS ' + system.version.ProductVersion + '.';
+        my.result.message = 'ETPH needs macOS @MIN_MACOS@ or newer (every macOS version Apple still patches). This Mac runs macOS ' + system.version.ProductVersion + '.';
         return false;
       }
       return true;

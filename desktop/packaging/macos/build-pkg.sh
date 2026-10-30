@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build ETPH for macOS on a Mac: arm64-only (Apple silicon, macOS 26+) CLI and
+# Build ETPH for macOS on a Mac: universal (Apple silicon + Intel, macOS 15+) CLI and
 # menu-bar app, ad-hoc signed, as an installer package plus a CLI tarball.
 #
 #   build-pkg.sh <version> <out dir>
@@ -18,21 +18,27 @@ ROOT=$(cd "$HERE/../../.." && pwd)
 NUM=${VER#v}
 [[ "$NUM" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || NUM=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/desktop/Cargo.toml" | head -1)
 cd "$ROOT/desktop"
-# Apple silicon + macOS 26 or newer only (owner decision 2026-10-30): one arm64
-# slice, no x86_64, no lipo. MIN_MACOS feeds the deployment target, Info.plist's
-# LSMinimumSystemVersion and the installer's distribution file.
-MIN_MACOS=26.0
-T=aarch64-apple-darwin
-rustup target add "$T" >/dev/null
-MACOSX_DEPLOYMENT_TARGET=$MIN_MACOS cargo build --release --target "$T" -p etphonehome-macos -p etphonehome-tray
+# Support rule (owner, 2026-10-30): every macOS version Apple still security-patches,
+# on every architecture those versions run on. Today: macOS 15 Sequoia (oldest
+# patched) through 27, Apple silicon + Intel (Intel Macs run up to macOS 26), so one
+# universal binary. MIN_MACOS feeds the deployment target, Info.plist's
+# LSMinimumSystemVersion and the installer's allowed-os-versions. When Apple stops
+# patching the oldest release, raise MIN_MACOS; when no patched macOS runs on Intel,
+# drop x86_64 (the monthly Apple-support check opens an issue for either).
+MIN_MACOS=15.0
+for t in aarch64-apple-darwin x86_64-apple-darwin; do
+  rustup target add "$t" >/dev/null
+  MACOSX_DEPLOYMENT_TARGET=$MIN_MACOS cargo build --release --target "$t" -p etphonehome-macos -p etphonehome-tray
+done
 S=$(mktemp -d)
 trap 'rm -rf "$S"' EXIT
 mkdir -p "$S/root/usr/local/bin" "$S/root/Applications/ETPH.app/Contents/MacOS" \
   "$S/root/Applications/ETPH.app/Contents/Resources" "$S/root/Library/LaunchDaemons" "$S/root/Library/LaunchAgents"
-install -m 755 "target/$T/release/etphonehome" "$S/root/usr/local/bin/etphonehome"
-install -m 755 "target/$T/release/etph-tray" "$S/root/Applications/ETPH.app/Contents/MacOS/etph-tray"
-[ "$(lipo -archs "$S/root/usr/local/bin/etphonehome")" = arm64 ]
-[ "$(lipo -archs "$S/root/Applications/ETPH.app/Contents/MacOS/etph-tray")" = arm64 ]
+lipo -create -output "$S/root/usr/local/bin/etphonehome" \
+  target/aarch64-apple-darwin/release/etphonehome target/x86_64-apple-darwin/release/etphonehome
+lipo -create -output "$S/root/Applications/ETPH.app/Contents/MacOS/etph-tray" \
+  target/aarch64-apple-darwin/release/etph-tray target/x86_64-apple-darwin/release/etph-tray
+lipo -info "$S/root/usr/local/bin/etphonehome" | grep -q 'x86_64 arm64\|arm64 x86_64'
 install -m 755 "$HERE/etph-uninstall" "$S/root/usr/local/bin/etph-uninstall"
 sed "s/@VERSION@/$NUM/g; s/@MIN_MACOS@/$MIN_MACOS/g" "$HERE/Info.plist" >"$S/root/Applications/ETPH.app/Contents/Info.plist"
 # Icon from the app's launcher icon.
@@ -65,9 +71,9 @@ chmod 755 "$S/scripts/"*
 PKG="$OUT/etph-macos-$VER.pkg"
 pkgbuild --root "$S/root" --scripts "$S/scripts" --identifier solutions.errant.etph \
   --version "$NUM" --install-location / "$S/etph-component.pkg"
-# Distribution file: the installer itself refuses Intel Macs (hostArchitectures)
-# and macOS older than MIN_MACOS (allowed-os-versions + installation-check, which
-# gives the clear message).
+# Distribution file: the installer refuses macOS older than MIN_MACOS
+# (allowed-os-versions + installation-check, which gives the clear message). No
+# hostArchitectures restriction: the package is universal.
 mkdir -p "$S/pkgs" "$S/resources"
 mv "$S/etph-component.pkg" "$S/pkgs/etph-component.pkg"
 sed "s/@VERSION@/$NUM/g; s/@MIN_MACOS@/$MIN_MACOS/g" "$HERE/distribution.xml" >"$S/distribution.xml"
@@ -83,7 +89,7 @@ else
   "${PB[@]}" "$PKG"
 fi
 pkgutil --expand "$PKG" "$S/expanded"
-grep -q 'hostArchitectures="arm64"' "$S/expanded/Distribution"
+! grep -q 'hostArchitectures="arm64"' "$S/expanded/Distribution"
 grep -q "os-version min=\"$MIN_MACOS\"" "$S/expanded/Distribution"
 # The CLI alone, for scripts and people who don't want the app.
 tar -C "$S/root/usr/local/bin" -czf "$OUT/etphonehome-macos-$VER.tar.gz" etphonehome etph-uninstall

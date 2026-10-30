@@ -3,8 +3,9 @@
 # and has no macOS/Windows runners). Forgejo ignores .github/workflows
 # because .forgejo/workflows exists.
 #
-# * macOS: Apple-silicon-only (arm64), macOS 26+ CLI + menu-bar app, .pkg,
-#   installed and tested on xcode-27 (macOS 27) and macos-26 (the minimum): utun, routes,
+# * macOS: universal (Apple silicon + Intel), macOS 15+ (every version Apple still
+#   patches) CLI + menu-bar app, .pkg, installed and tested on xcode-27 (newest, arm64),
+#   macos-26-intel (last Intel) and macos-15 (oldest patched, arm64): utun, routes,
 #   scutil DNS, HTTPS through the phone core, the launchd service + ctl.
 # * Windows: the MSI built exactly like the Forgejo release (mingw + wixl on
 #   Linux), installed on Windows Server: Wintun adapter, routes, DNS, HTTPS
@@ -65,12 +66,13 @@ jobs:
           name: standin
           path: standin.tar.gz
 
-  # Owner decision 2026-10-30: Apple silicon + macOS 26 or newer only (build-pkg.sh
-  # MIN_MACOS=26.0 = deployment target, Info.plist LSMinimumSystemVersion, the pkg's
-  # Distribution hostArchitectures/allowed-os-versions). xcode-27 = newest GA image
-  # (macOS 27, arm64); macos-26 = the supported minimum (arm64). No Intel, no older macOS.
+  # Owner rule 2026-10-30: support every macOS version Apple still security-patches (and
+  # drop it when Apple stops). Patched today: 15, 26, 27 (support.apple.com/en-us/100100).
+  # build-pkg.sh MIN_MACOS=15.0 = deployment target = Info.plist LSMinimumSystemVersion =
+  # the pkg's allowed-os-versions. Images: xcode-27 = newest (macOS 27, arm64);
+  # macos-26-intel = last Intel macOS; macos-15 = oldest patched, arm64.
   macos-pkg:
-    name: macOS package (arm64)
+    name: macOS package (universal)
     runs-on: xcode-27
     timeout-minutes: 60
     steps:
@@ -91,7 +93,7 @@ jobs:
         run: |
           cargo test -p etphonehome-common --lib -- --skip mdns_discovery_finds_advertised_service
           sudo -E env "PATH=$PATH" "HOME=$HOME" cargo test -p etphonehome-common --lib mdns_discovery_finds_advertised_service
-      - name: Build arm64 binaries, app bundle and .pkg
+      - name: Build universal binaries, app bundle and .pkg
         run: bash desktop/packaging/macos/build-pkg.sh "${{ steps.v.outputs.ver }}" dist
       - uses: actions/upload-artifact@v4
         with:
@@ -104,7 +106,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [xcode-27, macos-26]
+        os: [xcode-27, macos-26-intel, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:

@@ -108,7 +108,7 @@ firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-
 firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-vm/pfsense-vm-test.py	Interfaces > Assignments offers etph0
 firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-vm/pfsense-vm-test.py	GUI: Interfaces > Phone uplink (ETPH) page renders its form
 firewalls	README.md	Firewalls (OPNsense, pfSense CE)	desktop/packaging/firewall-vm/pfsense-vm-test.py	phone back: reconnected by itself, ETPH_GW online again
-macos	README.md	macOS 26+ on Apple silicon only (`.pkg`, arm64	desktop/packaging/macos/e2e.sh	arm64-only binary (Apple silicon)
-macos	README.md	installed and tested in CI on macOS 27 and macOS 26 (Apple silicon) with real internet through the phone core	desktop/packaging/macos/e2e.sh	HTTPS through the phone
+macos	README.md	every macOS version Apple still patches, Apple silicon and Intel (macOS 15+ today; dropped when Apple stops patching; `.pkg`, universal	desktop/packaging/macos/e2e.sh	universal binary
+macos	README.md	installed and tested in CI on macOS 27 and 15 (Apple silicon) and macOS 26 (Intel) with real internet through the phone core	desktop/packaging/macos/e2e.sh	HTTPS through the phone
 macos	README.md	a launchd service	desktop/packaging/macos/e2e.sh	launchd runs the ETPH service as root
 macos	README.md	DNS through scutil	desktop/packaging/macos/e2e.sh	scutil: DNS service for

@@ -198,7 +198,7 @@ jobs:
           sudo rm -rf /tmp/opn-vm /tmp/pf-vm
 
   native-macos-windows:
-    name: macOS (Apple silicon, macOS 26+) and Windows e2e, on the GitHub mirror
+    name: macOS (every patched version, Apple silicon + Intel) and Windows e2e, on the GitHub mirror
     # Runs desktop/packaging/macos/e2e.sh and desktop/packaging/windows/e2e.ps1
     # on GitHub-hosted Macs and Windows (.github/workflows/desktop-native.yml)
     # and reports their result here.

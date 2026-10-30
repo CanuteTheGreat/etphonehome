@@ -2,7 +2,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- DayNight: the DEVICE's light/dark setting picks values/ or values-night/ (live; Android
          recreates the activity on a change). Never force a mode in code (CI check
-         .forgejo/scripts/check-no-forced-theme.py). Brand colors come from colors.xml, which has
+         CI check-no-forced-theme.py). Brand colors come from colors.xml, which has
          a values-night override, so they stay legible in both modes. -->
     <style name="Theme.ETPhoneHome" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/etph_primary</item>

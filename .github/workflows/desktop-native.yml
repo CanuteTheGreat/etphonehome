@@ -1,18 +1,17 @@
-# Native macOS and Windows builds + end-to-end tests on GitHub-hosted
+# Native macOS builds + end-to-end tests on GitHub-hosted
 # runners (this repo's public GitHub mirror; Forgejo is the source of truth
-# and has no macOS/Windows runners). Forgejo ignores .github/workflows
+# and has no macOS runners; Windows runs on our own VM, see below). Forgejo ignores .github/workflows
 # because .forgejo/workflows exists.
 #
 # * macOS: universal (Apple silicon + Intel), macOS 15+ (every version Apple still
 #   patches) CLI + menu-bar app, .pkg, installed and tested on xcode-27 (newest, arm64),
 #   macos-26-intel (last Intel) and macos-15 (oldest patched, arm64): utun, routes,
 #   scutil DNS, HTTPS through the phone core, the launchd service + ctl.
-# * Windows: the MSI built exactly like the Forgejo release (mingw + wixl on
-#   Linux), installed on Windows Server: Wintun adapter, routes, DNS, HTTPS
-#   through the phone core, the Windows service + ctl, tray app, uninstall.
+# * Windows: moved to Forgejo (.forgejo/workflows/desktop-windows.yml on our own Windows VM). The GitHub copy is
+#   windows-e2e-fallback.yml, workflow_dispatch only.
 # * Tags (v*): the macOS .pkg/.tar.gz are attached to the GitHub release;
 #   Forgejo's release workflow copies them into the Forgejo release.
-name: Desktop (macOS + Windows, native)
+name: Desktop (macOS, native)
 
 # Runs ONLY on release tags (v*) and manual dispatch, never on branch pushes:
 # GitHub emails the owner (the mirror pushes as his account) about every
@@ -153,59 +152,3 @@ jobs:
           (cd dist && sha256sum -c "SHA256SUMS-macos-$GITHUB_REF_NAME")
           gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --title "ETPH $GITHUB_REF_NAME" --notes "Mirror of https://git.canutethegreat.com/CanuteTheGreat/etphonehome/releases/tag/$GITHUB_REF_NAME"
           gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" dist/* --clobber
-
-  windows-msi:
-    name: Windows MSI (mingw + wixl, as released)
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - name: Tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq mingw-w64 wixl msitools python3-pil zip unzip
-          rustup target add x86_64-pc-windows-gnu
-      - name: Build
-        working-directory: desktop
-        run: cargo build --release --target x86_64-pc-windows-gnu -p etphonehome-windows -p etphonehome-tray
-      - name: MSI + zip
-        run: |
-          bash desktop/packaging/windows/build-msi.sh desktop/target/x86_64-pc-windows-gnu/release "ci-${GITHUB_SHA::8}" dist
-          # An "older release" for the upgrade test (same files, version 0.0.1).
-          bash desktop/packaging/windows/build-msi.sh desktop/target/x86_64-pc-windows-gnu/release v0.0.1 old
-          mv old/etph-windows-v0.0.1.msi dist/upgrade-from-v0.0.1.msi
-      - uses: actions/upload-artifact@v4
-        with:
-          name: etph-windows
-          path: dist/
-
-  windows-e2e:
-    name: Windows e2e (Wintun, service, tray)
-    needs: [standin, windows-msi]
-    runs-on: windows-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: temurin
-      - uses: actions/download-artifact@v4
-        with:
-          name: etph-windows
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: standin
-      - name: Install and test
-        continue-on-error: ${{ inputs.diagnose == true }}
-        shell: pwsh
-        run: |
-          tar -xzf standin.tar.gz
-          $msi = (Get-ChildItem dist\etph-windows-*.msi | Select-Object -First 1).FullName
-          & desktop\packaging\windows\e2e.ps1 -Msi $msi -Standin "$PWD\standin" -OldMsi "$PWD\dist\upgrade-from-v0.0.1.msi"
-          exit $LASTEXITCODE
-      - name: Logs
-        if: always()
-        shell: pwsh
-        run: Get-Content C:\ProgramData\ETPH\service.log -Tail 60 -ErrorAction SilentlyContinue

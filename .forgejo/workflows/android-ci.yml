@@ -138,8 +138,11 @@ jobs:
             # the billing test hooks; the DEBUG APK (the `etphonehome-debug` artifact the daily
             # real-phone QA installs) is built with -PbillingTestHooks=true so QA can force
             # Pro with `am broadcast ... TestHookReceiver --es pro true` -- no Play purchase.
-            ./gradlew --max-workers=2 assembleRelease && \
-              ./gradlew --max-workers=2 -PbillingTestHooks=true assembleDebug && break
+            # `timeout 11m` per invocation: normal build is ~3 min; on 2026-10-30 two runs
+            # (538, 533) sat silent until the 30-min job kill on a loaded host and lost
+            # their whole log. A hang now fails fast with the gradle output, then retries.
+            timeout 11m ./gradlew --max-workers=2 assembleRelease && \
+              timeout 11m ./gradlew --max-workers=2 -PbillingTestHooks=true assembleDebug && break
             if [ "$attempt" -eq 3 ]; then
               echo "gradlew assemble failed after 3 attempts"
               exit 1

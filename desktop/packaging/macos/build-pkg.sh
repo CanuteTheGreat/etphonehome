@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build ETPH for macOS on a Mac: universal (Apple Silicon + Intel) CLI and
+# Build ETPH for macOS on a Mac: arm64-only (Apple silicon, macOS 26+) CLI and
 # menu-bar app, ad-hoc signed, as an installer package plus a CLI tarball.
 #
 #   build-pkg.sh <version> <out dir>
@@ -18,21 +18,23 @@ ROOT=$(cd "$HERE/../../.." && pwd)
 NUM=${VER#v}
 [[ "$NUM" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || NUM=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/desktop/Cargo.toml" | head -1)
 cd "$ROOT/desktop"
-for t in aarch64-apple-darwin x86_64-apple-darwin; do
-  rustup target add "$t" >/dev/null
-  MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --release --target "$t" -p etphonehome-macos -p etphonehome-tray
-done
+# Apple silicon + macOS 26 or newer only (owner decision 2026-10-30): one arm64
+# slice, no x86_64, no lipo. MIN_MACOS feeds the deployment target, Info.plist's
+# LSMinimumSystemVersion and the installer's distribution file.
+MIN_MACOS=26.0
+T=aarch64-apple-darwin
+rustup target add "$T" >/dev/null
+MACOSX_DEPLOYMENT_TARGET=$MIN_MACOS cargo build --release --target "$T" -p etphonehome-macos -p etphonehome-tray
 S=$(mktemp -d)
 trap 'rm -rf "$S"' EXIT
 mkdir -p "$S/root/usr/local/bin" "$S/root/Applications/ETPH.app/Contents/MacOS" \
   "$S/root/Applications/ETPH.app/Contents/Resources" "$S/root/Library/LaunchDaemons" "$S/root/Library/LaunchAgents"
-lipo -create -output "$S/root/usr/local/bin/etphonehome" \
-  target/aarch64-apple-darwin/release/etphonehome target/x86_64-apple-darwin/release/etphonehome
-lipo -create -output "$S/root/Applications/ETPH.app/Contents/MacOS/etph-tray" \
-  target/aarch64-apple-darwin/release/etph-tray target/x86_64-apple-darwin/release/etph-tray
-lipo -info "$S/root/usr/local/bin/etphonehome" | grep -q 'x86_64 arm64\|arm64 x86_64'
+install -m 755 "target/$T/release/etphonehome" "$S/root/usr/local/bin/etphonehome"
+install -m 755 "target/$T/release/etph-tray" "$S/root/Applications/ETPH.app/Contents/MacOS/etph-tray"
+[ "$(lipo -archs "$S/root/usr/local/bin/etphonehome")" = arm64 ]
+[ "$(lipo -archs "$S/root/Applications/ETPH.app/Contents/MacOS/etph-tray")" = arm64 ]
 install -m 755 "$HERE/etph-uninstall" "$S/root/usr/local/bin/etph-uninstall"
-sed "s/@VERSION@/$NUM/g" "$HERE/Info.plist" >"$S/root/Applications/ETPH.app/Contents/Info.plist"
+sed "s/@VERSION@/$NUM/g; s/@MIN_MACOS@/$MIN_MACOS/g" "$HERE/Info.plist" >"$S/root/Applications/ETPH.app/Contents/Info.plist"
 # Icon from the app's launcher icon.
 mkdir "$S/etph.iconset"
 for n in 16 32 128 256 512; do
@@ -63,18 +65,29 @@ chmod 755 "$S/scripts/"*
 PKG="$OUT/etph-macos-$VER.pkg"
 pkgbuild --root "$S/root" --scripts "$S/scripts" --identifier solutions.errant.etph \
   --version "$NUM" --install-location / "$S/etph-component.pkg"
+# Distribution file: the installer itself refuses Intel Macs (hostArchitectures)
+# and macOS older than MIN_MACOS (allowed-os-versions + installation-check, which
+# gives the clear message).
+mkdir -p "$S/pkgs" "$S/resources"
+mv "$S/etph-component.pkg" "$S/pkgs/etph-component.pkg"
+sed "s/@VERSION@/$NUM/g; s/@MIN_MACOS@/$MIN_MACOS/g" "$HERE/distribution.xml" >"$S/distribution.xml"
+sed "s/@MIN_MACOS@/$MIN_MACOS/g" "$HERE/welcome.html" >"$S/resources/welcome.html"
+PB=(productbuild --distribution "$S/distribution.xml" --resources "$S/resources" --package-path "$S/pkgs")
 if [ -n "${APPLE_DEVELOPER_ID_INSTALLER:-}" ]; then
-  productbuild --package "$S/etph-component.pkg" --sign "$APPLE_DEVELOPER_ID_INSTALLER" "$PKG"
+  "${PB[@]}" --sign "$APPLE_DEVELOPER_ID_INSTALLER" "$PKG"
   if [ "${NOTARIZE:-0}" = 1 ]; then
     xcrun notarytool submit "$PKG" --keychain-profile etph-notary --wait
     xcrun stapler staple "$PKG"
   fi
 else
-  productbuild --package "$S/etph-component.pkg" "$PKG"
+  "${PB[@]}" "$PKG"
 fi
+pkgutil --expand "$PKG" "$S/expanded"
+grep -q 'hostArchitectures="arm64"' "$S/expanded/Distribution"
+grep -q "os-version min=\"$MIN_MACOS\"" "$S/expanded/Distribution"
 # The CLI alone, for scripts and people who don't want the app.
 tar -C "$S/root/usr/local/bin" -czf "$OUT/etphonehome-macos-$VER.tar.gz" etphonehome etph-uninstall
-pkgutil --payload-files "$S/etph-component.pkg" >"$S/payload.txt"
+pkgutil --payload-files "$S/pkgs/etph-component.pkg" >"$S/payload.txt"
 grep -q 'usr/local/bin/etphonehome' "$S/payload.txt"
 (cd "$OUT" && shasum -a 256 "etph-macos-$VER.pkg" "etphonehome-macos-$VER.tar.gz" >"SHA256SUMS-macos-$VER")
 ls -la "$OUT"

@@ -333,8 +333,8 @@ jobs:
   macos-from-github:
     name: Attach the macOS package (built + tested on the GitHub mirror)
     # No macOS runner here: .github/workflows/desktop-native.yml builds the
-    # universal .pkg on a GitHub-hosted Mac when the mirror receives this tag,
-    # tests it on Apple Silicon and Intel, and attaches it to the GitHub
+    # arm64 (Apple silicon, macOS 26+) .pkg on a GitHub-hosted Mac when the mirror receives this tag,
+    # tests it on macOS 27 and 26 (arm64), and attaches it to the GitHub
     # release. Copy it (checked against its SHA256SUMS) into this release.
     needs: create-release
     runs-on: linux-cross-x86_64

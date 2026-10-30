@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **macOS client is now Apple silicon only and needs macOS 26 or newer.** The `.pkg` is arm64-only (no x86_64 slice), the deployment target and `LSMinimumSystemVersion` are 26.0, and the installer's distribution file refuses Intel Macs and older macOS. Asset names are unchanged (`etph-macos-<version>.pkg`). Intel Macs and macOS 25 or older stay on v0.9.2.
+
 ## [0.9.2] - 2026-10-22
 
 ### Fixed
@@ -500,6 +503,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## [Unreleased]
+
+### Changed
+- **macOS client is now Apple silicon only and needs macOS 26 or newer.** The `.pkg` is arm64-only (no x86_64 slice), the deployment target and `LSMinimumSystemVersion` are 26.0, and the installer's distribution file refuses Intel Macs and older macOS. Asset names are unchanged (`etph-macos-<version>.pkg`). Intel Macs and macOS 25 or older stay on v0.9.2.
 
 ## [0.6.1] - 2026-10-17
 

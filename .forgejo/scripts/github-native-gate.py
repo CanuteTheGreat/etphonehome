@@ -3,7 +3,7 @@
 
 There are no macOS or Windows runners here, so .github/workflows/
 desktop-native.yml runs on the public GitHub mirror (GitHub-hosted Macs,
-Apple Silicon + Intel, and Windows Server), executing
+Apple silicon on macOS 26+, and Windows Server), executing
 desktop/packaging/macos/e2e.sh and desktop/packaging/windows/e2e.ps1 against
 the phone core. This waits for that run for the same commit and fails when
 it fails, printing every job's result. Unauthenticated public API (60

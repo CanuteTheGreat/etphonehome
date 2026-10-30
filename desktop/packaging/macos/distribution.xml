@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+  <title>ETPH</title>
+  <welcome file="welcome.html" mime-type="text/html"/>
+  <!-- Apple silicon only: the installer refuses Intel Macs. -->
+  <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
+  <!-- macOS @MIN_MACOS@ or newer only. -->
+  <allowed-os-versions>
+    <os-version min="@MIN_MACOS@"/>
+  </allowed-os-versions>
+  <installation-check script="etphCheck()"/>
+  <script>
+    function etphCheck() {
+      if (system.compareVersions(system.version.ProductVersion, '@MIN_MACOS@') &lt; 0) {
+        my.result.type = 'Fatal';
+        my.result.title = 'macOS @MIN_MACOS@ or newer required';
+        my.result.message = 'ETPH needs macOS @MIN_MACOS@ or newer on a Mac with Apple silicon. This Mac runs macOS ' + system.version.ProductVersion + '.';
+        return false;
+      }
+      return true;
+    }
+  </script>
+  <choices-outline>
+    <line choice="default">
+      <line choice="solutions.errant.etph"/>
+    </line>
+  </choices-outline>
+  <choice id="default"/>
+  <choice id="solutions.errant.etph" visible="false">
+    <pkg-ref id="solutions.errant.etph"/>
+  </choice>
+  <pkg-ref id="solutions.errant.etph" version="@VERSION@" onConclusion="none">etph-component.pkg</pkg-ref>
+</installer-gui-script>

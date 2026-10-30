@@ -5,15 +5,15 @@ platform uses the same client core (`desktop/common`): the same protocol,
 cert-pinned TLS 1.3 for Wi-Fi, the same built-in ADB host for USB (no
 Android SDK or adb tool needed), the same traffic filter and profiles.
 
-| | Linux | Windows 10/11 | macOS 11+ | FreeBSD 14 / 15 |
+| | Linux | Windows 10/11 | macOS 26+ (Apple silicon) | FreeBSD 14 / 15 |
 |---|---|---|---|---|
-| Download | `etphonehome-linux-*.tar.gz`, GUI | `etph-windows-*.msi` (or the zip) | `etph-macos-*.pkg` (Apple Silicon + Intel) | `etphonehome-*-freebsd14-amd64.pkg` / `-freebsd15-` (also `-aarch64`) |
+| Download | `etphonehome-linux-*.tar.gz`, GUI | `etph-windows-*.msi` (or the zip) | `etph-macos-*.pkg` (Apple silicon only) | `etphonehome-*-freebsd14-amd64.pkg` / `-freebsd15-` (also `-aarch64`) |
 | App | GUI (`etphonehome-gui`) | tray app (notification area) | menu-bar app | - (CLI + rc.d service) |
 | Tunnel | TUN (`/dev/net/tun`) | Wintun (bundled, signed by WireGuard LLC) | utun (kernel control socket, no kext) | tun(4), renamed `etph0` |
 | USB | usbfs (built in) | WinUSB through libusb (built in) | IOKit through libusb (built in) | base-system libusb |
 | DNS | systemd-resolved per link | adapter DNS (netsh) | scutil resolver for the tunnel | resolvconf(8) |
 | Bluetooth | yes (BlueZ) | no | no | no |
-| CI | real tunnel + internet, 9 distros | real install + Wintun + internet (GitHub Windows Server) | real install + utun + internet on Apple Silicon and Intel (GitHub macOS) | real FreeBSD 14 VM: pkg, tunnel, internet, rc.d service |
+| CI | real tunnel + internet, 9 distros | real install + Wintun + internet (GitHub Windows Server) | real install + utun + internet on Apple silicon, macOS 27 and 26 (GitHub macOS) | real FreeBSD 14 VM: pkg, tunnel, internet, rc.d service |
 
 Firewalls: [OPNsense](#opnsense) (plugin `os-etph`) and [pfSense CE](#pfsense-ce)
 (package `pfSense-pkg-etph`), each with a page under Interfaces, a service,
@@ -53,7 +53,7 @@ service log is `%ProgramData%\ETPH\service.log`. winget: each release has
 
 ## macOS
 
-1. Open `etph-macos-<version>.pkg` (Apple Silicon and Intel, macOS 11+).
+1. Open `etph-macos-<version>.pkg` (Apple silicon only, macOS 26 or newer; the installer refuses Intel Macs and older macOS with a message).
 2. The package installs `/Applications/ETPH.app` (menu bar, starts at login),
    `/usr/local/bin/etphonehome` and a launchd service that runs as root and
    owns the tunnel (`/Library/LaunchDaemons/solutions.errant.etph.plist`).

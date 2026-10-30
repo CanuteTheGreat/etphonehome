@@ -3,8 +3,8 @@
 # and has no macOS/Windows runners). Forgejo ignores .github/workflows
 # because .forgejo/workflows exists.
 #
-# * macOS: universal (Apple Silicon + Intel) CLI + menu-bar app, .pkg,
-#   installed and tested on an Apple Silicon AND an Intel Mac: utun, routes,
+# * macOS: Apple-silicon-only (arm64), macOS 26+ CLI + menu-bar app, .pkg,
+#   installed and tested on xcode-27 (macOS 27) and macos-26 (the minimum): utun, routes,
 #   scutil DNS, HTTPS through the phone core, the launchd service + ctl.
 # * Windows: the MSI built exactly like the Forgejo release (mingw + wixl on
 #   Linux), installed on Windows Server: Wintun adapter, routes, DNS, HTTPS
@@ -65,13 +65,12 @@ jobs:
           name: standin
           path: standin.tar.gz
 
-  # macos-14 is retired by GitHub on 2026-11-02 (changelog 2026-10-01). Runner labels
-  # (README of actions/runner-images, 2026-10-30): xcode-27 = newest GA image (macOS 27,
-  # arm64 only, GA 2026-10-15); macos-26-intel = newest image with an Intel variant;
-  # macos-15 = oldest arm64 image still offered. Deployment target 11.0 (build-pkg.sh,
-  # Info.plist LSMinimumSystemVersion, README "macOS 11+"): the oldest image proves it.
+  # Owner decision 2026-10-30: Apple silicon + macOS 26 or newer only (build-pkg.sh
+  # MIN_MACOS=26.0 = deployment target, Info.plist LSMinimumSystemVersion, the pkg's
+  # Distribution hostArchitectures/allowed-os-versions). xcode-27 = newest GA image
+  # (macOS 27, arm64); macos-26 = the supported minimum (arm64). No Intel, no older macOS.
   macos-pkg:
-    name: macOS package (universal)
+    name: macOS package (arm64)
     runs-on: xcode-27
     timeout-minutes: 60
     steps:
@@ -92,7 +91,7 @@ jobs:
         run: |
           cargo test -p etphonehome-common --lib -- --skip mdns_discovery_finds_advertised_service
           sudo -E env "PATH=$PATH" "HOME=$HOME" cargo test -p etphonehome-common --lib mdns_discovery_finds_advertised_service
-      - name: Build universal binaries, app bundle and .pkg
+      - name: Build arm64 binaries, app bundle and .pkg
         run: bash desktop/packaging/macos/build-pkg.sh "${{ steps.v.outputs.ver }}" dist
       - uses: actions/upload-artifact@v4
         with:
@@ -105,7 +104,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [xcode-27, macos-26-intel, macos-15]
+        os: [xcode-27, macos-26]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -131,7 +130,7 @@ jobs:
         run: sudo tail -50 /Library/Logs/ETPH/service.log 2>/dev/null || true
 
   macos-release:
-    # Tags only, and only once the .pkg passed e2e on BOTH Macs: attach it to
+    # Tags only, and only once the .pkg passed e2e on BOTH images: attach it to
     # the GitHub release, where Forgejo's release workflow picks it up
     # (checked against SHA256SUMS-macos-<tag>).
     name: Attach the tested macOS package to the GitHub release (tags)

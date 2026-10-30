@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ETPH on a real Mac (GitHub-hosted macOS runner, Apple Silicon or Intel):
+# ETPH on a real Mac (GitHub-hosted Apple-silicon macOS runner, macOS 26+):
 # install the .pkg, then connect to the phone's networking core (standin)
 # on this machine and use the internet through it.
 #
@@ -39,14 +39,26 @@ diag() {
 trap cleanup EXIT
 echo "macOS $(sw_vers -productVersion) $(uname -m)"
 
+# ---- the pkg's own requirements: Apple silicon, macOS 26.0+ ------------------
+EXP=$(mktemp -d)/pkg
+pkgutil --expand "$PKG" "$EXP"
+grep -q 'hostArchitectures="arm64"' "$EXP/Distribution" && pass "Distribution: hostArchitectures=arm64" || fail "Distribution hostArchitectures: $(grep -i hostArch "$EXP/Distribution")"
+grep -q '<os-version min="26.0"' "$EXP/Distribution" && pass "Distribution: allowed-os-versions min 26.0" || fail "Distribution os-version: $(grep -i os-version "$EXP/Distribution")"
+
 # ---- install --------------------------------------------------------------
 if sudo installer -pkg "$PKG" -target / >"$W/install.log" 2>&1; then
   pass "installer -pkg ($(basename "$PKG"))"
 else
   cat "$W/install.log"; fail "installer"
 fi
-lipo -info /usr/local/bin/etphonehome | grep -q 'x86_64 arm64\|arm64 x86_64' \
-  && pass "universal binary (Apple Silicon + Intel)" || fail "not universal: $(lipo -info /usr/local/bin/etphonehome)"
+[ "$(lipo -archs /usr/local/bin/etphonehome)" = arm64 ] \
+  && pass "arm64-only binary (Apple silicon): $(file -b /usr/local/bin/etphonehome)" || fail "not arm64-only: $(lipo -archs /usr/local/bin/etphonehome)"
+[ "$(lipo -archs /Applications/ETPH.app/Contents/MacOS/etph-tray)" = arm64 ] \
+  && pass "menu-bar app arm64-only" || fail "tray archs: $(lipo -archs /Applications/ETPH.app/Contents/MacOS/etph-tray)"
+/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' /Applications/ETPH.app/Contents/Info.plist | grep -qx '26.0' \
+  && pass "LSMinimumSystemVersion 26.0" || fail "LSMinimumSystemVersion: $(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' /Applications/ETPH.app/Contents/Info.plist)"
+vtool -show-build /usr/local/bin/etphonehome 2>/dev/null | grep -Eq 'minos 26\.0' \
+  && pass "binary deployment target minos 26.0" || fail "minos: $(vtool -show-build /usr/local/bin/etphonehome 2>&1 | grep -i minos)"
 codesign -dv /Applications/ETPH.app 2>&1 | grep -q 'Signature=adhoc' \
   && pass "menu-bar app ad-hoc signed (no Developer ID configured)" || fail "app signature: $(codesign -dv /Applications/ETPH.app 2>&1)"
 etphonehome --version | grep -q etphonehome && pass "CLI on PATH: $(etphonehome --version)" || fail "CLI"

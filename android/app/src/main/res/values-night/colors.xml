@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="etph_primary">@color/purple_200</color>
+    <color name="etph_on_primary">@color/black</color>
+    <color name="etph_secondary">@color/teal_200</color>
+    <color name="etph_on_secondary">@color/black</color>
+    <color name="etph_banner_warn">#40FFB300</color>
+</resources>

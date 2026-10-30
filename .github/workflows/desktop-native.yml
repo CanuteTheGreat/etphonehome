@@ -65,11 +65,14 @@ jobs:
           name: standin
           path: standin.tar.gz
 
-  # macos-14 is retired by GitHub on 2026-11-02 (changelog 2026-10-01): arm64 = macos-15,
-  # Intel = macos-15-intel. Deployment target 11.0 is set in build-pkg.sh (no Xcode pin).
+  # macos-14 is retired by GitHub on 2026-11-02 (changelog 2026-10-01). Runner labels
+  # (README of actions/runner-images, 2026-10-30): xcode-27 = newest GA image (macOS 27,
+  # arm64 only, GA 2026-10-15); macos-26-intel = newest image with an Intel variant;
+  # macos-15 = oldest arm64 image still offered. Deployment target 11.0 (build-pkg.sh,
+  # Info.plist LSMinimumSystemVersion, README "macOS 11+"): the oldest image proves it.
   macos-pkg:
     name: macOS package (universal)
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -102,7 +105,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-15-intel]
+        os: [xcode-27, macos-26-intel, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:

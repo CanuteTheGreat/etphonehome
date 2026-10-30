@@ -1,6 +1,6 @@
 {
  "id": "kotlin",
- "last_full": "2026-10-23",
+ "last_full": "2026-10-30",
  "sha": "217961639b15c2f42da8e31d5e6c98e8204db96d",
  "survivors": [
   "com.etphonehome.filter.FilterConfigKt.parseWireRule$ports: org.pitest.mutationtest.engine.gregor.mutators.returns.EmptyObjectReturnValsMutator: replaced return value with Collections.emptyList for com/etphonehome/filter/FilterConfigKt::parseWireRule$ports",
@@ -176,6 +176,7 @@
   "com.etphonehome.relay.UserspaceRelay.onTcpFromDesktop: org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator: removed call to com/etphonehome/relay/UserspaceRelay::shutdownRemoteOutput",
   "com.etphonehome.relay.UserspaceRelay.onTcpReady: org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator: negated conditional",
   "com.etphonehome.relay.UserspaceRelay.onTcpReady: org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator: removed call to com/etphonehome/relay/UserspaceRelay::flushToRemote",
+  "com.etphonehome.relay.UserspaceRelay.onTcpReady: org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator: removed call to com/etphonehome/relay/UserspaceRelay::updateInterest",
   "com.etphonehome.relay.UserspaceRelay.onUdpFromDesktop: org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator: changed conditional boundary",
   "com.etphonehome.relay.UserspaceRelay.onUdpFromDesktop: org.pitest.mutationtest.engine.gregor.mutators.MathMutator: Replaced Unsigned Shift Right with Shift Left",
   "com.etphonehome.relay.UserspaceRelay.onUdpFromDesktop: org.pitest.mutationtest.engine.gregor.mutators.MathMutator: Replaced bitwise AND with OR",
@@ -204,7 +205,6 @@
   "com.etphonehome.relay.UserspaceRelay.recheckFilter: org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator: removed call to com/etphonehome/relay/UserspaceRelay::closeChannel",
   "com.etphonehome.relay.UserspaceRelay.recheckFilter: org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator: removed call to java/util/Iterator::remove",
   "com.etphonehome.relay.UserspaceRelay.refuse: org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator: removed call to com/etphonehome/relay/UserspaceRelay::closeFlow",
-  "com.etphonehome.relay.UserspaceRelay.retransmit: org.pitest.mutationtest.engine.gregor.mutators.MathMutator: Replaced integer addition with subtraction",
   "com.etphonehome.relay.UserspaceRelay.retransmit: org.pitest.mutationtest.engine.gregor.mutators.MathMutator: Replaced integer subtraction with addition",
   "com.etphonehome.relay.UserspaceRelay.retransmit: org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator: removed call to com/etphonehome/relay/ByteQueue::copy",
   "com.etphonehome.relay.UserspaceRelay.runTimers: org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator: changed conditional boundary",

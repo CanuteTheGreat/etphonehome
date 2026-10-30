@@ -81,8 +81,17 @@ jobs:
         working-directory: desktop
         run: cargo clippy -p etphonehome-macos -p etphonehome-tray -p etphonehome-common --all-targets -- -D warnings
       - name: Unit tests (macOS)
+        id: unit
         working-directory: desktop
+        continue-on-error: ${{ inputs.diagnose == true }}
         run: cargo test -p etphonehome-common --lib
+      - name: Diagnose mDNS test as root (macOS 15 local-network privacy probe)
+        if: ${{ inputs.diagnose == true && steps.unit.outcome == 'failure' }}
+        continue-on-error: true
+        working-directory: desktop
+        run: |
+          sw_vers; ifconfig | grep -E '^[a-z0-9]+:|inet ' | head -30
+          sudo -E env "PATH=$PATH" "HOME=$HOME" cargo test -p etphonehome-common --lib mdns_discovery -- --nocapture
       - name: Build universal binaries, app bundle and .pkg
         run: bash desktop/packaging/macos/build-pkg.sh "${{ steps.v.outputs.ver }}" dist
       - uses: actions/upload-artifact@v4

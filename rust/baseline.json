@@ -1,6 +1,6 @@
 {
  "id": "rust",
- "last_full": "2026-10-23",
+ "last_full": "2026-10-30",
  "sha": "217961639b15c2f42da8e31d5e6c98e8204db96d",
  "survivors": [
   "common/src/filter.rs: delete ! in IpRange::contains",

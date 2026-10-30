@@ -11,7 +11,7 @@
     <!-- Theme roles (light); values-night/colors.xml has the dark ones. -->
     <color name="etph_primary">@color/purple_500</color>
     <color name="etph_on_primary">@color/white</color>
-    <color name="etph_secondary">@color/teal_700</color>
+    <color name="etph_secondary">#FF006B6A</color>
     <color name="etph_on_secondary">@color/white</color>
     <!-- "Old ETPH app installed" banner: translucent amber over the surface. -->
     <color name="etph_banner_warn">#33FFB300</color>

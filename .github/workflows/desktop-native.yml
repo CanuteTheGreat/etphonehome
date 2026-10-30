@@ -65,9 +65,11 @@ jobs:
           name: standin
           path: standin.tar.gz
 
+  # macos-14 is retired by GitHub on 2026-11-02 (changelog 2026-10-01): arm64 = macos-15,
+  # Intel = macos-15-intel. Deployment target 11.0 is set in build-pkg.sh (no Xcode pin).
   macos-pkg:
     name: macOS package (universal)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -94,7 +96,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-15-intel]
+        os: [macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:

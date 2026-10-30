@@ -97,3 +97,15 @@ beyond sending the purchase token.
   and router admitted, data usage shown. Play bundles are checked to have
   `BILLING_TEST_HOOKS = false`.
 - Real purchases can only be tested by a Play licence tester on a Play-installed build.
+
+### Real-phone QA without a purchase
+
+The CI `etphonehome-debug` artifact (every push to main, Android CI) is a debug-signed APK built with
+`-PbillingTestHooks=true` (the release APK/AAB never is). On a test phone, force Pro without Google Play
+and without paying:
+
+    adb shell am broadcast -n solutions.errant.etph/com.etphonehome.billing.TestHookReceiver --es pro true
+    adb shell am broadcast -n solutions.errant.etph/com.etphonehome.billing.TestHookReceiver --es pro false   # Free
+    adb shell am broadcast -n solutions.errant.etph/com.etphonehome.billing.TestHookReceiver --es pro clear   # ask Play again
+
+`etph-build-info.txt` in the artifact records `billing_test_hooks=true` and the commit.

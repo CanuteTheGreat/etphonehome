@@ -34,6 +34,32 @@ jobs:
           name: etphonehome-linux-${{ github.ref_name }}
           path: dist/etphonehome-linux-${{ github.ref_name }}.tar.gz
 
+  build-linux-aarch64:
+    name: Build Linux aarch64 Release
+    runs-on: arm64
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libdbus-1-dev pkg-config curl xz-utils file binutils
+      - name: Ensure Node.js is present (self-heal)
+        run: command -v node || sudo apt-get install -y nodejs
+      - name: Keep Node.js on PATH for JS-action steps
+        run: dirname "$(command -v node)" >> "$GITHUB_PATH"
+      - name: Build release (glibc 2.31 baseline, static libdbus)
+        run: bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
+      - name: Package
+        run: bash .forgejo/scripts/package.sh linux-aarch64 "${{ github.ref_name }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: etphonehome-linux-aarch64-${{ github.ref_name }}
+          path: dist/etphonehome-linux-aarch64-${{ github.ref_name }}.tar.gz
+
   build-windows:
     name: Build Windows Release
     # No windows-latest runner exists in this infra — cross-compile via
@@ -192,7 +218,7 @@ jobs:
     # ever created here. This talks to the Forgejo releases API directly:
     # create (or reuse) the release for the tag, upload every package, then
     # verify the release really lists all four.
-    needs: [build-linux, build-windows, build-freebsd, build-gui-linux, build-android, build-openwrt]
+    needs: [build-linux, build-linux-aarch64, build-windows, build-freebsd, build-gui-linux, build-android, build-openwrt]
     runs-on: linux-cross-x86_64
     timeout-minutes: 15
     steps:
@@ -399,7 +425,7 @@ jobs:
           print(r["html_url"]); print("\n".join(names))
           tag = r["tag_name"]
           v = tag[1:] + "-r1"
-          want = {f"etphonehome-linux-{tag}.tar.gz", f"etphonehome-windows-{tag}.zip", f"etphonehome-gui-{tag}.tar.gz", f"etphonehome-{tag}.apk",
+          want = {f"etphonehome-linux-{tag}.tar.gz", f"etphonehome-linux-aarch64-{tag}.tar.gz", f"etphonehome-windows-{tag}.zip", f"etphonehome-gui-{tag}.tar.gz", f"etphonehome-{tag}.apk",
                   "etph-openwrt-install.sh", "SHA256SUMS", "sizes.tsv", f"luci-app-etph_{v}_all.ipk", f"luci-app-etph-{v}_noarch.apk"}
           want |= {f"etph-windows-{tag}.msi", f"etph-winget-{tag}.zip", f"etph-macos-{tag}.pkg", f"etphonehome-macos-{tag}.tar.gz",
                    f"etphonehome-{tag[1:]}-freebsd14-amd64.pkg", f"etphonehome-{tag[1:]}-freebsd15-amd64.pkg",

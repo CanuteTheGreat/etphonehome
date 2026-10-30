@@ -14,13 +14,11 @@ name: Android CI
 # infra change.
 
 on:
+  # Every push to main (no path filter): the real-phone QA installs the `etphonehome-debug`
+  # artifact of the latest main build, and etph-build-info.txt in it names the commit, so
+  # the QA can prove it tests current code. PRs keep the path filter.
   push:
     branches: [main]
-    paths:
-      - 'android/**'
-      - 'protocol/**'
-      - '.forgejo/scripts/package.sh'
-      - '.forgejo/workflows/android-ci.yml'
   pull_request:
     branches: [main]
     paths:
@@ -136,7 +134,12 @@ jobs:
           for attempt in 1 2 3; do
             # assembleRelease too, so the release.yml packaging path (and
             # its APK naming) is exercised on every push, not only on tags.
-            ./gradlew --max-workers=2 assembleDebug assembleRelease && break
+            # Two invocations: the release APK (packaged below, same as release.yml) never has
+            # the billing test hooks; the DEBUG APK (the `etphonehome-debug` artifact the daily
+            # real-phone QA installs) is built with -PbillingTestHooks=true so QA can force
+            # Pro with `am broadcast ... TestHookReceiver --es pro true` -- no Play purchase.
+            ./gradlew --max-workers=2 assembleRelease && \
+              ./gradlew --max-workers=2 -PbillingTestHooks=true assembleDebug && break
             if [ "$attempt" -eq 3 ]; then
               echo "gradlew assemble failed after 3 attempts"
               exit 1
@@ -152,18 +155,25 @@ jobs:
           ./gradlew --stop
       - name: Package release APK (same script as release.yml)
         run: bash .forgejo/scripts/package.sh android "ci-${GITHUB_SHA::8}"
+      - name: Build info (commit the APK was built from)
+        run: |
+          mkdir -p android/app/build/outputs/apk/debug
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "branch=$GITHUB_REF_NAME"
+            echo "version_name=$(sed -n 's/.*versionName "\(.*\)"/\1/p' android/app/build.gradle | head -1)"
+            echo "version_code=$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)"
+            echo "billing_test_hooks=true"
+            echo "built_at=$(date -u +%FT%TZ)"
+          } > android/app/build/outputs/apk/debug/etph-build-info.txt
+          cat android/app/build/outputs/apk/debug/etph-build-info.txt
       - name: Upload APK
-        # continue-on-error: this step is a Node-based action and the one
-        # most likely to hit the documented beauxbatons Docker Desktop VM
-        # memory ceiling right after a full assembleDebug (see comments
-        # above and LIVE-STATUS.md 2026-10-08 entries -- "node: executable
-        # file not found in $PATH" under memory pressure, not a real bug).
-        # The debug APK artifact is convenience-only (no downstream job or
-        # release pipeline consumes it), so a failure here must not fail
-        # the job when the actual build (assembleDebug, the step that
-        # matters) already succeeded.
-        continue-on-error: true
+        # Not continue-on-error any more: QA tests this artifact every day, so a build
+        # that cannot publish it must be red. (The node-on-PATH pin above and the
+        # Gradle daemon stop are the fixes for the old "node: not found" flake.)
         uses: actions/upload-artifact@v3
         with:
           name: etphonehome-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/debug/etph-build-info.txt

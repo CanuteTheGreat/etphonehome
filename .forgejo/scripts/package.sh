@@ -8,7 +8,7 @@
 # `etphonehome` / `etphonehome.exe`, and it expected `app-release-unsigned.apk`
 # although release builds are signed.)
 #
-# Usage: package.sh <linux|windows|gui|android|freebsd> <version>
+# Usage: package.sh <linux|linux-aarch64|windows|gui|android|freebsd> <version>
 set -euo pipefail
 # Never pipe a listing into `grep -q`: grep exits at the first match, the
 # lister gets SIGPIPE, and with pipefail the step fails with exit 141
@@ -29,6 +29,18 @@ case "$KIND" in
     tar -C "$STAGE" -czf "$DIST/etphonehome-linux-$VER.tar.gz" etphonehome
     # Smoke-test the packaged binary itself.
     mkdir "$STAGE/x" && tar -C "$STAGE/x" -xzf "$DIST/etphonehome-linux-$VER.tar.gz"
+    "$STAGE/x/etphonehome" --version
+    "$STAGE/x/etphonehome" --help >/dev/null
+    ;;
+  linux-aarch64)
+    # Native arm64 desktop client (same glibc 2.31 baseline, static libdbus), built on
+    # the arm64 runners; used by the real-phone QA on crystalcave (an aarch64 Jetson).
+    [ "$(uname -m)" = aarch64 ] || { echo "linux-aarch64 packages must be built on an aarch64 host" >&2; exit 1; }
+    BIN="$ROOT/desktop/target/release/etphonehome"
+    strip -o "$STAGE/etphonehome" "$BIN"
+    tar -C "$STAGE" -czf "$DIST/etphonehome-linux-aarch64-$VER.tar.gz" etphonehome
+    mkdir "$STAGE/x" && tar -C "$STAGE/x" -xzf "$DIST/etphonehome-linux-aarch64-$VER.tar.gz"
+    file "$STAGE/x/etphonehome" | has 'ARM aarch64'
     "$STAGE/x/etphonehome" --version
     "$STAGE/x/etphonehome" --help >/dev/null
     ;;

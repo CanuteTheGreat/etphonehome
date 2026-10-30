@@ -268,6 +268,61 @@ jobs:
           # nonexistent `etphonehome-linux`, so nothing was ever uploaded.
           path: dist/etphonehome-linux-*.tar.gz
 
+  build-linux-aarch64:
+    name: Build Linux aarch64
+    # Native arm64 client for the real-phone QA on crystalcave (an aarch64 Jetson, where nothing
+    # may be built). Published on every main build as artifact `etphonehome-linux-aarch64`, next
+    # to the x86_64 `etphonehome-linux`; etph-build-info.txt names the commit it was built from.
+    needs: test
+    runs-on: arm64
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libdbus-1-dev pkg-config curl xz-utils file binutils
+      - name: Ensure Node.js is present (self-heal)
+        run: command -v node || sudo apt-get install -y nodejs
+      - name: Keep Node.js on PATH for JS-action steps
+        run: dirname "$(command -v node)" >> "$GITHUB_PATH"
+      - name: Compute cache key
+        id: cachekey
+        run: echo "hash=$(find desktop -name Cargo.toml | sort | xargs cat | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-${{ steps.cachekey.outputs.hash }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-build-
+      - name: Build release (glibc 2.31 baseline, static libdbus -- as released)
+        run: bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
+      - name: Package (same script as release.yml) and smoke-test
+        run: bash .forgejo/scripts/package.sh linux-aarch64 "ci-${GITHUB_SHA::8}"
+      - name: Build info
+        run: |
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "branch=$GITHUB_REF_NAME"
+            echo "client_version=$(tar -xzOf dist/etphonehome-linux-aarch64-ci-${GITHUB_SHA::8}.tar.gz etphonehome > /tmp/etph && chmod +x /tmp/etph && /tmp/etph --version)"
+            echo "arch=aarch64"
+            echo "built_at=$(date -u +%FT%TZ)"
+          } > dist/etph-build-info.txt
+          cat dist/etph-build-info.txt
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: etphonehome-linux-aarch64
+          path: |
+            dist/etphonehome-linux-aarch64-*.tar.gz
+            dist/etph-build-info.txt
+
   build-windows:
     name: Build Windows
     needs: build-linux

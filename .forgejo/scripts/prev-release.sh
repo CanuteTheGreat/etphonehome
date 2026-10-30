@@ -33,7 +33,7 @@ PY
 URL=$(python3 -c "
 import json,sys
 r=[r for r in json.load(open('$OUT/releases.json')) if r['tag_name']=='$TAG'][0]
-print([a['browser_download_url'] for a in r['assets'] if a['name'].startswith('etphonehome-linux-')][0])")
+print([a['browser_download_url'] for a in r['assets'] if a['name'].startswith('etphonehome-linux-') and not a['name'].startswith('etphonehome-linux-aarch64-')][0])")
 curl -fsSL "$URL" -o "$OUT/linux.tar.gz"
 tar -C "$OUT/bin" -xzf "$OUT/linux.tar.gz"
 "$OUT/bin/etphonehome" --version

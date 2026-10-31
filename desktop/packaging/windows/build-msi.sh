@@ -21,7 +21,7 @@ WINTUN_URL=https://www.wintun.net/builds/wintun-0.14.1.zip
 WINTUN_SHA=07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
 S=$(mktemp -d)
 trap 'rm -rf "$S"' EXIT
-curl -fsSL --retry 3 "$WINTUN_URL" -o "$S/wintun.zip"
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 --max-time 180 "$WINTUN_URL" -o "$S/wintun.zip"
 echo "$WINTUN_SHA  $S/wintun.zip" | sha256sum -c -
 unzip -q "$S/wintun.zip" -d "$S"
 cp "$S/wintun/bin/amd64/wintun.dll" "$S/wintun.dll"

@@ -344,8 +344,13 @@ jobs:
           components: clippy
       - name: Install mingw-w64 and wixl (MSI)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y mingw-w64 zip unzip wixl msitools python3-pil
+          # Retry: a shared runner's apt lock/mirror hiccup failed this job in ~75s once.
+          for i in 1 2 3 4; do
+            sudo apt-get -o DPkg::Lock::Timeout=120 update && \
+              sudo apt-get -o DPkg::Lock::Timeout=120 install -y mingw-w64 zip unzip wixl msitools python3-pil && break
+            [ "$i" = 4 ] && exit 1
+            echo "apt attempt $i failed; retrying"; sleep $((i*15))
+          done
       - name: Ensure Node.js is present (self-heal)
         run: command -v node || sudo apt-get install -y nodejs
       - name: Compute cache key

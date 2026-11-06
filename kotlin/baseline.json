@@ -1,6 +1,6 @@
 {
  "id": "kotlin",
- "last_full": "2026-10-30",
+ "last_full": "2026-11-06",
  "sha": "99aae849537d653b51209525f856119d10fed3a9",
  "survivors": [
   "com.etphonehome.filter.FilterConfigKt.parseWireRule$ports: org.pitest.mutationtest.engine.gregor.mutators.returns.EmptyObjectReturnValsMutator: replaced return value with Collections.emptyList for com/etphonehome/filter/FilterConfigKt::parseWireRule$ports",
@@ -254,6 +254,7 @@
   "com.etphonehome.session.TetherSession$run$2$1.invokeSuspend: org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator: removed call to com/etphonehome/session/TetherSession::access$setLastFromDesktop$p",
   "com.etphonehome.session.TetherSession$run$2$1.invokeSuspend: org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator: removed call to kotlinx/coroutines/Job$DefaultImpls::cancel$default",
   "com.etphonehome.session.TetherSession$run$2.invokeSuspend$lambda$0: org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator: replaced return value with null for com/etphonehome/session/TetherSession$run$2::invokeSuspend$lambda$0",
+  "com.etphonehome.session.TetherSession$run$2.invokeSuspend: org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator: negated conditional",
   "com.etphonehome.session.TetherSession$run$2.invokeSuspend: org.pitest.mutationtest.engine.gregor.mutators.returns.NullReturnValsMutator: replaced return value with null for com/etphonehome/session/TetherSession$run$2::invokeSuspend",
   "com.etphonehome.session.TetherSession.applyConfig: org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator: removed call to com/etphonehome/relay/UserspaceRelay::filterChanged",
   "com.etphonehome.tls.CertPin$PinningTrustManager.checkServerTrusted: org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator: removed call to com/etphonehome/tls/CertPin$PinningTrustManager::check",

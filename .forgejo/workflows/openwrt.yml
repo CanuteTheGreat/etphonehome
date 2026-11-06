@@ -18,7 +18,7 @@ on:
       - '.forgejo/scripts/openwrt-packages.sh'
       - '.forgejo/workflows/openwrt.yml'
   schedule:
-    - cron: '23 9 * * *'
+    - cron: '53 19 * * *'   # 11:53 PST, trough; moved 2026-11-06 off the 00:00-03:00 PST pile-up (measured busiest), see ctg ci-wait-and-queue reference
   workflow_dispatch:
 
 concurrency:

@@ -8,7 +8,7 @@ name: Android emulator (real app, real internet)
 
 on:
   schedule:
-    - cron: '47 11 * * *'
+    - cron: '7 23 * * *'   # 15:07 PST; moved 2026-11-06 off the 00:00-03:00 PST pile-up (measured busiest), see ctg ci-wait-and-queue reference
   workflow_dispatch:
 
 jobs:

@@ -9,7 +9,7 @@ name: Nightly (deep tunnel, platforms, upgrade)
 #               each running a real tunnel with real traffic
 #   windows     the Windows client executed (wine): CLI, config, and a real
 #               TLS + protocol handshake with the phone core
-# Android on emulators: android-emulator.yml. Mutation testing: mutation.yml.
+# Event-driven since 2026-11-06 (CI-TRIGGERS.md). Android on emulators: android-emulator.yml. Mutation testing: mutation.yml.
 
 on:
   # Event-driven (2026-11-06; file name kept for the sweeper's low-priority rule): runs on push to main when its inputs changed. Burst of pushes = ONE run (replace: group). No cron.

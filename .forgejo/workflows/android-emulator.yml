@@ -7,9 +7,24 @@ name: Android emulator (real app, real internet)
 # See .forgejo/scripts/android-emulator-e2e.sh.
 
 on:
+  # Event-driven (2026-11-06; file name kept for the sweeper's low-priority rule): runs on push to main when its inputs changed. Burst of pushes = ONE run (replace: group). No cron.
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.forgejo/scripts/android-emulator-e2e.sh'
+      - '.forgejo/scripts/setup-android-sdk.sh'
+      - '.forgejo/workflows/android-emulator.yml'
+  # Weekly safety net only: this suite uses the REAL internet (external, no change signal). Own-input changes run it on push.
   schedule:
-    - cron: '7 23 * * *'   # 15:07 PST; moved 2026-11-06 off the 00:00-03:00 PST pile-up (measured busiest), see ctg ci-wait-and-queue reference
+    - cron: '7 23 * * 1'
   workflow_dispatch:
+
+# Event-driven (2026-11-06): runs when its inputs change (push paths above), no cron. Burst of pushes = ONE run:
+# newest unstarted run replaces older unstarted ones (ci-supersede-sweeper replace: group); a started run is never cancelled.
+concurrency:
+  group: "replace:${{ github.workflow }}@${{ github.ref }}"
+  cancel-in-progress: false
 
 jobs:
   emulator:

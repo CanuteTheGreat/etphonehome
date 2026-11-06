@@ -13,9 +13,15 @@ name: Mutation testing (nightly incremental, weekly full)
 # with no change a job finishes in about a minute without building anything.
 
 on:
-  schedule:
-    # 10:10 UTC, staggered across the colo lane's day (ctg-infrastructure ci-runners/rw-man-colo)
-    - cron: '10 2 * * *'   # 18:10 PST; moved 2026-11-06 off the 00:00-03:00 PST pile-up (measured busiest), see ctg ci-wait-and-queue reference
+  # Event-driven (2026-11-06): push to main touching mutated code; plan = full (Friday, once) / incremental / skip. Burst = ONE run. No cron.
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'android/core/**'
+      - 'ci/mutation-thresholds.json'
+      - '.forgejo/scripts/mutation-incremental.py'
+      - '.forgejo/workflows/mutation.yml'
   workflow_dispatch:
     inputs:
       mode:

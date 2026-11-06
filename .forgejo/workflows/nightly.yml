@@ -12,9 +12,19 @@ name: Nightly (deep tunnel, platforms, upgrade)
 # Android on emulators: android-emulator.yml. Mutation testing: mutation.yml.
 
 on:
-  schedule:
-    # 18:10 UTC, staggered across the colo lane's day (deep runs there; ctg-infrastructure ci-runners/rw-man-colo)
-    - cron: '10 18 * * *'
+  # Event-driven (2026-11-06; file name kept for the sweeper's low-priority rule): runs on push to main when its inputs changed. Burst of pushes = ONE run (replace: group). No cron.
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'android/**'
+      - 'protocol/**'
+      - 'store/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'ci/**'
+      - '.forgejo/scripts/**'
+      - '.forgejo/workflows/nightly.yml'
   workflow_dispatch:
 
 # A newer queued run replaces an older one that has not started (ci-supersede-sweeper,

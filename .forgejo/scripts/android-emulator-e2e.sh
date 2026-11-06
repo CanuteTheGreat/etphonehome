@@ -76,31 +76,48 @@ sdkmanager --sdk_root="$SDK" "emulator" "platform-tools" "$IMG" >/dev/null || { 
 # cover the app).
 echo no | avdmanager create avd -n "etph$API" -k "$IMG" -d pixel_5 --force >/dev/null
 ls -l /dev/kvm
-emulator -avd "etph$API" -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics \
-  -gpu swiftshader_indirect -accel on -memory 3072 -cores 2 -port 5554 >"$LOG/emulator.log" 2>&1 &
-PIDS+=($!)
-export ANDROID_SERIAL=emulator-5554
-adb start-server >/dev/null
-T0=$(now_ms)
-booted=0
-for _ in $(seq 1 180); do
-  [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && { booted=1; break; }
+boot_emulator() { # one emulator boot, 0 = booted
+  adb emu kill >/dev/null 2>&1
+  pkill -f "qemu-system.*etph$API" 2>/dev/null
   sleep 2
-done
-if [ $booted != 1 ]; then
-  tail -40 "$LOG/emulator.log"
-  echo "FAIL: [API $API] emulator did not boot"
-  exit 1
-fi
-echo "emulator API $API booted in $(( ($(now_ms) - T0) / 1000 ))s"
-adb shell settings put global window_animation_scale 0
-adb shell settings put global transition_animation_scale 0
-adb shell settings put global animator_duration_scale 0
-adb shell svc power stayon true
-adb shell wm dismiss-keyguard >/dev/null 2>&1
-adb shell input keyevent 82
-# Let the freshly booted system settle: launcher up, and no "isn't
-# responding" dialog left over the screen (they took every tap on API 34).
+  emulator -avd "etph$API" -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics \
+    -gpu swiftshader_indirect -accel on -memory 3072 -cores 2 -port 5554 >"$LOG/emulator.log" 2>&1 &
+  PIDS+=($!)
+  export ANDROID_SERIAL=emulator-5554
+  adb start-server >/dev/null
+  T0=$(now_ms)
+  local booted=0
+  for _ in $(seq 1 180); do
+    [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && { booted=1; break; }
+    sleep 2
+  done
+  if [ $booted != 1 ]; then
+    tail -40 "$LOG/emulator.log"
+    return 1
+  fi
+  echo "emulator API $API booted in $(( ($(now_ms) - T0) / 1000 ))s"
+  adb shell settings put global window_animation_scale 0
+  adb shell settings put global transition_animation_scale 0
+  adb shell settings put global animator_duration_scale 0
+  adb shell svc power stayon true
+  adb shell wm dismiss-keyguard >/dev/null 2>&1
+  adb shell input keyevent 82
+}
+# sys.boot_completed does not mean the emulated network is up: a boot can come up with a Wi-Fi/DNS
+# path that never works (2026-11-06, API 34: every DNS lookup and every connection from the phone,
+# its own included, failed for the whole run). Gate on the phone resolving and reaching a public
+# host itself, before the app is involved; a boot without it is thrown away and redone. If no boot
+# in ATTEMPTS has network the run fails here, naming the cause, rather than as 18 app failures.
+phone_has_network() { # waits up to $1 seconds
+  local r _
+  for _ in $(seq 1 $(($1 / 5))); do
+    r=$(adb shell '(printf "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n"; sleep 3) | toybox nc -w 8 example.com 80 | head -1' 2>/dev/null | tr -d '\r')
+    case "$r" in *" 200"*) return 0 ;; esac
+    sleep 2
+  done
+  return 1
+}
+
 settle() {
   for _ in $(seq 1 20); do
     adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1
@@ -112,7 +129,29 @@ settle() {
     esac
   done
 }
-settle
+
+EMU_ATTEMPTS=3
+for attempt in $(seq 1 $EMU_ATTEMPTS); do
+  if ! boot_emulator; then
+    echo "emulator API $API attempt $attempt/$EMU_ATTEMPTS: did not boot"
+    [ "$attempt" = "$EMU_ATTEMPTS" ] && { echo "FAIL: [API $API] emulator did not boot"; exit 1; }
+    continue
+  fi
+  settle
+  if phone_has_network 60; then
+    [ "$attempt" -gt 1 ] && echo "emulator API $API: network came up on boot attempt $attempt"
+    break
+  fi
+  echo "emulator API $API attempt $attempt/$EMU_ATTEMPTS: booted but the phone has no network (DNS/HTTP to example.com)"
+  adb shell ip addr 2>&1 | grep -E "inet |^[0-9]+:" | head -10
+  adb shell ip route 2>&1 | head -5
+  adb shell getprop net.dns1
+  cp "$LOG/emulator.log" "$LOG/emulator-attempt$attempt.log" 2>/dev/null
+  if [ "$attempt" = "$EMU_ATTEMPTS" ]; then
+    echo "FAIL: [API $API] the emulator never got working network in $EMU_ATTEMPTS boots (host DNS/egress or emulator networking, not the app)"
+    exit 1
+  fi
+done
 
 # --- UI helpers -----------------------------------------------------------------
 dump() {

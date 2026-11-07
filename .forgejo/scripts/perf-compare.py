@@ -2,7 +2,7 @@
 """Compare tunnel-deep.sh's perf.json with the committed baseline.
 
 Throughput keys (*_mibps) fail when below baseline / factor, latency keys
-(*_ms) when above max(baseline * factor, baseline + 2 ms). direct_* keys describe the runner, not
+(*_ms) when above max(baseline * factor, baseline + 2 ms; p95 keys: 2 ms / runner scale). direct_* keys describe the runner, not
 the product. When both files carry direct_down_mibps (the same 256 MiB fetched
 without the tunnel), throughput limits are scaled by measured/baseline runner
 speed, capped at 1 (a fast runner never makes the check stricter) and floored
@@ -52,7 +52,14 @@ for key in sorted(set(base) | set(got)):
         # Sub-millisecond latencies jitter by more than 2x on a shared
         # runner; 2 ms of absolute slack keeps the check about real
         # regressions (a 40 ms Nagle stall, a polling loop).
-        limit = max(b * factor, b + 2.0)
+        # A p95 of 200 samples is a tail statistic: on a loaded shared runner
+        # (direct_down 240 vs 1790 MiB/s baseline) a couple of scheduler
+        # hiccups push it to 2-3 ms while the median stays at 0.3-0.4 ms
+        # (nightly 608, 2026-11-06). Widen only the p95 slack by the measured
+        # runner slowdown (max 5x = 10 ms); medians keep the strict 2 ms, so
+        # a Nagle stall (40 ms) or a polling loop still fails.
+        slack = 2.0 / scale if key.endswith("_p95_ms") else 2.0
+        limit = max(b * factor, b + slack)
         ok = m <= limit
     print(f"{key:24} {b:>10} {m:>10} {round(limit, 2):>10}  {'ok' if ok else 'FAIL (regression)'}")
     bad += 0 if ok else 1

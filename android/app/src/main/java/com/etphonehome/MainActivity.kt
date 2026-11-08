@@ -285,6 +285,7 @@ class MainActivity : AppCompatActivity() {
         stopButton.isEnabled = running
         for (i in 0 until connectionModeGroup.childCount) connectionModeGroup.getChildAt(i).isEnabled = !running
         requireEncryptionSwitch.isEnabled = !running
+        requireEncryptionSwitch.text = WifiText.encryptionLabel(Settings.requireEncryption(this), running)
         renderUsbHint()
     }
 

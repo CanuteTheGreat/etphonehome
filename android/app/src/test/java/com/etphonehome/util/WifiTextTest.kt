@@ -26,4 +26,11 @@ class WifiTextTest {
     fun shortTokensAreFullyMasked() {
         assertEquals("\u2022\u2022\u2022", WifiText.mask("abc"))
     }
+
+    @Test
+    fun encryptionLabelStatesTheStateWhileLocked() {
+        assertEquals("Require encryption (TLS 1.3) for WiFi", WifiText.encryptionLabel(true, false))
+        assertTrue(WifiText.encryptionLabel(true, true).startsWith("Encryption required: TLS 1.3"))
+        assertTrue(WifiText.encryptionLabel(false, true).contains("NOT required"))
+    }
 }

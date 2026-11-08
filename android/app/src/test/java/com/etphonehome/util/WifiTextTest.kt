@@ -29,8 +29,9 @@ class WifiTextTest {
 
     @Test
     fun encryptionLabelStatesTheStateWhileLocked() {
-        assertEquals("Require encryption (TLS 1.3) for WiFi", WifiText.encryptionLabel(true, false))
-        assertTrue(WifiText.encryptionLabel(true, true).startsWith("Encryption required: TLS 1.3"))
-        assertTrue(WifiText.encryptionLabel(false, true).contains("NOT required"))
+        assertEquals(WifiText.EncryptionLabel.IDLE, WifiText.encryptionLabel(true, false))
+        assertEquals(WifiText.EncryptionLabel.IDLE, WifiText.encryptionLabel(false, false))
+        assertEquals(WifiText.EncryptionLabel.LOCKED_ON, WifiText.encryptionLabel(true, true))
+        assertEquals(WifiText.EncryptionLabel.LOCKED_OFF, WifiText.encryptionLabel(false, true))
     }
 }

@@ -26,12 +26,14 @@ object WifiText {
     }
 
     /**
-     * Label of the encryption switch. A disabled (greyed) switch looks "off"
-     * whatever its state, so while tethering the label says what is in force.
+     * Which label the encryption switch shows. A disabled (greyed) switch looks
+     * "off" whatever its state, so while tethering the label says what is in force.
      */
-    fun encryptionLabel(required: Boolean, running: Boolean): String = when {
-        !running -> "Require encryption (TLS 1.3) for WiFi"
-        required -> "Encryption required: TLS 1.3 (locked while running)"
-        else -> "Encryption NOT required: plaintext allowed (locked while running)"
+    enum class EncryptionLabel { IDLE, LOCKED_ON, LOCKED_OFF }
+
+    fun encryptionLabel(required: Boolean, running: Boolean): EncryptionLabel = when {
+        !running -> EncryptionLabel.IDLE
+        required -> EncryptionLabel.LOCKED_ON
+        else -> EncryptionLabel.LOCKED_OFF
     }
 }

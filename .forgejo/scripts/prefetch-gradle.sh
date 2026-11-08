@@ -26,15 +26,28 @@ P
 dir="${GRADLE_USER_HOME:-$HOME/.gradle}/wrapper/dists/$name/$hash"
 if [ -f "$dir/$zipname" ] || [ -f "$dir/$zipname.ok" ]; then echo "gradle dist already present"; exit 0; fi
 mkdir -p "$dir"
-for i in 1 2 3 4 5 6 7 8; do
-  if curl -fsSL --connect-timeout 15 --max-time 300 -o "$dir/$zipname.part" "$url" \
-     && unzip -tq "$dir/$zipname.part" >/dev/null 2>&1; then
+# Official sha256 (served by Gradle itself, not from the GitHub asset) lets us
+# also accept the zip from a public mirror when the official redirect is down.
+sha=""
+for i in 1 2 3; do
+  sha=$(curl -fsSL --connect-timeout 15 --max-time 30 "$url.sha256" 2>/dev/null | tr -d '[:space:]')
+  [ "${#sha}" -eq 64 ] && break
+  sha=""; sleep 5
+done
+sources=("$url" "$url" "$url")
+[ -n "$sha" ] && sources+=("https://mirrors.cloud.tencent.com/gradle/$zipname" "$url" "https://mirrors.cloud.tencent.com/gradle/$zipname")
+n=0
+for src in "${sources[@]}"; do
+  n=$((n + 1))
+  if curl -fsSL --connect-timeout 15 --max-time 300 -o "$dir/$zipname.part" "$src" \
+     && unzip -tq "$dir/$zipname.part" >/dev/null 2>&1 \
+     && { [ -z "$sha" ] || [ "$(sha256sum "$dir/$zipname.part" | cut -d' ' -f1)" = "$sha" ]; }; then
     mv "$dir/$zipname.part" "$dir/$zipname"
-    echo "gradle dist fetched (attempt $i): $dir/$zipname"
+    echo "gradle dist fetched (try $n, $src)"
     exit 0
   fi
-  echo "gradle dist download failed (attempt $i/8), retrying in 15s"
-  rm -f "$dir/$zipname.part"; sleep 15
+  echo "gradle dist download failed (try $n: $src), retrying in 10s"
+  rm -f "$dir/$zipname.part"; sleep 10
 done
 echo "gradle dist prefetch gave up; the wrapper will try itself"
 exit 0

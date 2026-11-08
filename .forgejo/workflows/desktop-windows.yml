@@ -42,7 +42,7 @@ jobs:
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           java-version: '17'
-          distribution: temurin
+          distribution: 'zulu'
       - name: Ensure Node.js is present (self-heal)
         run: command -v node || (sudo apt-get update -qq && sudo apt-get install -y -qq nodejs)
       - name: Build

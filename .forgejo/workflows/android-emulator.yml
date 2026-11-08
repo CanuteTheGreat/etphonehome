@@ -41,7 +41,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: 'zulu'
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
       - name: Install dependencies

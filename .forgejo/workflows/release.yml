@@ -183,7 +183,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: 'zulu'
       # (gradle/actions/setup-gradle@v3 removed: it fails on this runner with
       # "node: executable file not found", see android-ci.yml.)
       - name: Set up Android SDK

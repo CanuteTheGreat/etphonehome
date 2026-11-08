@@ -97,7 +97,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: 'zulu'
       - name: Tools
         run: |
           sudo apt-get update -qq
@@ -151,7 +151,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: 'zulu'
       - name: Tools
         run: |
           sudo apt-get update -qq

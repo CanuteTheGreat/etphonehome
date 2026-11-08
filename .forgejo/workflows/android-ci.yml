@@ -48,7 +48,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: 'zulu'
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Shared build cache (rw-build-cache)
@@ -84,7 +84,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: 'zulu'
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Shared build cache (rw-build-cache)
@@ -125,7 +125,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: 'zulu'
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Shared build cache (rw-build-cache)

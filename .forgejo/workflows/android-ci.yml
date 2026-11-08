@@ -49,6 +49,8 @@ jobs:
         with:
           java-version: '17'
           distribution: 'zulu'
+      - name: Prefetch Gradle distribution (retrying)
+        run: .forgejo/scripts/prefetch-gradle.sh
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Shared build cache (rw-build-cache)
@@ -85,6 +87,8 @@ jobs:
         with:
           java-version: '17'
           distribution: 'zulu'
+      - name: Prefetch Gradle distribution (retrying)
+        run: .forgejo/scripts/prefetch-gradle.sh
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Shared build cache (rw-build-cache)
@@ -126,6 +130,8 @@ jobs:
         with:
           java-version: '17'
           distribution: 'zulu'
+      - name: Prefetch Gradle distribution (retrying)
+        run: .forgejo/scripts/prefetch-gradle.sh
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Shared build cache (rw-build-cache)

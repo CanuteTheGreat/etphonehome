@@ -91,6 +91,8 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
+      - name: Prefetch Gradle distribution (retrying)
+        run: .forgejo/scripts/prefetch-gradle.sh
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Build UNSIGNED release AAB

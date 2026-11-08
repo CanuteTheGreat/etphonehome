@@ -98,6 +98,8 @@ jobs:
         with:
           java-version: '17'
           distribution: 'zulu'
+      - name: Prefetch Gradle distribution (retrying)
+        run: .forgejo/scripts/prefetch-gradle.sh
       - name: Tools
         run: |
           sudo apt-get update -qq
@@ -152,6 +154,8 @@ jobs:
         with:
           java-version: '17'
           distribution: 'zulu'
+      - name: Prefetch Gradle distribution (retrying)
+        run: .forgejo/scripts/prefetch-gradle.sh
       - name: Tools
         run: |
           sudo apt-get update -qq

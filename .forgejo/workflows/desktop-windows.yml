@@ -43,6 +43,8 @@ jobs:
         with:
           java-version: '17'
           distribution: 'zulu'
+      - name: Prefetch Gradle distribution (retrying)
+        run: .forgejo/scripts/prefetch-gradle.sh
       - name: Ensure Node.js is present (self-heal)
         run: command -v node || (sudo apt-get update -qq && sudo apt-get install -y -qq nodejs)
       - name: Build

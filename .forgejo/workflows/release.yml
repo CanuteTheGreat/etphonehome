@@ -184,6 +184,8 @@ jobs:
         with:
           java-version: '17'
           distribution: 'zulu'
+      - name: Prefetch Gradle distribution (retrying)
+        run: .forgejo/scripts/prefetch-gradle.sh
       # (gradle/actions/setup-gradle@v3 removed: it fails on this runner with
       # "node: executable file not found", see android-ci.yml.)
       - name: Set up Android SDK

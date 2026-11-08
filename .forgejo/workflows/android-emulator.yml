@@ -42,6 +42,8 @@ jobs:
         with:
           java-version: '17'
           distribution: 'zulu'
+      - name: Prefetch Gradle distribution (retrying)
+        run: .forgejo/scripts/prefetch-gradle.sh
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
       - name: Install dependencies

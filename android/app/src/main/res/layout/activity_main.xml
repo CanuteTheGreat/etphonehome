@@ -155,7 +155,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:fontFamily="monospace"
-            android:textIsSelectable="true"
+            android:textIsSelectable="false"
             android:textSize="13sp"
             android:visibility="gone" />
 

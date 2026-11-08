@@ -33,6 +33,7 @@ import com.etphonehome.util.LegacyApp
 import com.etphonehome.util.ProText
 import com.etphonehome.util.Settings
 import com.etphonehome.util.TokenManager
+import com.etphonehome.util.WifiText
 import com.etphonehome.util.UsbHint
 import com.etphonehome.util.UsbLinkState
 import kotlinx.coroutines.delay
@@ -337,15 +338,16 @@ class MainActivity : AppCompatActivity() {
         val wifiIp = wifiIpAddress()
         val token = TokenManager.getWifiToken(this)
         wifiIpText.text = if (wifiIp != null) {
-            buildString {
-                appendLine("WiFi IP: $wifiIp:${TetherService.DEFAULT_PORT}")
-                appendLine("Auth Token: $token")
-                appendLine()
-                appendLine("Desktop connection:")
-                append("  sudo etphonehome wifi --host $wifiIp --token $token")
-            }
+            WifiText.info(wifiIp, TetherService.DEFAULT_PORT, token)
         } else {
             "WiFi not connected. Please connect to WiFi first."
+        }
+        wifiIpText.setOnClickListener {
+            if (wifiIp == null) return@setOnClickListener
+            val cmd = WifiText.desktopCommand(wifiIp, TetherService.DEFAULT_PORT, token)
+            (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                .setPrimaryClip(android.content.ClipData.newPlainText("etphonehome", cmd))
+            Toast.makeText(this, "Command copied", Toast.LENGTH_SHORT).show()
         }
         wifiIpText.visibility = View.VISIBLE
     }

@@ -162,6 +162,11 @@ def steps(a, ssh, standins):
     check(ok, "LAN client: HTTPS after the WAN came back", out)
     ok, gws = wait_until(lambda: (lambda d: (d.get("ETPH_GW") == "none", d))(gateways(ssh)), 60, 5)
     rc, out = ssh("grep -c 'Tethering connection established' /var/log/etphonehome.log")
+    if out.strip() != "1":
+        # a second session means the first one dropped during the WAN outage: keep the
+        # client's own account of why (otherwise a flake leaves nothing to root-cause)
+        print("--- /var/log/etphonehome.log (session drops) ---")
+        print(ssh("grep -n -iE 'established|silent|disconnect|lost|error|reconnect|retry|timeout' /var/log/etphonehome.log | tail -40")[1])
     check(ok and out.strip() == "1", f"one phone session through WAN failure and recovery, ETPH_GW online: {gws}, "
           f"sessions {out.strip()}", out)
 

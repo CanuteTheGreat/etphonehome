@@ -77,14 +77,14 @@ impl TcpLink {
 
 impl Link for TcpLink {
     fn send(&self, hdr: &Header, data: &[u8]) -> io::Result<()> {
-        let mut w = self.write.lock().unwrap();
+        let mut w = self.write.lock().unwrap_or_else(|e| e.into_inner());
         let mut buf = hdr.encode().to_vec();
         buf.extend_from_slice(data);
         w.write_all(&buf)
     }
 
     fn recv(&self) -> io::Result<Option<(Header, Vec<u8>)>> {
-        let mut r = self.read.lock().unwrap();
+        let mut r = self.read.lock().unwrap_or_else(|e| e.into_inner());
         let mut h = [0u8; 24];
         // Only the first byte may time out; after that the message is due.
         match r.read(&mut h[..1]) {
@@ -111,7 +111,7 @@ impl Link for TcpLink {
         let _ = self
             .write
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .shutdown(std::net::Shutdown::Both);
     }
 }

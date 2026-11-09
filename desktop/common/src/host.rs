@@ -317,12 +317,12 @@ impl StatusFile {
     }
 
     pub fn snapshot(&self) -> Status {
-        self.inner.lock().unwrap().0.clone()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).0.clone()
     }
 
     fn update(&self, f: impl FnOnce(&mut Status)) {
         let json = {
-            let mut g = self.inner.lock().unwrap();
+            let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             f(&mut g.0);
             g.0.updated = unix_now();
             serde_json::to_string_pretty(&g.0).unwrap_or_default()
@@ -350,7 +350,7 @@ impl StatusFile {
     }
 
     pub fn connected(&self, device: Option<String>, encrypted: bool) {
-        self.inner.lock().unwrap().1 = None;
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).1 = None;
         self.update(|s| {
             s.state = "connected".into();
             s.device = device;
@@ -379,7 +379,7 @@ impl StatusFile {
     pub fn traffic(&self, sent: u64, received: u64) {
         let now = Instant::now();
         let (rs, rr) = {
-            let mut g = self.inner.lock().unwrap();
+            let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             let rates = match g.1 {
                 Some((t, ps, pr)) => {
                     let dt = now.duration_since(t).as_secs_f64();

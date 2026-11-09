@@ -253,7 +253,7 @@ fn is_timeout(e: &io::Error) -> bool {
 
 impl Link for UsbLink {
     fn send(&self, hdr: &Header, data: &[u8]) -> io::Result<()> {
-        let _g = self.out_lock.lock().unwrap();
+        let _g = self.out_lock.lock().unwrap_or_else(|e| e.into_inner());
         self.write_all(&hdr.encode())?;
         if !data.is_empty() {
             self.write_all(data)?;
@@ -267,7 +267,7 @@ impl Link for UsbLink {
     }
 
     fn recv(&self) -> io::Result<Option<(Header, Vec<u8>)>> {
-        let mut guard = self.in_lock.lock().unwrap();
+        let mut guard = self.in_lock.lock().unwrap_or_else(|e| e.into_inner());
         // Read with a large buffer: an adbd that sends header and payload in
         // one transfer must not overflow a 24-byte read.
         let (pending, buf) = &mut *guard;

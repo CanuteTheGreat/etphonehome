@@ -1,7 +1,7 @@
 {
  "id": "rust",
  "last_full": "2026-11-06",
- "sha": "e38f9518b096f503887074ba8b9ec918a55d42ce",
+ "sha": "305ce9e2d185b09a0910d3c11cd012089a47b821",
  "survivors": [
   "common/src/filter.rs: delete ! in IpRange::contains",
   "common/src/filter.rs: delete match arm 17 in Protocol::from_number",

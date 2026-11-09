@@ -199,6 +199,10 @@ def steps_phone(a, ssh, standins):
     check(ok, "LAN client: HTTPS works through the primary WAN", out)
 
     # ---- primary WAN fails ----------------------------------------------------
+    # sessions the phone has seen BEFORE the outage: the check below is about the outage itself, so it
+    # counts only sessions established after this point (a setup-time restart must not read as a drop)
+    _, s0 = ssh("grep -c 'Tethering connection established' /var/log/etphonehome.log")
+    s0 = int(s0.strip()) if s0.strip().isdigit() else 0
     wan(False)
     ok, gws = wait_until(lambda: (lambda d: (d.get("WAN_DHCP") not in (None,) + UP, d))(gateways(ssh)), 180, 5)
     check(ok, f"WAN gateway marked down after the uplink died: {gws}", gws)
@@ -219,13 +223,14 @@ def steps_phone(a, ssh, standins):
     check(ok, "LAN client: HTTPS after the WAN came back", out)
     ok, gws = wait_until(lambda: (lambda d: (d.get("ETPH_GW") in UP, d))(gateways(ssh)), 60, 5)
     rc, out = ssh("grep -c 'Tethering connection established' /var/log/etphonehome.log")
-    if out.strip() != "1":
+    new = (int(out.strip()) if out.strip().isdigit() else 99) - s0
+    if new != 0 or s0 != 1:
         # a second session means the first one dropped during the WAN outage: keep the
         # client's own account of why (otherwise a flake leaves nothing to root-cause)
         print("--- /var/log/etphonehome.log (session drops) ---")
         print(ssh("grep -n -iE 'established|silent|disconnect|lost|error|reconnect|retry|timeout' /var/log/etphonehome.log | tail -40")[1])
-    check(ok and out.strip() == "1", f"one phone session through WAN failure and recovery, ETPH_GW online: {gws}, "
-          f"sessions {out.strip()}", out)
+    check(ok and new == 0, f"one phone session through WAN failure and recovery, ETPH_GW online: {gws}, "
+          f"sessions {out.strip()} (before the outage {s0}, new {new})", out)
 
     # ---- the phone goes away and comes back -----------------------------------
     standins.pop().terminate()

@@ -317,7 +317,8 @@ impl StatusFile {
     }
 
     pub fn snapshot(&self) -> Status {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).0.clone()
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.0.clone()
     }
 
     fn update(&self, f: impl FnOnce(&mut Status)) {

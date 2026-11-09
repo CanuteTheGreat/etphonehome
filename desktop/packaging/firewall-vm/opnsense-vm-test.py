@@ -112,7 +112,17 @@ def steps(a, ssh, standins):
     check("ETPH_GW" in json.dumps(r), "System: Gateways lists ETPH_GW", json.dumps(r)[:600])
     # what Apply on System: Gateways: Group does: save, then re-arm the
     # gateway watcher with the new group
-    rc, out = ssh("php /tmp/assign.php group && configctl interface routes configure", 300)
+    # The group's item list is validated against configd's cached gateway
+    # list, which can lag the System: Gateways save by a few seconds
+    # ("Option [ETPH_GW] not in list", run 652): the GUI shows the same error
+    # and the admin presses Save again, so retry (a rejected save writes
+    # nothing, so a retry cannot duplicate the group).
+    last = {}
+    def save_group():
+        last["rc"], last["out"] = ssh("php /tmp/assign.php group && configctl interface routes configure", 300)
+        return "group=FAILOVER" in last["out"], last["out"]
+    wait_until(save_group, 120, 10)
+    rc, out = last["rc"], last["out"]
     # Firewall: Rules offers the new group as a gateway once configd's
     # cached gateway list has caught up (seconds): what a person retrying
     # the save would see.

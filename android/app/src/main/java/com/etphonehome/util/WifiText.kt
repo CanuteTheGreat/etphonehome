@@ -22,7 +22,8 @@ object WifiText {
         appendLine("Auth Token: $token")
         appendLine()
         appendLine("Desktop connection (tap here to copy the full command):")
-        append("  sudo etphonehome wifi --host $ip --token ${mask(token)}")
+        appendLine("  sudo etphonehome wifi --host $ip --token ${mask(token)}")
+        append(TokenText.REGENERATE_HINT)
     }
 
     /**

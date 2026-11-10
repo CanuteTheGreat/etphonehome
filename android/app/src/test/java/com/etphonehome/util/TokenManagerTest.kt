@@ -32,4 +32,16 @@ class TokenManagerTest {
         assertFalse(TokenManager.tokenMatches("AbC123XyZ45678901", stored))
         assertFalse(TokenManager.tokenMatches("", stored))
     }
+
+    @Test
+    fun newTokenIsRefusedWhileTetheringAndOfferedWhenStopped() {
+        assertTrue(TokenText.regenerateRefusal(true)!!.contains("Stop"))
+        assertEquals(null, TokenText.regenerateRefusal(false))
+    }
+
+    @Test
+    fun infoBoxesTellTheUserHowToMakeANewToken() {
+        assertTrue(WifiText.info("10.0.0.2", 8765, "AbC123XyZ4567890").contains(TokenText.REGENERATE_HINT))
+        assertTrue(BluetoothText.info("Pixel", "AbC123XyZ4567890").contains(TokenText.REGENERATE_HINT))
+    }
 }

@@ -21,6 +21,7 @@ object BluetoothText {
         appendLine()
         appendLine("1. Pair the computer with this phone (bluetoothctl: pair, trust)")
         appendLine("2. On the computer (Linux):")
-        append("  ${desktopCommand(phoneName, token)}")
+        appendLine("  ${desktopCommand(phoneName, token)}")
+        append(TokenText.REGENERATE_HINT)
     }
 }

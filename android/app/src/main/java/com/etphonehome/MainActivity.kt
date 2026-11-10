@@ -33,6 +33,7 @@ import com.etphonehome.util.LegacyApp
 import com.etphonehome.util.ProText
 import com.etphonehome.util.Settings
 import com.etphonehome.util.TokenManager
+import com.etphonehome.util.TokenText
 import com.etphonehome.util.WifiText
 import com.etphonehome.util.UsbHint
 import com.etphonehome.util.UsbLinkState
@@ -356,12 +357,34 @@ class MainActivity : AppCompatActivity() {
                 .setPrimaryClip(android.content.ClipData.newPlainText("etphonehome", cmd))
             Toast.makeText(this, "Command copied", Toast.LENGTH_SHORT).show()
         }
+        wifiIpText.setOnLongClickListener {
+            confirmNewToken { TokenManager.regenerateWifiToken(this) }
+            true
+        }
         wifiIpText.visibility = View.VISIBLE
+    }
+
+    private fun confirmNewToken(regenerate: () -> Unit) {
+        val refusal = TokenText.regenerateRefusal(TetherStatus.state.value !is TetherState.Stopped)
+        if (refusal != null) {
+            Toast.makeText(this, refusal, Toast.LENGTH_LONG).show()
+            return
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(TokenText.CONFIRM_TITLE)
+            .setMessage(TokenText.CONFIRM_MESSAGE)
+            .setPositiveButton("Make new token") { _, _ -> regenerate(); showModeInfo() }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     @Suppress("MissingPermission") // BLUETOOTH_CONNECT is checked first (granted())
     private fun showBluetoothInfo() {
         bluetoothInfoText.visibility = View.VISIBLE
+        bluetoothInfoText.setOnLongClickListener {
+            confirmNewToken { TokenManager.regenerateBluetoothToken(this) }
+            true
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !granted(Manifest.permission.BLUETOOTH_CONNECT)) {
             bluetoothInfoText.text = "Bluetooth permission not granted yet (asked when you start)."
             return

@@ -191,10 +191,7 @@ sudo etphonehome wifi --host 192.168.1.100 --token XXX --reconnect
 
 ### Can I regenerate my tokens?
 
-Currently, tokens are automatically generated on first use and persist. Manual regeneration is not yet implemented but is planned for a future release.
-
-**Workaround:**
-Clear the app's data to generate new tokens (Settings → Apps → ET Phone Home → Clear Data).
+Yes. With tethering stopped, open WiFi or Bluetooth mode, long-press the box that shows the Auth Token and confirm "Make new token". Computers paired with the old token are refused until you give them the new one. While tethering is running the app refuses, so a connected computer isn't cut off.
 
 ## Performance
 

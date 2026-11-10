@@ -55,6 +55,7 @@ class UserspaceRelay(
     private val inbound = ArrayBlockingQueue<ByteArray>(INBOUND_QUEUE)
     private val tcpFlows = HashMap<FlowKey, TcpFlow>()
     private val udpFlows = LinkedHashMap<FlowKey, UdpFlow>(64, 0.75f, true)
+    private val udp6Flows = LinkedHashMap<Flow6Key, Udp6Flow>(16, 0.75f, true)
     private val random = SecureRandom()
     private val readBuf = ByteBuffer.allocate(65536)
     private val icmpPool = ThreadPoolExecutor(
@@ -128,6 +129,7 @@ class UserspaceRelay(
                         when (val flow = key.attachment()) {
                             is TcpFlow -> onTcpReady(flow, key)
                             is UdpFlow -> onUdpReadable(flow)
+                            is Udp6Flow -> onUdp6Readable(flow)
                         }
                     } catch (_: CancelledKeyException) {
                     }
@@ -164,8 +166,10 @@ class UserspaceRelay(
         synchronized(this) {
             for (f in tcpFlows.values.toList()) closeChannel(f.channel)
             for (f in udpFlows.values.toList()) closeChannel(f.channel)
+            for (f in udp6Flows.values.toList()) closeChannel(f.channel)
             tcpFlows.clear()
             udpFlows.clear()
+            udp6Flows.clear()
             stats.activeTcp.set(0)
             stats.activeUdp.set(0)
         }
@@ -194,6 +198,10 @@ class UserspaceRelay(
         stats.bytesFromDesktop.addAndGet(p.size.toLong())
         stats.packetsFromDesktop.incrementAndGet()
         stats.countKind(p, toDesktop = false)
+        if (p.isNotEmpty() && (p[0].toInt() ushr 4) == 6) {
+            onDesktopPacket6(p)
+            return
+        }
         val ip = Ipv4Packet.parse(p) ?: return
         val filter = packetFilter
         if (filter != null && !filter(p)) {
@@ -209,6 +217,16 @@ class UserspaceRelay(
 
     private fun runTimers(now: Long) {
         for (f in tcpFlows.values.toList()) tcpTimer(f, now)
+        val it6 = udp6Flows.values.iterator()
+        while (it6.hasNext()) {
+            val f = it6.next()
+            val idle = if (f.key.dstPort == 53) UDP_DNS_IDLE_MS else config.udpIdleTimeoutMs
+            if (now - f.lastActivity > idle) {
+                closeChannel(f.channel)
+                it6.remove()
+                stats.activeUdp.decrementAndGet()
+            }
+        }
         val it = udpFlows.values.iterator()
         while (it.hasNext()) {
             val f = it.next()
@@ -223,6 +241,15 @@ class UserspaceRelay(
 
     private fun recheckFilter() {
         val filter = packetFilter ?: return
+        val it6 = udp6Flows.values.iterator()
+        while (it6.hasNext()) {
+            val f = it6.next()
+            if (!filter(f.probe)) {
+                closeChannel(f.channel)
+                it6.remove()
+                stats.activeUdp.decrementAndGet()
+            }
+        }
         for (f in tcpFlows.values.toList()) {
             if (!filter(f.probe)) {
                 Log.i(tag, "Filter now blocks ${f.key}: resetting the connection")
@@ -741,6 +768,120 @@ class UserspaceRelay(
     }
 
     // ------------------------------------------------------------------
+    // IPv6 (UDP and ICMPv6 echo; TCP over IPv6 is not relayed yet)
+    // ------------------------------------------------------------------
+
+    private fun onDesktopPacket6(p: ByteArray) {
+        val ip = Ipv6Packet.parse(p) ?: return
+        val filter = packetFilter
+        if (filter != null && !filter(p)) {
+            stats.packetsFiltered.incrementAndGet()
+            return
+        }
+        when (ip.protocol) {
+            IpProto.UDP -> onUdp6FromDesktop(ip, p)
+            Ipv6Proto.ICMPV6 -> onIcmp6FromDesktop(ip)
+        }
+    }
+
+    /**
+     * Destinations the relay never connects to over IPv6: multicast, and
+     * IPv4-mapped (::ffff:a.b.c.d would open an IPv4 socket and sidestep
+     * the IPv4 loopback checks); loopback and unspecified (the phone itself)
+     * unless [RelayConfig.allowLoopback].
+     */
+    private fun isUnrelayable6(a: ByteArray): Boolean {
+        if (a.u8(0) == 0xFF) return true
+        val zeros10 = (0 until 10).all { a[it].toInt() == 0 }
+        if (zeros10 && a.u8(10) == 0xFF && a.u8(11) == 0xFF) return true
+        if (!config.allowLoopback && (0 until 15).all { a[it].toInt() == 0 } && a.u8(15) <= 1) return true
+        return false
+    }
+
+    private fun onUdp6FromDesktop(ip: Ipv6Packet, raw: ByteArray) {
+        if (ip.payloadLength < 8) return
+        val d = ip.data
+        val o = ip.payloadOffset
+        val srcPort = d.u16(o)
+        val dstPort = d.u16(o + 2)
+        val udpLen = d.u16(o + 4).coerceAtMost(ip.payloadLength)
+        if (udpLen < 8) return
+        if (isUnrelayable6(ip.dst) || ip.dst.contentEquals(config.localAddress6)) return
+        val key = Flow6Key(java.nio.ByteBuffer.wrap(ip.src), srcPort, java.nio.ByteBuffer.wrap(ip.dst), dstPort)
+        var flow = udp6Flows[key]
+        if (flow == null) {
+            if (udpFlows.size + udp6Flows.size >= MAX_UDP_FLOWS) {
+                if (udp6Flows.isNotEmpty()) {
+                    val eldest = udp6Flows.entries.iterator().next()
+                    closeChannel(eldest.value.channel)
+                    udp6Flows.remove(eldest.key)
+                    stats.activeUdp.decrementAndGet()
+                } else {
+                    return
+                }
+            }
+            try {
+                val ch = DatagramChannel.open()
+                ch.configureBlocking(false)
+                config.socketPreparer.prepareUdp(ch.socket())
+                ch.connect(InetSocketAddress(InetAddress.getByAddress(ip.dst), dstPort))
+                flow = Udp6Flow(key, ip.src, ip.dst, ch, raw.copyOf(minOf(raw.size, 64)), config.clock())
+                ch.register(selector, SelectionKey.OP_READ, flow)
+                udp6Flows[key] = flow
+                stats.udpFlowsOpened.incrementAndGet()
+                stats.activeUdp.incrementAndGet()
+            } catch (e: IOException) {
+                Log.d(tag, "UDP6 socket for $key failed: ${e.message}")
+                return
+            }
+        }
+        flow.lastActivity = config.clock()
+        try {
+            flow.channel.write(ByteBuffer.wrap(d, o + 8, udpLen - 8))
+            stats.udpBytesUp.addAndGet((udpLen - 8).toLong())
+        } catch (e: IOException) {
+            Log.d(tag, "UDP6 send for $key failed: ${e.message}")
+        }
+    }
+
+    private fun onUdp6Readable(flow: Udp6Flow) {
+        val k = flow.key
+        while (true) {
+            readBuf.clear()
+            val n = try {
+                flow.channel.read(readBuf)
+            } catch (e: IOException) {
+                0
+            }
+            if (n <= 0) break
+            flow.lastActivity = config.clock()
+            stats.udpBytesDown.addAndGet(n.toLong())
+            send(Ipv6Builder.udp(flow.dst, k.dstPort, flow.src, k.srcPort, readBuf.array(), 0, n))
+        }
+    }
+
+    private fun onIcmp6FromDesktop(ip: Ipv6Packet) {
+        if (ip.payloadLength < 8) return
+        if (ip.data.u8(ip.payloadOffset) != Ipv6Proto.ECHO_REQUEST) return
+        if (ip.dst.contentEquals(config.localAddress6)) {
+            Ipv6Builder.icmpEchoReply(ip)?.let { send(it) }
+            return
+        }
+        if (isUnrelayable6(ip.dst)) return
+        val copy = ip.data.copyOf(ip.length)
+        val dst = ip.dst
+        icmpPool.execute {
+            try {
+                val addr = InetAddress.getByAddress(dst)
+                if (config.icmpEchoer.echo(addr, ICMP_TIMEOUT_MS)) {
+                    Ipv6Packet.parse(copy)?.let { r -> Ipv6Builder.icmpEchoReply(r)?.let { send(it) } }
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
     // ICMP
     // ------------------------------------------------------------------
 
@@ -783,6 +924,8 @@ class UserspaceRelay(
 data class RelayConfig(
     /** The phone's address on the tether link (answers ping, owns no ports). */
     val localAddress: Int = ipFromString("10.0.0.2"),
+    /** The phone's IPv6 address on the tether link (answers ping6). */
+    val localAddress6: ByteArray = InetAddress.getByName("fd65:7470:6800::2").address,
     val mtu: Int = 1500,
     val socketPreparer: SocketPreparer = SocketPreparer.NONE,
     val icmpEchoer: IcmpEchoer = IcmpEchoer.REACHABILITY,
@@ -903,5 +1046,19 @@ internal class TcpFlow(
 }
 
 internal class UdpFlow(val key: FlowKey, val channel: DatagramChannel, val probe: ByteArray, now: Long) {
+    var lastActivity = now
+}
+
+/** IPv6 UDP flow key; the addresses are ByteBuffers so equals/hashCode compare contents. */
+internal data class Flow6Key(val src: java.nio.ByteBuffer, val srcPort: Int, val dst: java.nio.ByteBuffer, val dstPort: Int)
+
+internal class Udp6Flow(
+    val key: Flow6Key,
+    val src: ByteArray,
+    val dst: ByteArray,
+    val channel: DatagramChannel,
+    val probe: ByteArray,
+    now: Long,
+) {
     var lastActivity = now
 }

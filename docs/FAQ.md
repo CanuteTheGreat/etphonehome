@@ -308,7 +308,7 @@ sudo sh -c 'echo "nameserver 8.8.8.8" > /etc/resolv.conf'
 1. Check Android app for current token
 2. Copy token exactly (case-sensitive, 16 characters)
 3. Ensure you're using the correct token (WiFi vs Bluetooth)
-4. Try regenerating tokens (clear app data if needed)
+4. Make a new token: with tethering stopped, long-press the token box in the app and confirm
 
 Example of correct usage:
 ```bash
@@ -424,7 +424,6 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for details.
 - Root mode (kernel NAT on rooted phones) - removed in v0.6.0 until it is done properly
 - Bluetooth in the Windows client, macOS client, Windows GUI build
 - IPv6 through the tunnel
-- Token regeneration button (clear the app's data for now)
 - Multi-device support, data usage limits, mobile data usage tracking
 
 ### How can I report bugs?

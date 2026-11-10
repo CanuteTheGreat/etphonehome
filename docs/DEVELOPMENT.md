@@ -482,7 +482,6 @@ Not implemented (also disclosed in the README):
 - [ ] Several computers at the same time (several are paired, the phone
       serves one at a time)
 - [ ] Bluetooth on Windows, macOS and FreeBSD desktops
-- [ ] Token regeneration in the app
 
 ## Resources
 

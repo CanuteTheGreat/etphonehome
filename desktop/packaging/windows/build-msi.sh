@@ -44,7 +44,11 @@ wixl -a x64 -D Version="$VER" -D SourceDir="$S" -o "$OUT/etph-windows-$TAG.msi" 
 (cd "$S" && zip -q "$OUT/etphonehome-windows-$TAG.zip" etphonehome.exe etph-tray.exe wintun.dll wintun-LICENSE.txt LICENSE.txt README.txt)
 # Sanity: the MSI really carries the binaries, the DLL and the service.
 if command -v msiinfo >/dev/null; then
-  msiinfo export "$OUT/etph-windows-$TAG.msi" File | grep -q wintun.dll
-  msiinfo export "$OUT/etph-windows-$TAG.msi" ServiceInstall | grep -q 'service --windows-service'
+  # No `grep -q` on the pipe: it exits at the first match, msiinfo then gets
+  # SIGPIPE and pipefail turns that into exit 141 (MSI job, runs 710/4722).
+  msiinfo export "$OUT/etph-windows-$TAG.msi" File >"$S/msi-File.txt"
+  grep wintun.dll "$S/msi-File.txt" >/dev/null
+  msiinfo export "$OUT/etph-windows-$TAG.msi" ServiceInstall >"$S/msi-Svc.txt"
+  grep 'service --windows-service' "$S/msi-Svc.txt" >/dev/null
 fi
 ls -la "$OUT"

@@ -132,4 +132,55 @@ class Ipv6PacketsTest {
         assertNull(Ipv6Packet.parse(hdr(0, 1)))
         assertNull(Ipv6Packet.parse(hdr(0, 7)))
     }
+
+    @Test
+    fun tcpSegmentRoundTripsWithValidChecksum() {
+        val data = "GET /".toByteArray()
+        val pkt = Ipv6Builder.tcp(
+            a, 40000, b, 443, seq = -5, ack = 0x01020304, flags = TcpFlags.SYN or TcpFlags.ACK,
+            window = 65535, payload = data, payloadOff = 0, payloadLen = data.size, mss = 1220,
+        )
+        assertEquals(40 + 24 + 5, pkt.size)
+        assertTrue(checksumOk(pkt, IpProto.TCP))
+        val seg = Tcp6Segment.parse(Ipv6Packet.parse(pkt)!!)!!
+        assertEquals(40000, seg.srcPort)
+        assertEquals(443, seg.dstPort)
+        assertEquals(-5, seg.seq)
+        assertEquals(0x01020304, seg.ack)
+        assertTrue(seg.has(TcpFlags.SYN) && seg.has(TcpFlags.ACK))
+        assertEquals(65535, seg.window)
+        assertEquals(1220, seg.mss)
+        assertEquals(40 + 24, seg.dataOffset)
+        assertEquals(5, seg.dataLength)
+        assertEquals(6, seg.seqLength)
+        assertArrayEquals(data, pkt.copyOfRange(seg.dataOffset, seg.dataOffset + seg.dataLength))
+    }
+
+    @Test
+    fun tcpWithoutOptionsHasNoMssAndWindowIsClamped() {
+        val pkt = Ipv6Builder.tcp(a, 1, b, 2, 7, 8, TcpFlags.ACK or TcpFlags.FIN, window = 70000)
+        assertEquals(40 + 20, pkt.size)
+        assertTrue(checksumOk(pkt, IpProto.TCP))
+        val seg = Tcp6Segment.parse(Ipv6Packet.parse(pkt)!!)!!
+        assertEquals(null, seg.mss)
+        assertEquals(0xFFFF, seg.window)
+        assertEquals(0, seg.dataLength)
+        assertEquals(1, seg.seqLength)
+    }
+
+    @Test
+    fun tcpParseRejectsNonTcpShortAndBadHeaderLength() {
+        val udp = Ipv6Packet.parse(Ipv6Builder.udp(a, 1, b, 2, ByteArray(30), 0, 30))!!
+        assertNull(Tcp6Segment.parse(udp))
+        val ok = Ipv6Builder.tcp(a, 1, b, 2, 0, 0, TcpFlags.ACK, 100)
+        val short = ok.copyOf(40 + 19)
+        short.put16(4, 19)
+        assertNull(Tcp6Segment.parse(Ipv6Packet.parse(short)!!))
+        val tooSmall = ok.copyOf()
+        tooSmall[40 + 12] = 0x40 // header length 16 < 20
+        assertNull(Tcp6Segment.parse(Ipv6Packet.parse(tooSmall)!!))
+        val tooBig = ok.copyOf()
+        tooBig[40 + 12] = 0x60 // header length 24 > 20-byte payload
+        assertNull(Tcp6Segment.parse(Ipv6Packet.parse(tooBig)!!))
+    }
 }

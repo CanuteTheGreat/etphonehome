@@ -50,6 +50,56 @@ class Ipv6Packet private constructor(
     }
 }
 
+/** A TCP segment inside an [Ipv6Packet] (same fields as [TcpSegment]; second step of IPv6 TCP in the relay). */
+class Tcp6Segment private constructor(
+    val ip: Ipv6Packet,
+    val srcPort: Int,
+    val dstPort: Int,
+    val seq: Int,
+    val ack: Int,
+    val flags: Int,
+    val window: Int,
+    val mss: Int?,
+    val dataOffset: Int,
+    val dataLength: Int,
+) {
+    fun has(flag: Int) = (flags and flag) != 0
+
+    /** Sequence space this segment occupies (payload + SYN + FIN). */
+    val seqLength: Int get() = dataLength + (if (has(TcpFlags.SYN)) 1 else 0) + (if (has(TcpFlags.FIN)) 1 else 0)
+
+    companion object {
+        fun parse(ip: Ipv6Packet): Tcp6Segment? {
+            if (ip.protocol != IpProto.TCP) return null
+            val o = ip.payloadOffset
+            val d = ip.data
+            if (ip.payloadLength < 20) return null
+            val hl = (d.u8(o + 12) ushr 4) * 4
+            if (hl < 20 || hl > ip.payloadLength) return null
+            var mss: Int? = null
+            var i = o + 20
+            val end = o + hl
+            while (i < end) {
+                when (val kind = d.u8(i)) {
+                    0 -> break
+                    1 -> i++
+                    else -> {
+                        if (i + 1 >= end) break
+                        val l = d.u8(i + 1)
+                        if (l < 2 || i + l > end) break
+                        if (kind == 2 && l == 4) mss = d.u16(i + 2)
+                        i += l
+                    }
+                }
+            }
+            return Tcp6Segment(
+                ip, d.u16(o), d.u16(o + 2), d.i32(o + 4), d.i32(o + 8),
+                d.u8(o + 13), d.u16(o + 14), mss, o + hl, ip.payloadLength - hl,
+            )
+        }
+    }
+}
+
 object Ipv6Builder {
     /** Pseudo-header sum (RFC 8200 section 8.1) for TCP/UDP/ICMPv6 over IPv6. */
     fun pseudoSum(src: ByteArray, dst: ByteArray, proto: Int, length: Int): Long {
@@ -82,6 +132,34 @@ object Ipv6Builder {
         var c = Checksum.finish(Checksum.sum(buf, u, udpLen, pseudoSum(src, dst, IpProto.UDP, udpLen)))
         if (c == 0) c = 0xFFFF // zero means "no checksum", which IPv6 forbids
         buf.put16(u + 6, c)
+        return buf
+    }
+
+    fun tcp(
+        src: ByteArray, srcPort: Int, dst: ByteArray, dstPort: Int,
+        seq: Int, ack: Int, flags: Int, window: Int,
+        payload: ByteArray? = null, payloadOff: Int = 0, payloadLen: Int = 0,
+        mss: Int? = null,
+    ): ByteArray {
+        val optLen = if (mss != null) 4 else 0
+        val tcpLen = 20 + optLen + payloadLen
+        val buf = ByteArray(Ipv6Packet.HEADER + tcpLen)
+        header(buf, tcpLen, IpProto.TCP, src, dst)
+        val o = Ipv6Packet.HEADER
+        buf.put16(o, srcPort)
+        buf.put16(o + 2, dstPort)
+        buf.put32(o + 4, seq)
+        buf.put32(o + 8, ack)
+        buf[o + 12] = (((20 + optLen) / 4) shl 4).toByte()
+        buf[o + 13] = flags.toByte()
+        buf.put16(o + 14, window.coerceIn(0, 0xFFFF))
+        if (mss != null) {
+            buf[o + 20] = 2
+            buf[o + 21] = 4
+            buf.put16(o + 22, mss)
+        }
+        if (payload != null && payloadLen > 0) System.arraycopy(payload, payloadOff, buf, o + 20 + optLen, payloadLen)
+        buf.put16(o + 16, Checksum.finish(Checksum.sum(buf, o, tcpLen, pseudoSum(src, dst, IpProto.TCP, tcpLen))))
         return buf
     }
 

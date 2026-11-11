@@ -505,7 +505,7 @@ class UserspaceRelay(
         }
     }
 
-    private fun processAck(flow: TcpFlow, seg: TcpSegment) {
+    private fun processAck(flow: TcpFlow, seg: TcpIn) {
         val acked = seg.ack - flow.sndUna
         val inFlight = flow.sndNxt - flow.sndUna
         if (acked in 1..inFlight) {

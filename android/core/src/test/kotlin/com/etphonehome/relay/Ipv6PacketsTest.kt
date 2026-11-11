@@ -73,6 +73,7 @@ class Ipv6PacketsTest {
         req[40] = Ipv6Proto.ECHO_REQUEST.toByte()
         req.put16(44, 7) // identifier
         req.put16(46, 9) // sequence
+        req.put16(42, 0xBEEF) // a stale request checksum must not leak into the reply's sum
         val parsed = Ipv6Packet.parse(req)!!
         val rep = Ipv6Builder.icmpEchoReply(parsed)
         assertNotNull(rep)

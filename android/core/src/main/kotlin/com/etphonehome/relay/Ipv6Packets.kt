@@ -53,20 +53,22 @@ class Ipv6Packet private constructor(
 /** A TCP segment inside an [Ipv6Packet] (same fields as [TcpSegment]; second step of IPv6 TCP in the relay). */
 class Tcp6Segment private constructor(
     val ip: Ipv6Packet,
-    val srcPort: Int,
-    val dstPort: Int,
-    val seq: Int,
-    val ack: Int,
-    val flags: Int,
-    val window: Int,
-    val mss: Int?,
-    val dataOffset: Int,
-    val dataLength: Int,
-) {
-    fun has(flag: Int) = (flags and flag) != 0
+    override val srcPort: Int,
+    override val dstPort: Int,
+    override val seq: Int,
+    override val ack: Int,
+    override val flags: Int,
+    override val window: Int,
+    override val mss: Int?,
+    override val dataOffset: Int,
+    override val dataLength: Int,
+) : TcpIn {
+    override val data: ByteArray get() = ip.data
+
+    override fun has(flag: Int) = (flags and flag) != 0
 
     /** Sequence space this segment occupies (payload + SYN + FIN). */
-    val seqLength: Int get() = dataLength + (if (has(TcpFlags.SYN)) 1 else 0) + (if (has(TcpFlags.FIN)) 1 else 0)
+    override val seqLength: Int get() = dataLength + (if (has(TcpFlags.SYN)) 1 else 0) + (if (has(TcpFlags.FIN)) 1 else 0)
 
     companion object {
         fun parse(ip: Ipv6Packet): Tcp6Segment? {

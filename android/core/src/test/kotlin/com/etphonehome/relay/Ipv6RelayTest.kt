@@ -295,4 +295,90 @@ class Ipv6RelayTest {
         assertTrue("the oldest flow's socket was closed", sockets[0].isClosed)
         assertTrue("the newer flows' sockets stay open", !sockets[1].isClosed && !sockets[512].isClosed)
     }
+
+    private fun tcpChecksumOk(p: ByteArray): Boolean {
+        val n = p.size - 40
+        val s = Checksum.sum(p, 40, n, Ipv6Builder.pseudoSum(p.copyOfRange(8, 24), p.copyOfRange(24, 40), IpProto.TCP, n))
+        return Checksum.finish(s) == 0
+    }
+
+    private fun nextTcp6(): Tcp6Segment {
+        val p = next()!!
+        assertTrue("checksum", tcpChecksumOk(p))
+        return Tcp6Segment.parse(Ipv6Packet.parse(p)!!)!!
+    }
+
+    @Test
+    fun `tcp over ipv6 connects, carries data both ways and closes`() {
+        val server = try {
+            java.net.ServerSocket(0, 5, InetAddress.getByName("::1"))
+        } catch (e: Exception) {
+            null
+        }
+        assumeTrue("no IPv6 loopback on this machine", server != null)
+        closeables += server!!
+        thread {
+            server.accept().use { c ->
+                val buf = ByteArray(64)
+                val n = c.getInputStream().read(buf)
+                c.getOutputStream().write("echo:".toByteArray() + buf.copyOf(n))
+                c.getOutputStream().flush()
+                c.getInputStream().read()
+            }
+        }
+        val lo = addr("::1")
+        val port = server.localPort
+        relay.handlePacket(Ipv6Builder.tcp(desktop, 40000, lo, port, 1000, 0, TcpFlags.SYN, 65535, mss = 1400))
+        val synAck = nextTcp6()
+        assertTrue(synAck.has(TcpFlags.SYN) && synAck.has(TcpFlags.ACK))
+        assertEquals(1001, synAck.ack)
+        assertArrayEquals(lo, synAck.ip.src)
+        assertArrayEquals(desktop, synAck.ip.dst)
+        assertEquals(port, synAck.srcPort)
+        assertNotNull(synAck.mss)
+        val isn = synAck.seq
+        relay.handlePacket(Ipv6Builder.tcp(desktop, 40000, lo, port, 1001, isn + 1, TcpFlags.ACK, 65535))
+        val q = "hello6".toByteArray()
+        relay.handlePacket(Ipv6Builder.tcp(desktop, 40000, lo, port, 1001, isn + 1, TcpFlags.ACK or TcpFlags.PSH, 65535, q, 0, q.size))
+        var got = ""
+        var rcvd = 0
+        val deadline = System.currentTimeMillis() + 5000
+        while (got.length < "echo:hello6".length && System.currentTimeMillis() < deadline) {
+            val seg = nextTcp6()
+            if (seg.dataLength > 0) {
+                got += String(seg.data, seg.dataOffset, seg.dataLength)
+                rcvd += seg.dataLength
+                relay.handlePacket(Ipv6Builder.tcp(desktop, 40000, lo, port, 1001 + q.size, seg.seq + seg.dataLength, TcpFlags.ACK, 65535))
+            }
+        }
+        assertEquals("echo:hello6", got)
+        assertEquals(q.size.toLong(), relay.stats.tcpBytesUp.get())
+        relay.handlePacket(Ipv6Builder.tcp(desktop, 40000, lo, port, 1001 + q.size, isn + 1 + rcvd, TcpFlags.FIN or TcpFlags.ACK, 65535))
+        var sawAckOfFin = false
+        while (!sawAckOfFin) {
+            val seg = nextTcp6()
+            sawAckOfFin = seg.has(TcpFlags.ACK) && seg.ack == 1001 + q.size + 1
+        }
+    }
+
+    @Test
+    fun `tcp over ipv6 to a closed port is reset`() {
+        val probe = java.net.ServerSocket(0, 1, InetAddress.getByName("::1")).also { it.close() }
+        relay.handlePacket(Ipv6Builder.tcp(desktop, 40001, addr("::1"), probe.localPort, 500, 0, TcpFlags.SYN, 65535))
+        val rst = nextTcp6()
+        assertTrue(rst.has(TcpFlags.RST))
+        assertEquals(501, rst.ack)
+    }
+
+    @Test
+    fun `tcp over ipv6 to the phone, multicast and ipv4-mapped destinations is reset and never connected`() {
+        for (dst in listOf(phone, v6("ff02::1"), v6("::ffff:127.0.0.1"))) {
+            relay.handlePacket(Ipv6Builder.tcp(desktop, 40002, dst, 80, 700, 0, TcpFlags.SYN, 65535))
+            val rst = nextTcp6()
+            assertTrue(rst.has(TcpFlags.RST))
+            assertEquals(701, rst.ack)
+            assertArrayEquals(dst, rst.ip.src)
+        }
+        assertEquals(0, relay.stats.tcpFlowsOpened.get().toInt())
+    }
 }

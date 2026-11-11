@@ -53,7 +53,7 @@ class UserspaceRelay(
     private val tag = "Relay"
     private val selector: Selector = Selector.open()
     private val inbound = ArrayBlockingQueue<ByteArray>(INBOUND_QUEUE)
-    private val tcpFlows = HashMap<FlowKey, TcpFlow>()
+    private val tcpFlows = HashMap<Any, TcpFlow>()
     private val udpFlows = LinkedHashMap<FlowKey, UdpFlow>(64, 0.75f, true)
     private val udp6Flows = LinkedHashMap<Flow6Key, Udp6Flow>(16, 0.75f, true)
     private val random = SecureRandom()
@@ -287,7 +287,19 @@ class UserspaceRelay(
 
     private fun onTcpFromDesktop(seg: TcpSegment, raw: ByteArray) {
         val ip = seg.ip
-        val key = FlowKey(ip.src, seg.srcPort, ip.dst, seg.dstPort)
+        onTcpIn(seg, FlowKey(ip.src, seg.srcPort, ip.dst, seg.dstPort), raw)
+    }
+
+    private fun onTcp6FromDesktop(seg: Tcp6Segment, raw: ByteArray) {
+        val ip = seg.ip
+        if (isUnrelayable6(ip.dst) || ip.dst.contentEquals(config.localAddress6)) {
+            rstFor(seg)
+            return
+        }
+        onTcpIn(seg, Flow6Key(ByteBuffer.wrap(ip.src), seg.srcPort, ByteBuffer.wrap(ip.dst), seg.dstPort), raw)
+    }
+
+    private fun onTcpIn(seg: TcpIn, key: Any, raw: ByteArray) {
         val flow = tcpFlows[key]
         if (seg.has(TcpFlags.RST)) {
             if (flow != null) closeFlow(flow)
@@ -327,7 +339,7 @@ class UserspaceRelay(
                 val space = MAX_TO_REMOTE - flow.toRemote.size
                 val take = minOf(space, seg.dataLength)
                 if (take > 0) {
-                    flow.toRemote.append(ip.data, seg.dataOffset, take)
+                    flow.toRemote.append(seg.data, seg.dataOffset, take)
                     flow.rcvNxt += take
                     stats.tcpBytesUp.addAndGet(take.toLong())
                     flushToRemote(flow)
@@ -347,8 +359,8 @@ class UserspaceRelay(
         if (!maybeFinish(flow)) updateInterest(flow)
     }
 
-    private fun openTcp(key: FlowKey, seg: TcpSegment, raw: ByteArray) {
-        if (key.dstIp == config.localAddress || isPhoneLoopback(key.dstIp) || tcpFlows.size >= config.maxTcpFlows) {
+    private fun openTcp(key: Any, seg: TcpIn, raw: ByteArray) {
+        if (key is FlowKey && (key.dstIp == config.localAddress || isPhoneLoopback(key.dstIp)) || tcpFlows.size >= config.maxTcpFlows) {
             rstFor(seg)
             return
         }
@@ -364,6 +376,10 @@ class UserspaceRelay(
             return
         }
         val flow = TcpFlow(key, ch, random.nextInt(), raw.copyOf(minOf(raw.size, 64)), config.clock())
+        if (seg is Tcp6Segment) {
+            flow.src6 = seg.ip.src
+            flow.dst6 = seg.ip.dst
+        }
         flow.rcvNxt = seg.seq + 1
         flow.desktopMss = seg.mss ?: 536
         flow.desktopWindow = seg.window
@@ -371,7 +387,11 @@ class UserspaceRelay(
         stats.tcpFlowsOpened.incrementAndGet()
         stats.activeTcp.incrementAndGet()
         try {
-            val addr = InetSocketAddress(InetAddress.getByAddress(ipToBytes(key.dstIp)), key.dstPort)
+            val addr = if (key is FlowKey) {
+                InetSocketAddress(InetAddress.getByAddress(ipToBytes(key.dstIp)), key.dstPort)
+            } else {
+                InetSocketAddress(InetAddress.getByAddress((seg as Tcp6Segment).ip.dst), seg.dstPort)
+            }
             if (ch.connect(addr)) {
                 onConnected(flow)
             } else {
@@ -392,8 +412,7 @@ class UserspaceRelay(
 
     /** The real destination refused or was unreachable: RST the desktop's SYN. */
     private fun refuse(flow: TcpFlow) {
-        val k = flow.key
-        send(PacketBuilder.tcp(k.dstIp, k.dstPort, k.srcIp, k.srcPort, 0, flow.rcvNxt, TcpFlags.RST or TcpFlags.ACK, 0))
+        send(tcpPkt(flow, 0, flow.rcvNxt, TcpFlags.RST or TcpFlags.ACK, 0))
         closeFlow(flow)
     }
 
@@ -452,13 +471,11 @@ class UserspaceRelay(
         }
     }
 
-    private fun segmentSize(flow: TcpFlow) = minOf(flow.desktopMss, config.mtu - 40).coerceAtLeast(64)
+    private fun segmentSize(flow: TcpFlow) = minOf(flow.desktopMss, config.mtu - flow.ipHeaderPlusTcp).coerceAtLeast(64)
 
     private fun sendData(flow: TcpFlow, seq: Int, data: ByteArray, off: Int, len: Int) {
-        val k = flow.key
         send(
-            PacketBuilder.tcp(
-                k.dstIp, k.dstPort, k.srcIp, k.srcPort, seq, flow.rcvNxt,
+            tcpPkt(flow, seq, flow.rcvNxt,
                 TcpFlags.ACK or TcpFlags.PSH, advertisedWindow(flow), data, off, len,
             ),
         )
@@ -528,10 +545,8 @@ class UserspaceRelay(
             off += len
         }
         if (flow.finSent && !flow.finAcked && off >= dataInFlight) {
-            val k = flow.key
             send(
-                PacketBuilder.tcp(
-                    k.dstIp, k.dstPort, k.srcIp, k.srcPort, flow.sndNxt - 1, flow.rcvNxt,
+                tcpPkt(flow, flow.sndNxt - 1, flow.rcvNxt,
                     TcpFlags.FIN or TcpFlags.ACK, advertisedWindow(flow),
                 ),
             )
@@ -585,12 +600,10 @@ class UserspaceRelay(
     }
 
     private fun sendSynAck(flow: TcpFlow) {
-        val k = flow.key
         flow.lastSend = config.clock()
         send(
-            PacketBuilder.tcp(
-                k.dstIp, k.dstPort, k.srcIp, k.srcPort, flow.ourIsn, flow.rcvNxt,
-                TcpFlags.SYN or TcpFlags.ACK, advertisedWindow(flow), mss = config.mtu - 40,
+            tcpPkt(flow, flow.ourIsn, flow.rcvNxt,
+                TcpFlags.SYN or TcpFlags.ACK, advertisedWindow(flow), mss = config.mtu - flow.ipHeaderPlusTcp,
             ),
         )
         flow.sndUna = flow.ourIsn
@@ -598,10 +611,8 @@ class UserspaceRelay(
     }
 
     private fun sendAck(flow: TcpFlow) {
-        val k = flow.key
         send(
-            PacketBuilder.tcp(
-                k.dstIp, k.dstPort, k.srcIp, k.srcPort, flow.sndNxt, flow.rcvNxt,
+            tcpPkt(flow, flow.sndNxt, flow.rcvNxt,
                 TcpFlags.ACK, advertisedWindow(flow),
             ),
         )
@@ -613,12 +624,10 @@ class UserspaceRelay(
      * carries its current window (the same probe Linux sends).
      */
     private fun sendWindowProbe(flow: TcpFlow) {
-        val k = flow.key
         flow.lastSend = config.clock()
         stats.tcpWindowProbes.incrementAndGet()
         send(
-            PacketBuilder.tcp(
-                k.dstIp, k.dstPort, k.srcIp, k.srcPort, flow.sndUna - 1, flow.rcvNxt,
+            tcpPkt(flow, flow.sndUna - 1, flow.rcvNxt,
                 TcpFlags.ACK, advertisedWindow(flow),
             ),
         )
@@ -626,11 +635,9 @@ class UserspaceRelay(
 
     private fun sendFin(flow: TcpFlow) {
         if (flow.finSent) return
-        val k = flow.key
         flow.lastSend = config.clock()
         send(
-            PacketBuilder.tcp(
-                k.dstIp, k.dstPort, k.srcIp, k.srcPort, flow.sndNxt, flow.rcvNxt,
+            tcpPkt(flow, flow.sndNxt, flow.rcvNxt,
                 TcpFlags.FIN or TcpFlags.ACK, advertisedWindow(flow),
             ),
         )
@@ -660,11 +667,9 @@ class UserspaceRelay(
     }
 
     private fun resetFlow(flow: TcpFlow) {
-        val k = flow.key
         if (flow.state != TcpState.CONNECTING) {
             send(
-                PacketBuilder.tcp(
-                    k.dstIp, k.dstPort, k.srcIp, k.srcPort, flow.sndNxt, flow.rcvNxt,
+                tcpPkt(flow, flow.sndNxt, flow.rcvNxt,
                     TcpFlags.RST or TcpFlags.ACK, 0,
                 ),
             )
@@ -679,18 +684,32 @@ class UserspaceRelay(
     }
 
     /** RST for a segment that belongs to no flow (RFC 793 reset generation). */
-    private fun rstFor(seg: TcpSegment) {
+    private fun rstFor(seg: TcpIn) {
         if (seg.has(TcpFlags.RST)) return
-        val ip = seg.ip
-        val pkt = if (seg.has(TcpFlags.ACK)) {
-            PacketBuilder.tcp(ip.dst, seg.dstPort, ip.src, seg.srcPort, seg.ack, 0, TcpFlags.RST, 0)
-        } else {
-            PacketBuilder.tcp(
-                ip.dst, seg.dstPort, ip.src, seg.srcPort, 0, seg.seq + seg.seqLength,
-                TcpFlags.RST or TcpFlags.ACK, 0,
-            )
+        val rstSeq = if (seg.has(TcpFlags.ACK)) seg.ack else 0
+        val rstAck = if (seg.has(TcpFlags.ACK)) 0 else seg.seq + seg.seqLength
+        val rstFlags = if (seg.has(TcpFlags.ACK)) TcpFlags.RST else TcpFlags.RST or TcpFlags.ACK
+        val pkt = when (seg) {
+            is Tcp6Segment -> Ipv6Builder.tcp(seg.ip.dst, seg.dstPort, seg.ip.src, seg.srcPort, rstSeq, rstAck, rstFlags, 0)
+            is TcpSegment -> PacketBuilder.tcp(seg.ip.dst, seg.dstPort, seg.ip.src, seg.srcPort, rstSeq, rstAck, rstFlags, 0)
+            else -> return
         }
         send(pkt)
+    }
+
+    /** One TCP packet to the desktop for [flow], IPv4 or IPv6 as the flow came in. */
+    private fun tcpPkt(
+        flow: TcpFlow, seq: Int, ack: Int, flags: Int, window: Int,
+        data: ByteArray? = null, off: Int = 0, len: Int = 0, mss: Int? = null,
+    ): ByteArray {
+        val s6 = flow.src6
+        val d6 = flow.dst6
+        if (s6 != null && d6 != null) {
+            val k = flow.key as Flow6Key
+            return Ipv6Builder.tcp(d6, k.dstPort, s6, k.srcPort, seq, ack, flags, window, data, off, len, mss)
+        }
+        val k = flow.key as FlowKey
+        return PacketBuilder.tcp(k.dstIp, k.dstPort, k.srcIp, k.srcPort, seq, ack, flags, window, data, off, len, mss)
     }
 
     // ------------------------------------------------------------------
@@ -779,6 +798,7 @@ class UserspaceRelay(
             return
         }
         when (ip.protocol) {
+            IpProto.TCP -> Tcp6Segment.parse(ip)?.let { onTcp6FromDesktop(it, p) }
             IpProto.UDP -> onUdp6FromDesktop(ip, p)
             Ipv6Proto.ICMPV6 -> onIcmp6FromDesktop(ip)
         }
@@ -1007,7 +1027,8 @@ data class FlowKey(val srcIp: Int, val srcPort: Int, val dstIp: Int, val dstPort
 internal enum class TcpState { CONNECTING, SYN_RCVD, ESTABLISHED }
 
 internal class TcpFlow(
-    val key: FlowKey,
+    /** [FlowKey] (IPv4) or [Flow6Key] (IPv6). */
+    val key: Any,
     val channel: SocketChannel,
     val ourIsn: Int,
     /** First desktop packet, re-checked when the traffic filter changes. */
@@ -1015,6 +1036,11 @@ internal class TcpFlow(
     /** [RelayConfig.clock] when the desktop's SYN arrived. */
     val created: Long,
 ) {
+    /** Desktop/remote addresses of an IPv6 flow (null for IPv4). */
+    var src6: ByteArray? = null
+    var dst6: ByteArray? = null
+    val ipHeaderPlusTcp: Int get() = if (src6 != null) 60 else 40
+
     var state = TcpState.CONNECTING
     var selKey: SelectionKey? = null
     var lastActivity = created
@@ -1050,7 +1076,14 @@ internal class UdpFlow(val key: FlowKey, val channel: DatagramChannel, val probe
 }
 
 /** IPv6 UDP flow key; the addresses are ByteBuffers so equals/hashCode compare contents. */
-internal data class Flow6Key(val src: java.nio.ByteBuffer, val srcPort: Int, val dst: java.nio.ByteBuffer, val dstPort: Int)
+internal data class Flow6Key(val src: java.nio.ByteBuffer, val srcPort: Int, val dst: java.nio.ByteBuffer, val dstPort: Int) {
+    override fun toString() = "[${addr(src)}]:$srcPort -> [${addr(dst)}]:$dstPort"
+    private fun addr(b: java.nio.ByteBuffer): String {
+        val a = ByteArray(b.remaining())
+        b.duplicate().get(a)
+        return InetAddress.getByAddress(a).hostAddress ?: "?"
+    }
+}
 
 internal class Udp6Flow(
     val key: Flow6Key,
@@ -1061,4 +1094,20 @@ internal class Udp6Flow(
     now: Long,
 ) {
     var lastActivity = now
+}
+
+/** What the TCP relay needs from a parsed segment, IPv4 or IPv6. */
+interface TcpIn {
+    val srcPort: Int
+    val dstPort: Int
+    val seq: Int
+    val ack: Int
+    val flags: Int
+    val window: Int
+    val mss: Int?
+    val data: ByteArray
+    val dataOffset: Int
+    val dataLength: Int
+    val seqLength: Int
+    fun has(flag: Int): Boolean
 }

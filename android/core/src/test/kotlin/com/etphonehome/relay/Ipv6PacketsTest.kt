@@ -86,4 +86,49 @@ class Ipv6PacketsTest {
         // a reply is not itself answered
         assertNull(Ipv6Builder.icmpEchoReply(Ipv6Packet.parse(rep)!!))
     }
+
+    private fun hdr(next: Int, payload: Int, size: Int = 40 + payload) = ByteArray(size).also {
+        it[0] = 0x60
+        it.put16(4, payload)
+        it[6] = next.toByte()
+        it[7] = 64
+        a.copyInto(it, 8)
+        b.copyInto(it, 24)
+    }
+
+    /** Independent of the builder: the pseudo-header sum is the 16-bit words of both addresses plus length and protocol. */
+    @Test
+    fun pseudoSumIsAddressWordsPlusLengthPlusProtocol() {
+        val s = ByteArray(16) { it.toByte() }
+        val d = ByteArray(16) { (0x80 + it).toByte() }
+        fun words(x: ByteArray) =
+            (0 until 16 step 2).sumOf { (((x[it].toInt() and 0xFF) shl 8) or (x[it + 1].toInt() and 0xFF)).toLong() }
+        // length 0x10005: upper half 1 plus lower half 5 (a 32-bit upper-layer length)
+        assertEquals(words(s) + words(d) + 1 + 5 + 58, Ipv6Builder.pseudoSum(s, d, 58, 0x10005))
+        assertEquals(words(s) + words(d) + 17, Ipv6Builder.pseudoSum(s, d, 17, 0))
+    }
+
+    @Test
+    fun parseBoundariesAreInclusive() {
+        // a header with nothing after it
+        val bare = Ipv6Packet.parse(hdr(IpProto.UDP, 0))
+        assertNotNull(bare)
+        assertEquals(0, bare!!.payloadLength)
+        // an extension header that ends exactly where the packet ends
+        val ext = hdr(0, 8).also { it[40] = IpProto.UDP.toByte(); it[41] = 0 }
+        val parsed = Ipv6Packet.parse(ext)
+        assertNotNull(parsed)
+        assertEquals(IpProto.UDP, parsed!!.protocol)
+        assertEquals(48, parsed.payloadOffset)
+        assertEquals(0, parsed.payloadLength)
+        // claims more bytes than the buffer holds
+        assertNull(Ipv6Packet.parse(ext, ext.size + 1))
+    }
+
+    @Test
+    fun anExtensionHeaderCutShortIsRejectedWithoutReadingPastTheBuffer() {
+        assertNull(Ipv6Packet.parse(hdr(0, 0)))
+        assertNull(Ipv6Packet.parse(hdr(0, 1)))
+        assertNull(Ipv6Packet.parse(hdr(0, 7)))
+    }
 }

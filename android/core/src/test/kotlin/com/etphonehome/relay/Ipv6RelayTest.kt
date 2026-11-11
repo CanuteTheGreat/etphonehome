@@ -3,6 +3,7 @@ package com.etphonehome.relay
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -31,8 +32,7 @@ class Ipv6RelayTest {
 
     private fun next(ms: Long = 3000): ByteArray? = out.poll(ms, TimeUnit.MILLISECONDS)
 
-    private fun echoRequest(dst: ByteArray): ByteArray {
-        val n = 12
+    private fun echoRequest(dst: ByteArray, n: Int = 12): ByteArray {
         val p = ByteArray(40 + n)
         p[0] = 0x60
         p.put16(4, n)
@@ -139,5 +139,162 @@ class Ipv6RelayTest {
         relay.handlePacket(echoRequest(phone))
         assertNull(next(400))
         assertEquals(1, relay.stats.packetsFiltered.get())
+    }
+
+    private fun v6(d: String): ByteArray {
+        val parsed = InetAddress.getByName(d).address
+        return ByteArray(16).also { a -> if (parsed.size == 16) parsed.copyInto(a) else { a[10] = -1; a[11] = -1; parsed.copyInto(a, 12) } }
+    }
+
+    private fun loopbackServer(): DatagramSocket {
+        val server = try {
+            DatagramSocket(0, InetAddress.getByName("::1"))
+        } catch (e: Exception) {
+            null
+        }
+        assumeTrue("no IPv6 loopback on this machine", server != null)
+        return server!!.also { closeables += it }
+    }
+
+    private fun clocked(clock: java.util.concurrent.atomic.AtomicLong, cfg: RelayConfig) =
+        UserspaceRelay({ out.put(it) }, cfg.copy(clock = { clock.get() })).also { it.start(); closeables += it }
+
+    private fun waitUntil(what: String, cond: () -> Boolean) {
+        val until = System.currentTimeMillis() + 5000
+        while (!cond() && System.currentTimeMillis() < until) Thread.sleep(20)
+        assertTrue(what, cond())
+    }
+
+    @Test
+    fun `ping6 with the smallest echo payload is answered`() {
+        relay.handlePacket(echoRequest(phone, n = 8))
+        val r = Ipv6Packet.parse(next()!!)!!
+        assertEquals(Ipv6Proto.ECHO_REPLY, r.data.u8(r.payloadOffset))
+        assertEquals(8, r.payloadLength)
+    }
+
+    @Test
+    fun `ping6 to multicast, ipv4-mapped, loopback and unspecified is never handed to the echoer`() {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val strict = UserspaceRelay({ out.put(it) }, RelayConfig(icmpEchoer = { _, _ -> calls.incrementAndGet(); true }))
+            .also { it.start(); closeables += it }
+        for (d in listOf("ff02::1", "ff0e::1", "::ffff:8.8.8.8", "::1", "::")) strict.handlePacket(echoRequest(v6(d)))
+        assertNull(next(600))
+        assertEquals(0, calls.get())
+        strict.handlePacket(echoRequest(v6("2001:db8::99")))
+        assertNotNull(next())
+        assertEquals(1, calls.get())
+    }
+
+    @Test
+    fun `an empty ipv6 datagram is relayed`() {
+        val server = loopbackServer()
+        server.soTimeout = 3000
+        val none = ByteArray(0)
+        relay.handlePacket(Ipv6Builder.udp(desktop, 5353, addr("::1"), server.localPort, none, 0, 0))
+        val p = DatagramPacket(ByteArray(64), 64)
+        server.receive(p)
+        assertEquals(0, p.length)
+    }
+
+    @Test
+    fun `ipv6 udp byte counts and one reply per datagram`() {
+        val server = loopbackServer()
+        server.soTimeout = 3000
+        val q = "query6".toByteArray()
+        relay.handlePacket(Ipv6Builder.udp(desktop, 5353, addr("::1"), server.localPort, q, 0, q.size))
+        val p = DatagramPacket(ByteArray(64), 64)
+        server.receive(p)
+        assertEquals(q.size, p.length)
+        server.send(DatagramPacket("pong".toByteArray(), 4, p.socketAddress))
+        assertNotNull(next())
+        assertNull("nothing after the one reply", next(400))
+        assertEquals(q.size.toLong(), relay.stats.udpBytesUp.get())
+        assertEquals(4L, relay.stats.udpBytesDown.get())
+    }
+
+    @Test
+    fun `ipv6 udp datagrams either way restart the idle timeout`() {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000)
+        val timed = clocked(clock, RelayConfig(allowLoopback = true, udpIdleTimeoutMs = 10_000))
+        val server = loopbackServer()
+        server.soTimeout = 3000
+        val lo = addr("::1")
+        fun up(text: String) = timed.handlePacket(Ipv6Builder.udp(desktop, 5000, lo, server.localPort, text.toByteArray(), 0, text.length))
+        fun activeAfterTicks(): Int { Thread.sleep(450); return timed.stats.activeUdp.get() }
+
+        up("hello")
+        val p = DatagramPacket(ByteArray(64), 64)
+        server.receive(p)
+        clock.set(1_005_000)
+        server.send(DatagramPacket("reply".toByteArray(), 5, p.socketAddress))
+        assertNotNull("the reply reaches the desktop", next(3000))
+        Thread.sleep(150)
+        clock.set(1_010_001)
+        assertEquals("a reply (1_005_000) restarts the idle timeout", 1, activeAfterTicks())
+
+        clock.set(1_012_000)
+        up("again")
+        server.receive(DatagramPacket(ByteArray(64), 64))
+        clock.set(1_015_001)
+        assertEquals("a desktop datagram (1_012_000) restarts it too", 1, activeAfterTicks())
+        clock.set(1_022_001)
+        assertEquals("closed once idle for longer than the timeout", 0, activeAfterTicks())
+        assertEquals("and it stays closed, not counted again on later ticks", 0, activeAfterTicks())
+    }
+
+    @Test
+    fun `ipv6 dns flows expire after 20 seconds, other flows after the udp idle timeout`() {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000)
+        val timed = clocked(clock, RelayConfig(allowLoopback = true))
+        val server = loopbackServer()
+        server.soTimeout = 3000
+        val lo = addr("::1")
+        val x = ByteArray(1)
+        fun dns() = timed.handlePacket(Ipv6Builder.udp(desktop, 5001, lo, 53, x, 0, 1))
+        fun other() = timed.handlePacket(Ipv6Builder.udp(desktop, 5002, lo, server.localPort, x, 0, 1))
+        dns()
+        other()
+        server.receive(DatagramPacket(ByteArray(8), 8))
+        assertEquals(2, timed.stats.activeUdp.get())
+        clock.set(1_021_000)
+        Thread.sleep(450)
+        assertEquals("only the port 53 flow timed out", 1, timed.stats.activeUdp.get())
+        other()
+        server.receive(DatagramPacket(ByteArray(8), 8))
+        assertEquals("the other flow was reused", 2L, timed.stats.udpFlowsOpened.get())
+        dns()
+        waitUntil("the port 53 flow is opened again") { timed.stats.udpFlowsOpened.get() == 3L }
+        clock.set(1_141_001)
+        Thread.sleep(450)
+        assertEquals(0, timed.stats.activeUdp.get())
+        Thread.sleep(450)
+        assertEquals("closed flows are removed, not counted twice", 0, timed.stats.activeUdp.get())
+    }
+
+    @Test
+    fun `at the udp flow limit the oldest ipv6 flow is closed for the new one`() {
+        loopbackServer().close()
+        val sockets = java.util.concurrent.CopyOnWriteArrayList<DatagramSocket>()
+        val limited = UserspaceRelay(
+            { out.put(it) },
+            RelayConfig(
+                allowLoopback = true,
+                socketPreparer = object : SocketPreparer {
+                    override fun prepareUdp(socket: DatagramSocket) { sockets += socket }
+                },
+            ),
+        ).also { it.start(); closeables += it }
+        val lo = addr("::1")
+        val x = ByteArray(1)
+        for (i in 0 until 512) limited.handlePacket(Ipv6Builder.udp(desktop, 10_000 + i, lo, 9, x, 0, 1))
+        waitUntil("512 flows open") { limited.stats.activeUdp.get() == 512 }
+        assertEquals(512, sockets.size)
+        limited.handlePacket(Ipv6Builder.udp(desktop, 20_000, lo, 9, x, 0, 1))
+        waitUntil("the 513th flow is opened") { limited.stats.udpFlowsOpened.get() == 513L }
+        assertEquals(513, sockets.size)
+        assertEquals("one flow made room for it", 512, limited.stats.activeUdp.get())
+        assertTrue("the oldest flow's socket was closed", sockets[0].isClosed)
+        assertTrue("the newer flows' sockets stay open", !sockets[1].isClosed && !sockets[512].isClosed)
     }
 }

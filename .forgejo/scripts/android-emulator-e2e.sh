@@ -80,8 +80,13 @@ boot_emulator() { # one emulator boot, 0 = booted
   adb emu kill >/dev/null 2>&1
   pkill -f "qemu-system.*etph$API" 2>/dev/null
   sleep 2
+  # From the second boot on, hand the emulator public resolvers instead of the host's: API 34 boots
+  # whose every DNS lookup failed (runs 769, 2026-11-11 and 2026-11-06) all came from the host
+  # resolver path, and API 26/36 on the same host were fine.
+  local dns=()
+  [ "${BOOT_ATTEMPT:-1}" -gt 1 ] && dns=(-dns-server 1.1.1.1,9.9.9.9)
   emulator -avd "etph$API" -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics \
-    -gpu swiftshader_indirect -accel on -memory 3072 -cores 2 -port 5554 >"$LOG/emulator.log" 2>&1 &
+    -gpu swiftshader_indirect -accel on -memory 3072 -cores 2 -port 5554 "${dns[@]}" >"$LOG/emulator.log" 2>&1 &
   PIDS+=($!)
   export ANDROID_SERIAL=emulator-5554
   adb start-server >/dev/null
@@ -132,6 +137,7 @@ settle() {
 
 EMU_ATTEMPTS=3
 for attempt in $(seq 1 $EMU_ATTEMPTS); do
+  BOOT_ATTEMPT=$attempt
   if ! boot_emulator; then
     echo "emulator API $API attempt $attempt/$EMU_ATTEMPTS: did not boot"
     [ "$attempt" = "$EMU_ATTEMPTS" ] && { echo "FAIL: [API $API] emulator did not boot"; exit 1; }
@@ -146,6 +152,11 @@ for attempt in $(seq 1 $EMU_ATTEMPTS); do
   adb shell ip addr 2>&1 | grep -E "inet |^[0-9]+:" | head -10
   adb shell ip route 2>&1 | head -5
   adb shell getprop net.dns1
+  {
+    echo "== attempt $attempt: by IP (egress) vs by name (DNS)"
+    adb shell 'ping -c1 -W3 1.1.1.1; ping -c1 -W3 example.com; getprop | grep -i -E "dns|net\.|wifi"; dumpsys connectivity | grep -i -E "dns|validated|NetworkAgentInfo" | head -20'
+    echo "== host resolv.conf"; cat /etc/resolv.conf; getent hosts example.com
+  } >"$LOG/network-diag-attempt$attempt.log" 2>&1
   cp "$LOG/emulator.log" "$LOG/emulator-attempt$attempt.log" 2>/dev/null
   if [ "$attempt" = "$EMU_ATTEMPTS" ]; then
     echo "FAIL: [API $API] the emulator never got working network in $EMU_ATTEMPTS boots (host DNS/egress or emulator networking, not the app)"

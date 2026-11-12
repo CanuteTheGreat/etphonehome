@@ -381,4 +381,46 @@ class Ipv6RelayTest {
         }
         assertEquals(0, relay.stats.tcpFlowsOpened.get().toInt())
     }
+
+    @Test
+    fun `a stray ack over ipv6 is reset with its ack number as the sequence and no ack flag`() {
+        relay.handlePacket(Ipv6Builder.tcp(desktop, 40003, addr("2001:db8::1"), 80, 100, 4242, TcpFlags.ACK, 65535))
+        val rst = nextTcp6()
+        assertEquals(TcpFlags.RST, rst.flags)
+        assertEquals(4242, rst.seq)
+        assertEquals(0, rst.ack)
+        assertEquals(0, rst.dataLength)
+    }
+
+    @Test
+    fun `a stray segment without ack is reset with ack after its data`() {
+        val d = "abc".toByteArray()
+        relay.handlePacket(Ipv6Builder.tcp(desktop, 40004, addr("2001:db8::1"), 80, 100, 0, TcpFlags.PSH, 65535, d, 0, d.size))
+        val rst = nextTcp6()
+        assertEquals(TcpFlags.RST or TcpFlags.ACK, rst.flags)
+        assertEquals(0, rst.seq)
+        assertEquals(103, rst.ack)
+    }
+
+    @Test
+    fun `a stray rst over ipv6 gets no answer`() {
+        relay.handlePacket(Ipv6Builder.tcp(desktop, 40005, addr("2001:db8::1"), 80, 100, 0, TcpFlags.RST, 0))
+        assertNull(next(400))
+    }
+
+    @Test
+    fun `an ipv6 flow key prints both addresses and ports`() {
+        val k = Flow6Key(java.nio.ByteBuffer.wrap(desktop), 5, java.nio.ByteBuffer.wrap(addr("2001:db8::9")), 443)
+        assertEquals("[fd65:7470:6800:0:0:0:0:1]:5 -> [2001:db8:0:0:0:0:0:9]:443", k.toString())
+    }
+
+    @Test
+    fun `tcp flows count 40 header bytes for ipv4 and 60 for ipv6`() {
+        java.nio.channels.SocketChannel.open().use { ch ->
+            val f = TcpFlow(Any(), ch, 1, ByteArray(0), 0L)
+            assertEquals(40, f.ipHeaderPlusTcp)
+            f.src6 = desktop
+            assertEquals(60, f.ipHeaderPlusTcp)
+        }
+    }
 }

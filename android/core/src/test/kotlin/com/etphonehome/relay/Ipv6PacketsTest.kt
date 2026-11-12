@@ -183,4 +183,48 @@ class Ipv6PacketsTest {
         tooBig[40 + 12] = 0x60 // header length 24 > 20-byte payload
         assertNull(Tcp6Segment.parse(Ipv6Packet.parse(tooBig)!!))
     }
+
+    /** A TCP/IPv6 packet whose TCP header carries [opts] (a multiple of 4 bytes) followed by [data]. */
+    private fun withOptions(opts: ByteArray, data: ByteArray = ByteArray(0)): ByteArray {
+        val body = opts + data
+        val pkt = Ipv6Builder.tcp(a, 1, b, 2, 0, 0, TcpFlags.SYN, 100, body, 0, body.size)
+        pkt[40 + 12] = (((20 + opts.size) / 4) shl 4).toByte()
+        return pkt
+    }
+
+    private fun seg(pkt: ByteArray) = Tcp6Segment.parse(Ipv6Packet.parse(pkt)!!)!!
+
+    @Test
+    fun tcpOptionsAreWalkedNopAndUnknownSkippedMssAtTheVeryEndOfTheHeader() {
+        // header-only segment whose header length equals the payload length
+        val s = seg(withOptions(byteArrayOf(1, 1, 99, 2, 2, 4, 5, 0xB4.toByte())))
+        assertEquals(1460, s.mss)
+        assertEquals(0, s.dataLength)
+        assertEquals(40 + 28, s.dataOffset)
+        assertEquals(1, s.seqLength)
+    }
+
+    @Test
+    fun tcpOptionsStopAtEndOfListAndIgnoreATruncatedMss() {
+        assertNull(seg(withOptions(byteArrayOf(1, 0, 2, 4, 5, 0xB4.toByte(), 0, 0))).mss)
+        assertNull(seg(withOptions(byteArrayOf(1, 1, 2, 4))).mss) // length runs past the header
+        assertNull(seg(withOptions(byteArrayOf(1, 1, 1, 2))).mss) // kind is the last header byte
+        assertNull(seg(withOptions(byteArrayOf(2, 3, 5, 0))).mss) // wrong MSS length is ignored
+    }
+
+    @Test
+    fun tcpDataFollowsTheOptions() {
+        val s = seg(withOptions(byteArrayOf(2, 4, 5, 0xB4.toByte()), "abc".toByteArray()))
+        assertEquals(1460, s.mss)
+        assertEquals(40 + 24, s.dataOffset)
+        assertEquals(3, s.dataLength)
+        assertEquals("abc", String(s.data, s.dataOffset, s.dataLength))
+    }
+
+    @Test
+    fun tcpBuilderAcceptsAnEmptyPayloadWhateverTheOffset() {
+        val pkt = Ipv6Builder.tcp(a, 1, b, 2, 0, 0, TcpFlags.ACK, 100, ByteArray(0), 1, 0)
+        assertEquals(40 + 20, pkt.size)
+        assertTrue(checksumOk(pkt, IpProto.TCP))
+    }
 }

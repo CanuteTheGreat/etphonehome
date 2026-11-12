@@ -106,6 +106,17 @@ jobs:
           sudo apt-get install -y -qq qemu-system-x86 qemu-utils xorriso openssh-client xz-utils curl python3
           ls -l /dev/kvm
       - name: Packages
+        id: dl1
+        continue-on-error: true
+        uses: actions/download-artifact@v3
+        with:
+          name: etphonehome-freebsd
+          path: pkgs
+      - name: Packages (retry: the Forgejo artifact API sometimes answers 500)
+        if: steps.dl1.outcome == 'failure'
+        run: sleep 45
+      - name: Packages (second attempt)
+        if: steps.dl1.outcome == 'failure'
         uses: actions/download-artifact@v3
         with:
           name: etphonehome-freebsd
@@ -163,6 +174,17 @@ jobs:
             openssh-client curl bzip2 python3
           ls -l /dev/kvm
       - name: Packages
+        id: dl2
+        continue-on-error: true
+        uses: actions/download-artifact@v3
+        with:
+          name: etphonehome-freebsd
+          path: pkgs
+      - name: Packages (retry: the Forgejo artifact API sometimes answers 500)
+        if: steps.dl2.outcome == 'failure'
+        run: sleep 45
+      - name: Packages (second attempt)
+        if: steps.dl2.outcome == 'failure'
         uses: actions/download-artifact@v3
         with:
           name: etphonehome-freebsd

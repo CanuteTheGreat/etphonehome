@@ -89,6 +89,17 @@ jobs:
           sudo apt-get install -y qemu-system-x86 qemu-utils iproute2 curl python3 udhcpc bridge-utils dnsutils
           ls -l /dev/kvm
       - name: Router packages
+        id: dl1
+        continue-on-error: true
+        uses: actions/download-artifact@v3
+        with:
+          name: openwrt-packages
+          path: pkgs
+      - name: Router packages (retry: the Forgejo artifact API sometimes answers 500)
+        if: steps.dl1.outcome == 'failure'
+        run: sleep 45
+      - name: Router packages (second attempt)
+        if: steps.dl1.outcome == 'failure'
         uses: actions/download-artifact@v3
         with:
           name: openwrt-packages

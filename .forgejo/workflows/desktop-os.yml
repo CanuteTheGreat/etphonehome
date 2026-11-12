@@ -112,7 +112,7 @@ jobs:
         with:
           name: etphonehome-freebsd
           path: pkgs
-      - name: Packages (retry: the Forgejo artifact API sometimes answers 500)
+      - name: Packages (retry after a Forgejo artifact API 500)
         if: steps.dl1.outcome == 'failure'
         run: sleep 45
       - name: Packages (second attempt)
@@ -180,7 +180,7 @@ jobs:
         with:
           name: etphonehome-freebsd
           path: pkgs
-      - name: Packages (retry: the Forgejo artifact API sometimes answers 500)
+      - name: Packages (retry after a Forgejo artifact API 500)
         if: steps.dl2.outcome == 'failure'
         run: sleep 45
       - name: Packages (second attempt)

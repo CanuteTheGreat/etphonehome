@@ -95,7 +95,7 @@ jobs:
         with:
           name: openwrt-packages
           path: pkgs
-      - name: Router packages (retry: the Forgejo artifact API sometimes answers 500)
+      - name: Router packages (retry after a Forgejo artifact API 500)
         if: steps.dl1.outcome == 'failure'
         run: sleep 45
       - name: Router packages (second attempt)

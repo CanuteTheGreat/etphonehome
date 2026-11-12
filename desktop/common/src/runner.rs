@@ -29,6 +29,10 @@ pub const DEFAULT_PORT: u16 = 8888;
 pub const TUN_ADDRESS: &str = "10.0.0.1";
 pub const TUN_NETMASK: &str = "255.255.255.0";
 pub const TUN_PEER: &str = "10.0.0.2";
+/// IPv6 ends of the tunnel link (a ULA /64). The phone core answers on
+/// `fd65:7470:6800::2` (`RelayConfig.localAddress6`).
+pub const TUN_ADDRESS6: &str = "fd65:7470:6800::1";
+pub const TUN_PEER6: &str = "fd65:7470:6800::2";
 /// mDNS service type registered by the Android app's NsdAdvertiser.
 pub const MDNS_SERVICE_TYPE: &str = "_etphonehome._tcp.local.";
 
@@ -298,6 +302,44 @@ pub fn setup_routing(tun_name: &str) -> Result<()> {
     setup_routing_via(tun_name, TUN_PEER)
 }
 
+/// `ip -6` argument lists that give the TUN link its IPv6 address and the
+/// default route through the phone, so IPv6 destinations are relayed like
+/// IPv4 ones. Same metric as the IPv4 default route.
+pub fn ipv6_route_commands(tun_name: &str) -> Vec<Vec<String>> {
+    let v = |a: &[&str]| a.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    vec![
+        v(&[
+            "-6",
+            "addr",
+            "add",
+            &format!("{TUN_ADDRESS6}/64"),
+            "dev",
+            tun_name,
+            "nodad",
+        ]),
+        v(&[
+            "-6", "route", "add", "default", "via", TUN_PEER6, "dev", tun_name, "metric", "100",
+        ]),
+    ]
+}
+
+/// Linux: configure IPv6 on the TUN link. Failures only warn (IPv6 may be
+/// disabled on the host; IPv4 keeps working).
+#[cfg(target_os = "linux")]
+fn setup_ipv6_routing(tun_name: &str) {
+    for args in ipv6_route_commands(tun_name) {
+        match Command::new("ip").args(&args).output() {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => warn!(
+                "`ip {}` failed (IPv6 through the tunnel unavailable): {}",
+                args.join(" "),
+                String::from_utf8_lossy(&o.stderr).trim()
+            ),
+            Err(e) => warn!("`ip {}` could not run: {}", args.join(" "), e),
+        }
+    }
+}
+
 /// [`setup_routing`] with the TUN link's peer address.
 pub fn setup_routing_via(tun_name: &str, peer: &str) -> Result<()> {
     info!("Setting up routing for {}...", tun_name);
@@ -320,6 +362,7 @@ pub fn setup_routing_via(tun_name: &str, peer: &str) -> Result<()> {
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
+        setup_ipv6_routing(tun_name);
     }
     #[cfg(windows)]
     {
@@ -2014,6 +2057,33 @@ pub fn format_profiles(config: &Config) -> String {
     }
     out.push_str("Connect with: sudo etphonehome connect <profile-name>\n");
     out
+}
+
+#[cfg(test)]
+mod ipv6_route_tests {
+    use super::*;
+
+    #[test]
+    fn ipv6_link_gets_ula_address_and_default_route_via_phone() {
+        let cmds = ipv6_route_commands("etph0");
+        assert_eq!(cmds.len(), 2);
+        assert_eq!(
+            cmds[0].join(" "),
+            "-6 addr add fd65:7470:6800::1/64 dev etph0 nodad"
+        );
+        assert_eq!(
+            cmds[1].join(" "),
+            "-6 route add default via fd65:7470:6800::2 dev etph0 metric 100"
+        );
+    }
+
+    #[test]
+    fn ipv6_link_addresses_are_valid_and_on_one_subnet() {
+        let a: std::net::Ipv6Addr = TUN_ADDRESS6.parse().unwrap();
+        let p: std::net::Ipv6Addr = TUN_PEER6.parse().unwrap();
+        assert_eq!(a.segments()[..4], p.segments()[..4]);
+        assert_ne!(a, p);
+    }
 }
 
 #[cfg(test)]

@@ -89,6 +89,15 @@ if wait_for_iface etph0; then
   ping -c 3 -W 2 -I etph0 10.0.0.2 >"$LOGS/ping-phone.log" 2>&1 \
     && pass "ICMP: 3/3 pings to the phone (10.0.0.2) answered" || { dump "$LOGS/ping-phone.log"; fail "ping phone"; }
 
+  # IPv6 on the tunnel link (client sets fd65:7470:6800::1/64 on etph0, peer ::2)
+  if ip -6 addr show dev etph0 2>/dev/null | grep -q "fd65:7470:6800::1"; then
+    ping -6 -c 3 -W 2 -I etph0 fd65:7470:6800::2 >"$LOGS/ping6-phone.log" 2>&1 \
+      && pass "ICMPv6: 3/3 pings to the phone (fd65:7470:6800::2) answered" \
+      || { dump "$LOGS/ping6-phone.log"; ip -6 addr show dev etph0; ip -6 route; fail "ping6 phone"; }
+  else
+    echo "SKIP: IPv6 not configured on etph0 (host has IPv6 disabled?)"; ip -6 addr show dev etph0 || true
+  fi
+
   if getent ahostsv4 example.com >"$LOGS/dns.log" 2>&1 && [ -s "$LOGS/dns.log" ]; then
     pass "DNS over UDP through the relay: example.com -> $(awk 'NR==1{print $1}' "$LOGS/dns.log")"
   else

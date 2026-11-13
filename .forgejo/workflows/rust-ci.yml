@@ -233,7 +233,8 @@ jobs:
         run: |
           bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
           cd desktop
-          T=$(cargo test -p etphonehome-common --no-run 2>&1 | grep -o 'target/debug/deps/etphonehome_common-[a-z0-9]*' | head -1)
+          cargo test -p etphonehome-common --no-run >/tmp/common-tests-build.log 2>&1 || { tail -60 /tmp/common-tests-build.log; exit 1; }
+          T=$(grep -o 'target/debug/deps/etphonehome_common-[a-z0-9]*' /tmp/common-tests-build.log | head -1)
           test -n "$T"
           mkdir -p ../e2e-bin
           cp target/release/etphonehome ../e2e-bin/

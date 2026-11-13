@@ -1,7 +1,7 @@
 {
  "id": "rust",
- "last_full": "2026-11-06",
- "sha": "2e1bbb25bb0f11675dd6785aea8fca2124178316",
+ "last_full": "2026-11-13",
+ "sha": "774c715159174f657de59a9628e290c254674fd3",
  "survivors": [
   "common/src/filter.rs: delete ! in IpRange::contains",
   "common/src/filter.rs: delete match arm 17 in Protocol::from_number",
@@ -52,8 +52,11 @@
   "common/src/runner.rs: replace connect_profile -> Result<()> with Ok(())",
   "common/src/runner.rs: replace discover_ip_via_adb -> Result<String> with Ok(\"xyzzy\".into())",
   "common/src/runner.rs: replace discover_ip_via_adb -> Result<String> with Ok(String::new())",
+  "common/src/runner.rs: replace match guard o.status.success() with false in setup_windows_ipv6",
+  "common/src/runner.rs: replace match guard o.status.success() with true in setup_windows_ipv6",
   "common/src/runner.rs: replace match guard policy.reconnect with true in run_with_retry",
   "common/src/runner.rs: replace resolve_bluetooth_device -> Result<bluer::Address> with Ok(Default::default())",
+  "common/src/runner.rs: replace setup_windows_ipv6 with ()",
   "common/src/runner.rs: replace || with && in resolve_bluetooth_device",
   "common/src/session.rs: replace == with != in forward",
   "common/src/session.rs: replace >> with << in client_handshake",

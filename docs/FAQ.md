@@ -423,7 +423,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for details.
 **Not done:**
 - Root mode (kernel NAT on rooted phones) - removed in v0.6.0 until it is done properly
 - Bluetooth in the Windows client, macOS client, Windows GUI build
-- IPv6 through the tunnel
+- IPv6 through the tunnel on Windows, macOS, FreeBSD and routers (Linux computers have it)
 - Multi-device support, data usage limits, mobile data usage tracking
 
 ### How can I report bugs?

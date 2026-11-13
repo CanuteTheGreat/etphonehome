@@ -32,7 +32,8 @@ against code, CI logs and the phone before changing a row.
   design redirected the phone's own traffic. A correct design needs kernel
   NAT (a tun device on the phone, `ip_forward`, MASQUERADE out of the
   phone's uplink for the tether subnet) and is not started.
-- Windows Bluetooth, IPv6 through the tunnel, multi-device,
+- Windows Bluetooth, IPv6 through the tunnel on Windows/macOS/FreeBSD/routers
+  (Linux has it), multi-device,
   mobile-data usage tracking, Play Store listing.
 
 ## Where the evidence lives

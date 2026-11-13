@@ -528,7 +528,7 @@ adb forward --remove tcp:8888
 ### Not done
 - [ ] Root mode (kernel NAT)
 - [ ] Bluetooth in the Windows client; macOS client; Windows GUI build
-- [ ] IPv6 through the tunnel
+- [ ] IPv6 through the tunnel on Windows, macOS, FreeBSD and routers (Linux computers have it)
 - [ ] Multiple devices, data usage limits, custom DNS server option
 
 ## Getting Help

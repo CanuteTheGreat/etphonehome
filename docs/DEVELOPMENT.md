@@ -478,7 +478,7 @@ Not implemented (also disclosed in the README):
 - [ ] Root mode (kernel NAT). The old iptables implementation was removed
       in 0.6.0 because it routed all phone traffic to the desktop; the
       intended design is only a note in STATUS.md
-- [ ] IPv6 through the tunnel
+- [ ] IPv6 through the tunnel on Windows, macOS, FreeBSD and routers (Linux computers have it)
 - [ ] Several computers at the same time (several are paired, the phone
       serves one at a time)
 - [ ] Bluetooth on Windows, macOS and FreeBSD desktops

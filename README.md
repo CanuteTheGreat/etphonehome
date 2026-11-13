@@ -55,6 +55,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 - ✅ **Bluetooth Tethering** (Pro) - RFCOMM, Linux (BlueZ) desktop only; the Windows client has no Bluetooth. Verified with real internet on a real phone (Samsung, Android 13); CI has no Bluetooth radio, so it checks the session code and that app and desktop agree on the service
 - ✅ **Cross-Platform desktop** - Linux, Windows (MSI with a tray app and a service), every macOS version Apple still patches, Apple silicon and Intel (macOS 15+ today; dropped when Apple stops patching; `.pkg`, universal; the installer refuses older macOS; menu-bar app, CLI and a launchd service; utun tunnel, DNS through scutil) and FreeBSD 14/15 (`pkg`), Linux GUI. The macOS package is installed and tested in CI on macOS 27 and 15 (Apple silicon) and macOS 26 (Intel) with real internet through the phone core
 - ✅ **DNS set up for you** - the desktop points DNS for the tunnel at the phone's DNS server (systemd-resolved on Linux, verified in CI; `netsh` on Windows, asserted in the Windows e2e (`packaging/windows/e2e.ps1`))
+- ✅ **IPv6 through the tunnel (Linux computers)** - the client gives the tunnel an IPv6 address (`fd65:7470:6800::1`) and a default IPv6 route through the phone, whose relay carries IPv6 TCP, UDP and ping like IPv4 (never to the phone itself, multicast or v4-mapped addresses). CI pings the phone end over IPv6 through the real tunnel (the CI hosts have no IPv6 internet) and the phone core's unit tests run IPv6 TCP/UDP/ping through the relay
 - ✅ **Live statistics on the phone** - connected desktop, data each way, open connections, uptime; the status only says "connected" once a desktop really is
 - ✅ **Traffic filter** - a connection profile's allow/block rules are applied on the computer and sent to the phone, which enforces them on the connections it opens
 - ✅ **Auto-Reconnect** - exponential backoff retry
@@ -67,7 +68,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 
 - 🔲 Root mode (kernel NAT on rooted phones). It is **not** in the app: an earlier, unreachable and wrongly designed implementation was removed in v0.6.0
 - 🔲 Bluetooth in the Windows client
-- 🔲 IPv6 through the tunnel (IPv4 only today)
+- 🔲 IPv6 through the tunnel on Windows, macOS, FreeBSD and routers (Linux computers have it, see above)
 - 🔲 Several computers at the same time (Pro pairs several, but the phone serves one at a time)
 
 ## 📋 Requirements

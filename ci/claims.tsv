@@ -112,3 +112,4 @@ macos	README.md	every macOS version Apple still patches, Apple silicon and Intel
 macos	README.md	installed and tested in CI on macOS 27 and 15 (Apple silicon) and macOS 26 (Intel) with real internet through the phone core	desktop/packaging/macos/e2e.sh	HTTPS through the phone
 macos	README.md	a launchd service	desktop/packaging/macos/e2e.sh	launchd runs the ETPH service as root
 macos	README.md	DNS through scutil	desktop/packaging/macos/e2e.sh	scutil: DNS service for
+ipv6-linux	README.md	IPv6 through the tunnel (Linux computers)	.forgejo/scripts/desktop-e2e-inner.sh	ICMPv6: 3/3 pings to the phone (fd65:7470:6800::2) answered

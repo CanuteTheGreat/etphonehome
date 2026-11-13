@@ -56,6 +56,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 - ✅ **Cross-Platform desktop** - Linux, Windows (MSI with a tray app and a service), every macOS version Apple still patches, Apple silicon and Intel (macOS 15+ today; dropped when Apple stops patching; `.pkg`, universal; the installer refuses older macOS; menu-bar app, CLI and a launchd service; utun tunnel, DNS through scutil) and FreeBSD 14/15 (`pkg`), Linux GUI. The macOS package is installed and tested in CI on macOS 27 and 15 (Apple silicon) and macOS 26 (Intel) with real internet through the phone core
 - ✅ **DNS set up for you** - the desktop points DNS for the tunnel at the phone's DNS server (systemd-resolved on Linux, verified in CI; `netsh` on Windows, asserted in the Windows e2e (`packaging/windows/e2e.ps1`))
 - ✅ **IPv6 through the tunnel (Linux computers)** - the client gives the tunnel an IPv6 address (`fd65:7470:6800::1`) and a default IPv6 route through the phone, whose relay carries IPv6 TCP, UDP and ping like IPv4 (never to the phone itself, multicast or v4-mapped addresses). CI pings the phone end over IPv6 through the real tunnel (the CI hosts have no IPv6 internet) and the phone core's unit tests run IPv6 TCP/UDP/ping through the relay
+- ✅ **IPv6 through the tunnel (Windows computers)** - the Windows client puts `fd65:7470:6800::1` on the Wintun adapter with on-link `::/1` and `8000::/1` routes (`netsh`), so IPv6 goes into the tunnel like on Linux. The Windows e2e (`packaging/windows/e2e.ps1`) checks the address is Preferred, that IPv6 route lookups land on the tunnel, and that `ping -6` reaches the phone end through Wintun
 - ✅ **Live statistics on the phone** - connected desktop, data each way, open connections, uptime; the status only says "connected" once a desktop really is
 - ✅ **Traffic filter** - a connection profile's allow/block rules are applied on the computer and sent to the phone, which enforces them on the connections it opens
 - ✅ **Auto-Reconnect** - exponential backoff retry
@@ -68,7 +69,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 
 - 🔲 Root mode (kernel NAT on rooted phones). It is **not** in the app: an earlier, unreachable and wrongly designed implementation was removed in v0.6.0
 - 🔲 Bluetooth in the Windows client
-- 🔲 IPv6 through the tunnel on Windows, macOS, FreeBSD and routers (Linux computers have it, see above)
+- 🔲 IPv6 through the tunnel on macOS, FreeBSD and routers (Linux and Windows computers have it, see above)
 - 🔲 Several computers at the same time (Pro pairs several, but the phone serves one at a time)
 
 ## 📋 Requirements

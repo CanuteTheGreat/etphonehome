@@ -58,7 +58,7 @@ for img in $DISTROS; do
     FAIL=$((FAIL + 1)); RESULTS+=("$img ($OS): binary does not start"); continue
   fi
   D 'echo "nameserver 8.8.8.8" > /etc/resolv.conf'
-  docker exec -d "$DESKTOP" bash -c "export PATH=/e2e/shim:/e2e/bin:\$PATH RUST_LOG=info; exec etphonehome wifi --host $PHONE_IP --port 9102 --token DistroTok --interface etph0 >/e2e/logs/client.log 2>&1"
+  docker exec -d "$DESKTOP" bash -c "export PATH=/e2e/shim:/e2e/bin:\$PATH RUST_LOG=info; echo \$\$ >/e2e/client.pid; exec etphonehome wifi --host $PHONE_IP --port 9102 --token DistroTok --interface etph0 >/e2e/logs/client.log 2>&1"
   up=0
   for _ in $(seq 1 200); do D 'ip -4 addr show etph0 2>/dev/null | grep -q 10.0.0.1' && { up=1; break; }; sleep 0.1; done
   ok=1
@@ -69,10 +69,16 @@ for img in $DISTROS; do
     CODE=$(D "curl -sS -m 30 -o /dev/null -w '%{http_code}' https://example.com/")
     [ "$CODE" = 200 ] || { ok=0; why+=" https=$CODE"; }
     D 'getent ahostsv4 example.com >/dev/null' || { ok=0; why+=" dns"; }
-    D 'pkill -INT -x etphonehome'
-    for _ in $(seq 1 100); do D 'pgrep -x etphonehome >/dev/null' || break; sleep 0.1; done
-    if D 'pgrep -x etphonehome >/dev/null || ip link show etph0 >/dev/null 2>&1 || ip route | grep -q etph0'; then
-      ok=0; why+=" cleanup"
+    # signal the client by the pid it recorded (pkill -x also matched foreign pids: EPERM)
+    D 'kill -INT "$(cat /e2e/client.pid)"' || true
+    for _ in $(seq 1 100); do D 'kill -0 "$(cat /e2e/client.pid)" 2>/dev/null' || break; sleep 0.1; done
+    left=""
+    D 'kill -0 "$(cat /e2e/client.pid)" 2>/dev/null' && left+=" process"
+    D 'ip link show etph0 >/dev/null 2>&1' && left+=" link"
+    D 'ip route | grep -q etph0' && left+=" route"
+    if [ -n "$left" ]; then
+      ok=0; why+=" cleanup(left:$left)"
+      D 'ps -eo pid,user,stat,comm,args | grep -i [e]tph; ip -br addr; ip route; ip -6 route' || true
     fi
   else
     ok=0

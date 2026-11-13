@@ -122,9 +122,10 @@ jobs:
         run: |
           uname -m
           bash ../.forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
-          cargo test -p etphonehome-common --no-run >/tmp/common-tests-build.log 2>&1 || { tail -60 /tmp/common-tests-build.log; exit 1; }
-          T=$(grep -o 'target/debug/deps/etphonehome_common-[a-z0-9]*' /tmp/common-tests-build.log | head -1)
-          test -n "$T"
+          cargo test -p etphonehome-common --no-run --message-format=json >/tmp/common-tests-build.log 2>/tmp/common-tests-build.err || { tail -60 /tmp/common-tests-build.err; exit 1; }
+          # the test binary path comes from cargo's JSON (honours CARGO_TARGET_DIR from the shared cache env)
+          T=$(grep '"executable":"' /tmp/common-tests-build.log | grep -o '"executable":"[^"]*etphonehome_common-[a-z0-9]*"' | head -1 | cut -d'"' -f4)
+          if [ -z "$T" ] || [ ! -x "$T" ]; then echo "no common test binary found (T='$T'); cargo output:"; tail -30 /tmp/common-tests-build.err; env | grep -i '^CARGO'; exit 1; fi
           mkdir -p ../e2e-bin
           cp target/release/etphonehome ../e2e-bin/
           cp "$T" ../e2e-bin/common-tests

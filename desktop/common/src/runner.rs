@@ -323,6 +323,58 @@ pub fn ipv6_route_commands(tun_name: &str) -> Vec<Vec<String>> {
     ]
 }
 
+/// `netsh interface ipv6` argument lists for the Windows tunnel adapter: its
+/// ULA address plus two on-link /1 routes (`::/1`, `8000::/1`) that beat any
+/// default route, like the IPv4 `0.0.0.0/1` + `128.0.0.0/1` pair. On-link
+/// because Wintun has no neighbour discovery (a gateway would be unreachable).
+pub fn windows_ipv6_commands(tun_name: &str) -> Vec<Vec<String>> {
+    let iface = format!("interface={tun_name}");
+    let mut cmds = vec![vec![
+        "interface".to_string(),
+        "ipv6".to_string(),
+        "add".to_string(),
+        "address".to_string(),
+        iface.clone(),
+        format!("address={TUN_ADDRESS6}/64"),
+        "store=active".to_string(),
+    ]];
+    for prefix in ["::/1", "8000::/1"] {
+        cmds.push(
+            [
+                "interface",
+                "ipv6",
+                "add",
+                "route",
+                &format!("prefix={prefix}"),
+                &iface,
+                "metric=1",
+                "store=active",
+            ]
+            .iter()
+            .map(|x| x.to_string())
+            .collect(),
+        );
+    }
+    cmds
+}
+
+/// Windows: configure IPv6 on the Wintun adapter. Failures only warn (IPv6
+/// may be disabled on the host; IPv4 keeps working).
+#[cfg(windows)]
+fn setup_windows_ipv6(tun_name: &str) {
+    for args in windows_ipv6_commands(tun_name) {
+        match Command::new("netsh").args(&args).output() {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => warn!(
+                "`netsh {}` failed (IPv6 through the tunnel unavailable): {}",
+                args.join(" "),
+                String::from_utf8_lossy(&o.stdout).trim()
+            ),
+            Err(e) => warn!("`netsh {}` could not run: {}", args.join(" "), e),
+        }
+    }
+}
+
 /// Linux: configure IPv6 on the TUN link. Failures only warn (IPv6 may be
 /// disabled on the host; IPv4 keeps working).
 #[cfg(target_os = "linux")]
@@ -405,6 +457,7 @@ pub fn setup_routing_via(tun_name: &str, peer: &str) -> Result<()> {
                 );
             }
         }
+        setup_windows_ipv6(tun_name);
     }
     #[cfg(not(any(target_os = "linux", windows)))]
     {
@@ -2062,6 +2115,22 @@ pub fn format_profiles(config: &Config) -> String {
 #[cfg(test)]
 mod ipv6_route_tests {
     use super::*;
+
+    #[test]
+    fn windows_ipv6_gets_ula_address_and_two_onlink_half_routes() {
+        let cmds: Vec<String> = windows_ipv6_commands("etphcli")
+            .iter()
+            .map(|c| c.join(" "))
+            .collect();
+        assert_eq!(
+            cmds,
+            vec![
+                "interface ipv6 add address interface=etphcli address=fd65:7470:6800::1/64 store=active",
+                "interface ipv6 add route prefix=::/1 interface=etphcli metric=1 store=active",
+                "interface ipv6 add route prefix=8000::/1 interface=etphcli metric=1 store=active",
+            ]
+        );
+    }
 
     #[test]
     fn ipv6_link_gets_ula_address_and_default_route_via_phone() {

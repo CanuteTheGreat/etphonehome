@@ -71,6 +71,14 @@ if ($addr.IPAddress -eq "10.0.0.1") { Pass "etphcli has 10.0.0.1" } else { Fail 
 $r = Find-NetRoute -RemoteIPAddress 1.1.1.1 | Select-Object -First 1
 $r2 = Find-NetRoute -RemoteIPAddress 200.1.1.1 | Select-Object -First 1
 if ($r.InterfaceAlias -eq "etphcli" -and $r2.InterfaceAlias -eq "etphcli") { Pass "0/1 + 128/1 routes win over the runner's default route" } else { Fail "route lookup: $($r.InterfaceAlias) $($r2.InterfaceAlias)"; route print -4 }
+$a6 = $null
+for ($i = 0; $i -lt 20; $i++) { $a6 = Get-NetIPAddress -InterfaceAlias etphcli -AddressFamily IPv6 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -eq "fd65:7470:6800::1" -and $_.AddressState -eq "Preferred" }; if ($a6) { break }; Start-Sleep 1 }
+if ($a6) { Pass "etphcli has the IPv6 tunnel address fd65:7470:6800::1" } else { Fail "etphcli IPv6 address: $((Get-NetIPAddress -InterfaceAlias etphcli -AddressFamily IPv6 -ErrorAction SilentlyContinue | Out-String))" }
+$r6 = Find-NetRoute -RemoteIPAddress 2606:4700:4700::1111 -ErrorAction SilentlyContinue | Select-Object -First 1
+$r6b = Find-NetRoute -RemoteIPAddress 8606:4700:4700::1111 -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($r6.InterfaceAlias -eq "etphcli" -and $r6b.InterfaceAlias -eq "etphcli") { Pass "::/1 + 8000::/1 routes send IPv6 into the tunnel" } else { Fail "IPv6 route lookup: $($r6.InterfaceAlias) $($r6b.InterfaceAlias)"; route print -6 }
+& ping.exe -6 -n 3 -w 2000 fd65:7470:6800::2 | Out-Host
+if ($LASTEXITCODE -eq 0) { Pass "ICMPv6: pings to the phone (fd65:7470:6800::2) answered over Wintun" } else { Fail "ping6 phone" }
 $dns = (Get-DnsClientServerAddress -InterfaceAlias etphcli -AddressFamily IPv4).ServerAddresses
 if ($dns -contains "8.8.8.8") { Pass "etphcli DNS = the phone's DNS server" } else { Fail "DNS: $dns" }
 $before = (Get-NetAdapterStatistics -Name etphcli).ReceivedBytes

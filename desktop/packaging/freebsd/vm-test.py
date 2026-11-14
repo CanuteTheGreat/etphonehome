@@ -184,6 +184,12 @@ service sshd restart || service sshd start
         check(rc == 0 and "10.0.0.1 --> 10.0.0.2" in out, "tun(4) interface renamed etph0, 10.0.0.1 -> 10.0.0.2", out)
         rc, out = vm.ssh("route -n get 1.1.1.1; route -n get 200.1.1.1")
         check(out.count("interface: etph0") == 2, "0/1 + 128/1 routes send all traffic through etph0", out)
+        rc, out = vm.ssh("ifconfig etph0 inet6; route -n get -inet6 2001:db8::1")
+        check("fd65:7470:6800::1" in out and "interface: etph0" in out,
+              "IPv6 tunnel address fd65:7470:6800::1 on etph0 + ::/1 route via etph0", out)
+        rc, out = vm.ssh("ping6 -c 3 -S fd65:7470:6800::1 fd65:7470:6800::2", 60)
+        check(rc == 0 and "3 packets received" in out,
+              "ICMPv6: 3/3 pings to the phone (fd65:7470:6800::2) answered", out)
         rc, out = vm.ssh("cat /etc/resolv.conf")
         check("8.8.8.8" in out, "resolvconf(8) got the phone's DNS server", out)
         rc, out = vm.ssh("fetch -T 20 -o - https://example.com | head -c 2000", 60)

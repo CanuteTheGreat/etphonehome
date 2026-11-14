@@ -330,6 +330,13 @@ def main():
         rc, out = con.sh("wget -q -T 20 -O - https://example.com | grep -o '<title>[^<]*'", 60)
         check("Example Domain" in out, "router: HTTPS through the phone (DNS via the phone too)", out)
 
+        # IPv6 through the phone: ULA address + default route from netifd, ICMPv6 relayed.
+        rc, out = con.sh("ip -6 addr show dev etph-phone; ip -6 route show default; "
+                         "ping6 -c 3 -W 5 fd65:7470:6800::2; echo RC=$?", 40)
+        check("fd65:7470:6800::1" in out and "default via fd65:7470:6800::2 dev etph-phone" in out,
+              "IPv6 tunnel address fd65:7470:6800::1 and default route via the phone (netifd)", out)
+        check("RC=0" in out, "ICMPv6: 3/3 pings to the phone (fd65:7470:6800::2) answered from the router", out)
+
         # The laptop behind the router.
         dh = "udhcpc -i etphv1 -n -q -t 10" if shutil.which("udhcpc") else "dhclient -1 -v etphv1"
         r = sh(f"ip netns exec etphlan {dh}", check_rc=False)

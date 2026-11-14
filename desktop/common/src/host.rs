@@ -147,6 +147,11 @@ pub fn hook_env(tun: &TunAddressing, info: &HookInfo) -> Vec<(String, String)> {
         ("ETPH_PREFIX".to_string(), tun.prefix.to_string()),
         ("ETPH_NETMASK".to_string(), tun.netmask().to_string()),
         ("ETPH_PEER".to_string(), tun.peer.to_string()),
+        // IPv6 ends of the tunnel link (the phone relays IPv6 like IPv4);
+        // the router hook hands them to netifd, which --no-routes leaves
+        // to it.
+        ("ETPH_LOCAL6".to_string(), crate::runner::TUN_ADDRESS6.to_string()),
+        ("ETPH_PEER6".to_string(), crate::runner::TUN_PEER6.to_string()),
         ("ETPH_TRANSPORT".to_string(), info.transport.clone()),
     ];
     if let Some(dns) = info.dns {
@@ -629,6 +634,8 @@ mod tests {
         assert_eq!(get("ETPH_LOCAL"), Some("10.0.0.1"));
         assert_eq!(get("ETPH_PREFIX"), Some("24"));
         assert_eq!(get("ETPH_PEER"), Some("10.0.0.2"));
+        assert_eq!(get("ETPH_LOCAL6"), Some("fd65:7470:6800::1"));
+        assert_eq!(get("ETPH_PEER6"), Some("fd65:7470:6800::2"));
         assert_eq!(get("ETPH_DNS"), Some("8.8.8.8"));
         assert_eq!(get("ETPH_DEVICE"), Some("samsung SM-N986U"));
         assert_eq!(get("ETPH_REASON"), None);

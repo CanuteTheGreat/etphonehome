@@ -16,6 +16,12 @@ up)
 	proto_init_update "$ETPH_IFNAME" 1 1
 	proto_add_ipv4_address "$ETPH_LOCAL" "${ETPH_PREFIX:-24}"
 	[ "${ETPH_DEFAULTROUTE:-1}" = 0 ] || proto_add_ipv4_route 0.0.0.0 0 "$ETPH_PEER"
+	# IPv6 through the phone (its relay carries IPv6 like IPv4): the ULA link
+	# address and, like the IPv4 one, a default route unless defaultroute 0.
+	if [ -n "$ETPH_LOCAL6" ] && [ -n "$ETPH_PEER6" ]; then
+		proto_add_ipv6_address "$ETPH_LOCAL6" 64
+		[ "${ETPH_DEFAULTROUTE:-1}" = 0 ] || proto_add_ipv6_route :: 0 "$ETPH_PEER6"
+	fi
 	if [ "${ETPH_PEERDNS:-1}" != 0 ] && [ -n "$ETPH_DNS" ]; then
 		proto_add_dns_server "$ETPH_DNS"
 	fi

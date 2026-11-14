@@ -358,6 +358,41 @@ pub fn windows_ipv6_commands(tun_name: &str) -> Vec<Vec<String>> {
     cmds
 }
 
+/// macOS and BSD: the commands (program, arguments) that give the TUN link its
+/// IPv6 address and send all of IPv6 into it. Two `::/1` + `8000::/1` routes
+/// bound to the interface (`-interface`: no neighbour discovery needed on a
+/// point-to-point TUN) beat any existing default route without deleting it,
+/// like the IPv4 `0.0.0.0/1` + `128.0.0.0/1` pair. They vanish with the
+/// interface.
+pub fn bsd_ipv6_commands(tun_name: &str) -> Vec<(&'static str, Vec<String>)> {
+    let v = |a: &[&str]| a.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    let addr = v(&[tun_name, "inet6", TUN_ADDRESS6, "prefixlen", "64", "alias"]);
+    let mut cmds = vec![("ifconfig", addr)];
+    for prefix in ["::/1", "8000::/1"] {
+        let args = v(&["-n", "add", "-inet6", prefix, "-interface", tun_name]);
+        cmds.push(("route", args));
+    }
+    cmds
+}
+
+/// macOS/BSD: configure IPv6 on the TUN link. Failures only warn (IPv6 may
+/// be disabled on the host; IPv4 keeps working).
+#[cfg(not(any(target_os = "linux", windows)))]
+fn setup_bsd_ipv6(tun_name: &str) {
+    for (prog, args) in bsd_ipv6_commands(tun_name) {
+        match Command::new(prog).args(&args).output() {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => warn!(
+                "`{} {}` failed (IPv6 through the tunnel unavailable): {}",
+                prog,
+                args.join(" "),
+                String::from_utf8_lossy(&o.stderr).trim()
+            ),
+            Err(e) => warn!("`{} {}` could not run: {}", prog, args.join(" "), e),
+        }
+    }
+}
+
 /// Windows: configure IPv6 on the Wintun adapter. Failures only warn (IPv6
 /// may be disabled on the host; IPv4 keeps working).
 #[cfg(windows)]
@@ -485,6 +520,7 @@ pub fn setup_routing_via(tun_name: &str, peer: &str) -> Result<()> {
                 failed.join("; ")
             );
         }
+        setup_bsd_ipv6(tun_name);
     }
     Ok(())
 }
@@ -2143,6 +2179,23 @@ mod ipv6_route_tests {
         assert_eq!(
             cmds[1].join(" "),
             "-6 route add default via fd65:7470:6800::2 dev etph0 metric 100"
+        );
+    }
+
+    #[test]
+    fn bsd_ipv6_gets_ula_address_and_two_interface_bound_half_routes() {
+        let cmds = bsd_ipv6_commands("utun5");
+        let lines: Vec<String> = cmds
+            .iter()
+            .map(|(p, a)| format!("{} {}", p, a.join(" ")))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "ifconfig utun5 inet6 fd65:7470:6800::1 prefixlen 64 alias",
+                "route -n add -inet6 ::/1 -interface utun5",
+                "route -n add -inet6 8000::/1 -interface utun5",
+            ]
         );
     }
 

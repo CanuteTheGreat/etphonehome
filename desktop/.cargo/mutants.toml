@@ -6,7 +6,7 @@
 # link_facts, wants_accessory_in, ...) so they stay mutated and unit-tested.
 exclude_re = [
     # routes, DNS (resolvectl / netsh / scutil / resolvconf), undoing them
-    "\\b(setup_routing|setup_routing_via|setup_ipv6_routing|configure_dns|cleanup_host|scutil|wait_windows_address)\\b",
+    "\\b(setup_routing|setup_routing_via|setup_ipv6_routing|setup_bsd_ipv6|configure_dns|cleanup_host|scutil|wait_windows_address)\\b",
     # pfSense/OPNsense address keeper: BSD only, compiled out on the Linux mutation runner
     "\\baddress_keeper\\b",
     # BlueZ RFCOMM and the phone's USB interfaces (usbfs / libusb)

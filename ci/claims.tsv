@@ -114,3 +114,4 @@ macos	README.md	a launchd service	desktop/packaging/macos/e2e.sh	launchd runs th
 macos	README.md	DNS through scutil	desktop/packaging/macos/e2e.sh	scutil: DNS service for
 ipv6-linux	README.md	IPv6 through the tunnel (Linux computers)	.forgejo/scripts/desktop-e2e-inner.sh	ICMPv6: 3/3 pings to the phone (fd65:7470:6800::2) answered
 ipv6-windows	README.md	IPv6 through the tunnel (Windows computers)	desktop/packaging/windows/e2e.ps1	ICMPv6: pings to the phone (fd65:7470:6800::2) answered over Wintun
+ipv6-freebsd	README.md	IPv6 through the tunnel (FreeBSD computers)	desktop/packaging/freebsd/vm-test.py	IPv6 tunnel address fd65:7470:6800::1 on etph0

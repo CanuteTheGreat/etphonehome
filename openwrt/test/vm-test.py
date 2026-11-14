@@ -327,7 +327,11 @@ def main():
         rc, out = con.sh("ip route show default; ps w | grep -v grep | grep etphonehome")
         check("etph-phone" in out and "RouterTok3n" not in out, "client runs under netifd with the token kept out of ps", out)
 
-        rc, out = con.sh("wget -q -T 20 -O - https://example.com | grep -o '<title>[^<]*'", 60)
+        # IPv4 only: the router now has an IPv6 default route through the phone, but the CI hosts
+        # have no IPv6 internet; uclient-fetch on 24.10 takes the AAAA first and dies on it
+        # ("SSL error: NET - Sending information through the socket failed", run 880) instead of
+        # falling back. IPv6 itself is checked below (address, route, ICMPv6 to the phone).
+        rc, out = con.sh("wget -4 -q -T 20 -O - https://example.com | grep -o '<title>[^<]*'", 60)
         check("Example Domain" in out, "router: HTTPS through the phone (DNS via the phone too)", out)
 
         # IPv6 through the phone: ULA address + default route from netifd, ICMPv6 relayed.
@@ -371,7 +375,7 @@ def main():
                          "for i in $(seq 40); do mwan3 interfaces 2>/dev/null | grep -q 'interface phone is online' && break; sleep 2; done; "
                          "mwan3 interfaces", 300)
         check("interface phone is online" in out, "mwan3 tracks the phone uplink as online", out[-800:])
-        rc, out = con.sh("wget -q -T 20 -O - https://example.com | grep -o '<title>[^<]*'", 60)
+        rc, out = con.sh("wget -4 -q -T 20 -O - https://example.com | grep -o '<title>[^<]*'", 60)
         check("Example Domain" in out, "router: HTTPS through the phone with mwan3 policy routing on", out)
         con.sh("/etc/init.d/mwan3 stop; /etc/init.d/mwan3 disable", 60)
 
@@ -417,7 +421,7 @@ def main():
         t0 = time.time()
         rc, out = con.sh("for i in $(seq 75); do ifstatus phone | grep -q '\"up\": true' && break; sleep 2; done; ifstatus phone | grep '\"up\"'", 200)
         check('"up": true' in out, f"phone back: uplink up again by itself ({int(time.time() - t0)}s)", out)
-        rc, out = con.sh("wget -q -T 20 -O - https://example.com | grep -o '<title>[^<]*'", 60)
+        rc, out = con.sh("wget -4 -q -T 20 -O - https://example.com | grep -o '<title>[^<]*'", 60)
         check("Example Domain" in out, "internet through the phone again after the reconnect", out)
         standin.terminate()
         standin.wait()

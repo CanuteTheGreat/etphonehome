@@ -19,6 +19,10 @@ up)
 	# IPv6 through the phone (its relay carries IPv6 like IPv4): the ULA link
 	# address and, like the IPv4 one, a default route unless defaultroute 0.
 	if [ -n "$ETPH_LOCAL6" ] && [ -n "$ETPH_PEER6" ]; then
+		# proto_init_update said address-external (the client configured the
+		# IPv4 end itself), so netifd would not add this one: put it on the
+		# tun here (nodad: usable at once) before netifd installs the route.
+		ip -6 addr replace "$ETPH_LOCAL6/64" dev "$ETPH_IFNAME" nodad 2>/dev/null
 		proto_add_ipv6_address "$ETPH_LOCAL6" 64
 		[ "${ETPH_DEFAULTROUTE:-1}" = 0 ] || proto_add_ipv6_route :: 0 "$ETPH_PEER6"
 	fi

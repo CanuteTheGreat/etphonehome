@@ -150,8 +150,14 @@ pub fn hook_env(tun: &TunAddressing, info: &HookInfo) -> Vec<(String, String)> {
         // IPv6 ends of the tunnel link (the phone relays IPv6 like IPv4);
         // the router hook hands them to netifd, which --no-routes leaves
         // to it.
-        ("ETPH_LOCAL6".to_string(), crate::runner::TUN_ADDRESS6.to_string()),
-        ("ETPH_PEER6".to_string(), crate::runner::TUN_PEER6.to_string()),
+        (
+            "ETPH_LOCAL6".to_string(),
+            crate::runner::TUN_ADDRESS6.to_string(),
+        ),
+        (
+            "ETPH_PEER6".to_string(),
+            crate::runner::TUN_PEER6.to_string(),
+        ),
         ("ETPH_TRANSPORT".to_string(), info.transport.clone()),
     ];
     if let Some(dns) = info.dns {

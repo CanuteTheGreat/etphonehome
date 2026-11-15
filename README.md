@@ -59,6 +59,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 - ✅ **IPv6 through the tunnel (Windows computers)** - the Windows client puts `fd65:7470:6800::1` on the Wintun adapter with on-link `::/1` and `8000::/1` routes (`netsh`), so IPv6 goes into the tunnel like on Linux. The Windows e2e (`packaging/windows/e2e.ps1`) checks the address is Preferred, that IPv6 route lookups land on the tunnel, and that `ping -6` reaches the phone end through Wintun
 - ✅ **IPv6 through the tunnel (FreeBSD computers)** - the FreeBSD client puts `fd65:7470:6800::1/64` on the `tun` interface with interface-bound `::/1` and `8000::/1` routes. The real FreeBSD 14 VM test checks the address and route and that `ping6` reaches the phone end over tun(4)
 - ✅ **IPv6 through the tunnel (OpenWrt routers)** - the router's `proto etph` gives the phone interface `fd65:7470:6800::1` and a default IPv6 route via the phone. The real OpenWrt 24.10 and 25.12 VM tests check the address, the route and that `ping6` reaches the phone end from the router
+- ✅ **IPv6 through the tunnel (macOS computers)** - the macOS client puts `fd65:7470:6800::1` on the utun interface with `::/1` and `8000::/1` routes through it, so IPv6 goes into the tunnel like on Linux. The native macOS e2e (`desktop/packaging/macos/e2e.sh`, macOS 15 arm64, xcode-27 arm64 and macOS 26 Intel) checks the address, the routes and that `ping6` reaches the phone end over the utun
 - ✅ **Live statistics on the phone** - connected desktop, data each way, open connections, uptime; the status only says "connected" once a desktop really is
 - ✅ **Traffic filter** - a connection profile's allow/block rules are applied on the computer and sent to the phone, which enforces them on the connections it opens
 - ✅ **Auto-Reconnect** - exponential backoff retry
@@ -71,7 +72,6 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 
 - 🔲 Root mode (kernel NAT on rooted phones). It is **not** in the app: an earlier, unreachable and wrongly designed implementation was removed in v0.6.0
 - 🔲 Bluetooth in the Windows client
-- 🔲 IPv6 through the tunnel on macOS (Linux, Windows and FreeBSD computers and OpenWrt routers have it, see above)
 - 🔲 Several computers at the same time (Pro pairs several, but the phone serves one at a time)
 
 ## 📋 Requirements

@@ -97,6 +97,14 @@ ifconfig "$IF" 2>/dev/null | grep -q 'inet 10.0.0.1 --> 10.0.0.2' \
 R1=$(route -n get 1.1.1.1 | awk '/interface:/{print $2}')
 R2=$(route -n get 200.1.1.1 | awk '/interface:/{print $2}')
 [ "$R1" = "$IF" ] && [ "$R2" = "$IF" ] && pass "0/1 + 128/1 routes through $IF" || fail "routes: $R1 $R2"
+ifconfig "$IF" inet6 2>/dev/null | grep -q 'inet6 fd65:7470:6800::1 ' \
+  && pass "IPv6 tunnel address fd65:7470:6800::1 on $IF" || fail "utun IPv6: $(ifconfig "$IF" 2>&1)"
+V1=$(route -n get -inet6 2606:4700:4700::1111 | awk '/interface:/{print $2}')
+V2=$(route -n get -inet6 8606:4700:4700::1111 | awk '/interface:/{print $2}')
+[ "$V1" = "$IF" ] && [ "$V2" = "$IF" ] && pass "::/1 + 8000::/1 routes send IPv6 through $IF" || fail "IPv6 routes: $V1 $V2 ($(netstat -rn -f inet6 | grep -i "$IF" | head -5))"
+if ping6 -c 3 -S fd65:7470:6800::1 fd65:7470:6800::2 >"$W/ping6.log" 2>&1; then
+  pass "ICMPv6: 3/3 pings to the phone (fd65:7470:6800::2) answered"
+else cat "$W/ping6.log"; fail "ICMPv6 ping to the phone"; fi
 printf 'show State:/Network/Service/etphonehome-%s/DNS\n' "$IF" | scutil | grep -q 8.8.8.8 \
   && pass "scutil: DNS service for $IF published with the phone's DNS server" || fail "scutil DNS key missing"
 if scutil --dns | grep -q 'nameserver\[[0-9]*\] : 8.8.8.8'; then

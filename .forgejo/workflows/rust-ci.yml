@@ -410,6 +410,37 @@ jobs:
             dist/etphonehome-windows-*.zip
             dist/etph-windows-*.msi
 
+  build-gui-windows:
+    name: Build Desktop GUI (Windows, mingw)
+    # Roadmap P1-3 (Windows GUI build): prove the iced GUI cross-compiles
+    # for Windows before it is packaged. Same cross toolchain as build-windows.
+    needs: test
+    runs-on: linux-cross-x86_64
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+          components: clippy
+      - name: Install mingw-w64
+        run: |
+          for i in 1 2 3 4; do
+            sudo apt-get -o DPkg::Lock::Timeout=120 update && \
+              sudo apt-get -o DPkg::Lock::Timeout=120 install -y mingw-w64 && break
+            [ "$i" = 4 ] && exit 1
+            echo "apt attempt $i failed; retrying"; sleep $((i*15))
+          done
+      - name: Ensure Node.js is present (self-heal)
+        run: command -v node || sudo apt-get install -y nodejs
+      - name: Build + clippy (x86_64-pc-windows-gnu)
+        working-directory: desktop
+        run: |
+          cargo build --release -p etphonehome-gui --target x86_64-pc-windows-gnu
+          cargo clippy --release -p etphonehome-gui --target x86_64-pc-windows-gnu -- -D warnings
+          file target/x86_64-pc-windows-gnu/release/etphonehome-gui.exe | grep -q 'PE32+'
+
   build-gui:
     name: Build Desktop GUI
     # The GUI crate (desktop/gui, etphonehome-gui) was only ever compiled

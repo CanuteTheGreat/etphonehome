@@ -116,6 +116,18 @@ $tray = Start-Process -FilePath "C:\Program Files\ETPH\etph-tray.exe" -PassThru
 Start-Sleep 6
 if (-not $tray.HasExited) { Pass "tray app starts and stays up"; Stop-Process -Id $tray.Id -Force } else { Fail "tray app exited ($($tray.ExitCode))" }
 
+$gui = Start-Process -FilePath "C:\Program Files\ETPH\etphonehome-gui.exe" -PassThru
+$guiWin = $false
+for ($i = 0; $i -lt 20 -and -not $gui.HasExited; $i++) {
+  Start-Sleep 1
+  $gui.Refresh()
+  if ($gui.MainWindowHandle -ne 0) { $guiWin = $true; break }
+}
+if ($guiWin) { Pass "GUI opens a window (title: $($gui.MainWindowTitle))" }
+elseif (-not $gui.HasExited) { Pass "GUI starts and stays up (no top-level window handle seen)" }
+else { Fail "GUI exited ($($gui.ExitCode))" }
+if (-not $gui.HasExited) { $gui.Kill() }
+
 # ---- uninstall ------------------------------------------------------------
 $p = Start-Process msiexec.exe -ArgumentList "/x `"$Msi`" /qn /l*v `"$W\msi-x.log`"" -Wait -PassThru
 if ($p.ExitCode -eq 0 -and -not (Test-Path "C:\Program Files\ETPH\*.exe") -and -not (Get-Service ETPH -ErrorAction SilentlyContinue)) { Pass "msiexec /x removes files and the service" } else { Fail "uninstall exit $($p.ExitCode); left: $(Get-ChildItem 'C:\Program Files\ETPH' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name); service: $((Get-Service ETPH -ErrorAction SilentlyContinue).Status)" }

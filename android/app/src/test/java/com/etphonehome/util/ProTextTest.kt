@@ -46,4 +46,17 @@ class ProTextTest {
         assertTrue(u, u.contains("Web (HTTPS/HTTP): "))
         assertEquals("No data used yet.", ProText.usage(true, UsageLedger(), listOf(laptop), day))
     }
+
+    @Test
+    fun limitWarningShowsOnlyNearOrOverAndOnlyForPro() {
+        val l = UsageLedger()
+        val d = LocalDate.of(2026, 11, 16)
+        l.record(Any(), "a", d, 900_000_000, 0, emptyMap())
+        val paired = listOf(laptop)
+        assertTrue(ProText.usage(true, l, paired, d, 1_000_000_000).startsWith("Close to the monthly limit"))
+        assertTrue(ProText.usage(true, l, paired, d, 500_000_000).startsWith("Monthly limit reached"))
+        assertTrue(!ProText.usage(true, l, paired, d, 5_000_000_000).contains("limit"))
+        assertTrue(!ProText.usage(true, l, paired, d, 0).contains("limit"))
+        assertEquals("Monthly data limit · Pro", ProText.limitButton(false, 0))
+    }
 }

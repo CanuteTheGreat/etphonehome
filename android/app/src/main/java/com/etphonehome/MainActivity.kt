@@ -75,6 +75,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pairedHint: TextView
     private lateinit var pairedList: android.widget.LinearLayout
     private lateinit var usageText: TextView
+    private lateinit var limitButton: Button
 
     private var selectedConnectionMode = TetherService.CONNECTION_USB
     private lateinit var usbHintText: TextView
@@ -135,6 +136,15 @@ class MainActivity : AppCompatActivity() {
         pairedHint = findViewById(R.id.pairedHint)
         pairedList = findViewById(R.id.pairedList)
         usageText = findViewById(R.id.usageText)
+        limitButton = findViewById(R.id.limitButton)
+        limitButton.setOnClickListener {
+            if (Pro.isPro) {
+                Pro.store.monthlyLimit = com.etphonehome.pro.UsageLimit.next(Pro.store.monthlyLimit)
+                renderUsage()
+            } else {
+                openUpgrade()
+            }
+        }
         upgradeButton.setOnClickListener { openUpgrade() }
         findViewById<Button>(R.id.proRequiredButton).setOnClickListener { openUpgrade() }
         autoStartSwitch.isChecked = Pro.store.autoStart
@@ -226,7 +236,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderUsage() {
-        val t = Pro.store.usage { ProText.usage(Pro.isPro, it, Pro.store.paired.value, LocalDate.now()) }
+        val t = Pro.store.usage { ProText.usage(Pro.isPro, it, Pro.store.paired.value, LocalDate.now(), Pro.store.monthlyLimit) }
+        limitButton.text = ProText.limitButton(Pro.isPro, Pro.store.monthlyLimit)
         if (usageText.text.toString() != t) usageText.text = t
     }
 

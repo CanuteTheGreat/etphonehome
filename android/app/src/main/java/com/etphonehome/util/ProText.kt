@@ -4,6 +4,7 @@ import com.etphonehome.pro.Entitlement
 import com.etphonehome.pro.PairedDevice
 import com.etphonehome.pro.ProGate
 import com.etphonehome.pro.UsageLedger
+import com.etphonehome.pro.UsageLimit
 import java.time.LocalDate
 
 /** Text for the Pro parts of the main screen. Plain Kotlin, unit-tested (ProTextTest). */
@@ -51,7 +52,21 @@ object ProText {
         }
     }
 
-    fun usage(isPro: Boolean, ledger: UsageLedger, paired: List<PairedDevice>, today: LocalDate): String {
+    /** Label of the monthly-limit button. */
+    fun limitButton(isPro: Boolean, limit: Long): String = when {
+        !isPro -> "Monthly data limit · Pro"
+        limit <= 0 -> "Monthly data limit: off (tap to set)"
+        else -> "Monthly data limit: ${FormatUtils.formatBytes(limit)} (tap to change)"
+    }
+
+    /** Warning line above the usage numbers; empty when there is no limit or plenty left. */
+    fun limitLine(limit: Long, used: Long): String = when (UsageLimit.state(limit, used)) {
+        UsageLimit.State.OFF, UsageLimit.State.OK -> ""
+        UsageLimit.State.NEAR -> "Close to the monthly limit: ${FormatUtils.formatBytes(used)} of ${FormatUtils.formatBytes(limit)} used."
+        UsageLimit.State.REACHED -> "Monthly limit reached: ${FormatUtils.formatBytes(used)} of ${FormatUtils.formatBytes(limit)} used."
+    }
+
+    fun usage(isPro: Boolean, ledger: UsageLedger, paired: List<PairedDevice>, today: LocalDate, limit: Long = 0): String {
         if (!isPro) {
             return "Usage history per computer and router, and by kind of traffic (web, DNS, email, calls…), " +
                 "is part of ETPH Pro. The live numbers above stay free."
@@ -61,6 +76,11 @@ object ProText {
         if (ids.isEmpty()) return "No data used yet."
         val month = today.withDayOfMonth(1)
         return buildString {
+            val warn = limitLine(limit, ledger.totalAll(month, today).total)
+            if (warn.isNotEmpty()) {
+                appendLine(warn)
+                appendLine()
+            }
             for (id in ids) {
                 val t = ledger.total(id, today, today).total
                 val mo = ledger.total(id, month, today).total

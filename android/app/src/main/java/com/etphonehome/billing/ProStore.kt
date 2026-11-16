@@ -100,6 +100,14 @@ class ProStore(context: Context) : EntitlementStore {
         prefs.edit().putString(KEY_USAGE, ledger.encode()).apply()
     }
 
+    // --- monthly data limit (bytes, 0 = none) ---------------------------------------
+    var monthlyLimit: Long
+        get() = prefs.getLong(KEY_LIMIT, 0L)
+        set(v) {
+            prefs.edit().putLong(KEY_LIMIT, v).apply()
+            _usageVersion.value = _usageVersion.value + 1
+        }
+
     // --- auto-start -----------------------------------------------------------------
     var autoStart: Boolean
         get() = prefs.getBoolean(KEY_AUTOSTART, true)
@@ -115,6 +123,7 @@ class ProStore(context: Context) : EntitlementStore {
         private const val KEY_TEST_OVERRIDE = "test_override_pro"
         private const val KEY_PAIRED = "paired_devices"
         private const val KEY_USAGE = "usage_ledger"
+        private const val KEY_LIMIT = "monthly_limit"
         private const val KEY_AUTOSTART = "auto_start"
     }
 }

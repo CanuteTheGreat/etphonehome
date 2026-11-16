@@ -81,6 +81,12 @@ class UsageLedger(
         days.filterKeys { it.deviceId == deviceId && !it.day.isBefore(from) && !it.day.isAfter(to) }
             .values.fold(Usage(0, 0)) { a, b -> a + b }
 
+    /** Bytes of all computers and routers together between [from] and [to] (inclusive). */
+    @Synchronized
+    fun totalAll(from: LocalDate, to: LocalDate): Usage =
+        days.filterKeys { !it.day.isBefore(from) && !it.day.isAfter(to) }
+            .values.fold(Usage(0, 0)) { a, b -> a + b }
+
     /** Per-kind bytes for [month] ("2026-10"), all devices or one, largest first. */
     @Synchronized
     fun byKind(month: String, deviceId: String? = null): List<Pair<TrafficKind, Long>> =

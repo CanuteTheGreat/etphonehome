@@ -13,7 +13,11 @@ fn main() {
     }
     let dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("windows");
     let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("etph-gui-res.o");
-    let windres = if cfg!(windows) { "windres" } else { "x86_64-w64-mingw32-windres" };
+    let windres = if cfg!(windows) {
+        "windres"
+    } else {
+        "x86_64-w64-mingw32-windres"
+    };
     let st = Command::new(windres)
         .current_dir(&dir)
         .args(["-i", "etph-gui.rc", "-O", "coff", "-o"])

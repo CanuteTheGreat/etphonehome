@@ -1699,7 +1699,8 @@ fn chosen_dns(
     h: &crate::protocol::HandshakeResponse,
     over: Option<std::net::Ipv4Addr>,
 ) -> Option<std::net::Ipv4Addr> {
-    over.filter(|a| !a.is_unspecified()).or_else(|| announced_dns(h))
+    over.filter(|a| !a.is_unspecified())
+        .or_else(|| announced_dns(h))
 }
 
 /// The DNS server the phone announced (0 = none).

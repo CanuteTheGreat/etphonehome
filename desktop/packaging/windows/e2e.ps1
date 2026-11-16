@@ -116,7 +116,8 @@ $tray = Start-Process -FilePath "C:\Program Files\ETPH\etph-tray.exe" -PassThru
 Start-Sleep 6
 if (-not $tray.HasExited) { Pass "tray app starts and stays up"; Stop-Process -Id $tray.Id -Force } else { Fail "tray app exited ($($tray.ExitCode))" }
 
-$gui = Start-Process -FilePath "C:\Program Files\ETPH\etphonehome-gui.exe" -PassThru
+$env:RUST_BACKTRACE = "1"
+$gui = Start-Process -FilePath "C:\Program Files\ETPH\etphonehome-gui.exe" -PassThru -RedirectStandardError "$W\gui-err.log" -RedirectStandardOutput "$W\gui-out.log"
 $guiWin = $false
 for ($i = 0; $i -lt 20 -and -not $gui.HasExited; $i++) {
   Start-Sleep 1
@@ -125,7 +126,7 @@ for ($i = 0; $i -lt 20 -and -not $gui.HasExited; $i++) {
 }
 if ($guiWin) { Pass "GUI opens a window (title: $($gui.MainWindowTitle))" }
 elseif (-not $gui.HasExited) { Pass "GUI starts and stays up (no top-level window handle seen)" }
-else { Fail "GUI exited ($($gui.ExitCode))" }
+else { Fail "GUI exited ($($gui.ExitCode))"; Write-Host "---- GUI stderr/stdout ----"; Get-Content "$W\gui-err.log","$W\gui-out.log" -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { Write-Host $_ } }
 if (-not $gui.HasExited) { $gui.Kill() }
 
 # ---- uninstall ------------------------------------------------------------

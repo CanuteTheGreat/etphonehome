@@ -111,6 +111,8 @@ pub struct HostIntegration {
     pub usb_link: crate::runner::UsbLinkMode,
     /// Built-in ADB host over TCP to an adbd in tcpip mode (tests, `adb tcpip`).
     pub adb_tcp: Option<String>,
+    /// DNS server to use instead of the one the phone announces (`--dns`).
+    pub dns_override: Option<Ipv4Addr>,
 }
 
 impl Default for HostIntegration {
@@ -125,6 +127,7 @@ impl Default for HostIntegration {
             usb_native: false,
             usb_link: Default::default(),
             adb_tcp: None,
+            dns_override: None,
         }
     }
 }

@@ -78,6 +78,10 @@ pub struct HostArgs {
     /// The phone's end of the TUN link (default: the next address)
     #[arg(long, value_name = "ADDR")]
     pub tun_peer: Option<String>,
+    /// DNS server to use through the phone instead of the one it announces
+    /// (default 8.8.8.8), e.g. 9.9.9.9 or your router's resolver
+    #[arg(long, value_name = "IPV4")]
+    pub dns: Option<std::net::Ipv4Addr>,
 }
 
 impl HostArgs {
@@ -108,6 +112,7 @@ impl HostArgs {
             usb_native: false,
             usb_link: self.usb_link,
             adb_tcp: None,
+            dns_override: self.dns,
         })
     }
 }

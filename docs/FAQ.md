@@ -490,7 +490,7 @@ Check the LICENSE file for details. Generally:
 
 ### Can I use custom DNS servers?
 
-The phone announces Google DNS (8.8.8.8) and the desktop client points DNS for the tunnel at it. A custom DNS server option is planned.
+The phone announces Google DNS (8.8.8.8) and the desktop client points DNS for the tunnel at it. To use another resolver, pass `--dns 9.9.9.9` (any IPv4 address) to `etphonehome usb`, `wifi`, `bluetooth` or `auto`; it replaces the phone's announcement for the desktop's tunnel DNS and for the `ETPH_DNS` hook variable.
 
 ### Can I route only specific traffic?
 

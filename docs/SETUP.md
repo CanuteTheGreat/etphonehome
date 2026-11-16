@@ -528,7 +528,7 @@ adb forward --remove tcp:8888
 ### Not done
 - [ ] Root mode (kernel NAT)
 - [ ] Bluetooth in the Windows client; macOS client; Windows GUI build
-- [ ] Multiple devices, data usage limits, custom DNS server option
+- [ ] Multiple devices, data usage limits (custom DNS: done, `--dns`)
 
 ## Getting Help
 

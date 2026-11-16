@@ -1593,7 +1593,7 @@ where
     });
     let transport = open_transport_with(&plan.target, host).await?;
     let (tun, ifname) = create_tun_with(&plan.tun_name, &host.tun)?;
-    let dns = announced_dns(&transport.handshake);
+    let dns = chosen_dns(&transport.handshake, host.dns_override);
     let device = transport.handshake.device_name.clone();
     let phone_pro = transport.handshake.phone_has_pro();
     if host.manage_routes {
@@ -1692,6 +1692,14 @@ fn plan_uses_usb(
         Target::Auto { .. } => auto_uses_usb(host, phone_present),
         Target::Bluetooth { .. } => false,
     }
+}
+
+/// The DNS server for the tunnel: the user's `--dns`, else the phone's.
+fn chosen_dns(
+    h: &crate::protocol::HandshakeResponse,
+    over: Option<std::net::Ipv4Addr>,
+) -> Option<std::net::Ipv4Addr> {
+    over.filter(|a| !a.is_unspecified()).or_else(|| announced_dns(h))
 }
 
 /// The DNS server the phone announced (0 = none).
@@ -3353,6 +3361,29 @@ mod tests {
         assert_eq!(announced_dns(&h), None);
         h.dns = u32::from(std::net::Ipv4Addr::new(9, 9, 9, 9));
         assert_eq!(announced_dns(&h), Some(std::net::Ipv4Addr::new(9, 9, 9, 9)));
+    }
+
+    #[test]
+    fn a_dns_given_with_dash_dash_dns_beats_the_phones() {
+        let mut h = crate::protocol::HandshakeResponse {
+            version: crate::protocol::PROTOCOL_VERSION,
+            capabilities: 0,
+            ip_address: 0,
+            dns: u32::from(std::net::Ipv4Addr::new(8, 8, 8, 8)),
+            device_name: None,
+        };
+        let mine = std::net::Ipv4Addr::new(1, 1, 1, 1);
+        assert_eq!(chosen_dns(&h, Some(mine)), Some(mine));
+        assert_eq!(
+            chosen_dns(&h, None),
+            Some(std::net::Ipv4Addr::new(8, 8, 8, 8))
+        );
+        // the phone announced nothing: the user's still applies
+        h.dns = 0;
+        assert_eq!(chosen_dns(&h, Some(mine)), Some(mine));
+        assert_eq!(chosen_dns(&h, None), None);
+        // 0.0.0.0 is "not set", not a resolver
+        assert_eq!(chosen_dns(&h, Some(std::net::Ipv4Addr::UNSPECIFIED)), None);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! ET Phone Home Desktop GUI
 //!
 //! A graphical interface for the ET Phone Home tethering application.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
 mod components;

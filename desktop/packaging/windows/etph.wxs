@@ -48,6 +48,9 @@
             <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="ETPH"
                            Type="string" Value="&quot;[INSTALLDIR]etph-tray.exe&quot;" />
           </Component>
+          <Component Id="Gui" Guid="5A2C8F63-D4E1-4B97-A3C0-7E1D9B6F4A28" Win64="yes">
+            <File Id="etphonehome_gui.exe" Name="etphonehome-gui.exe" Source="$(var.SourceDir)/etphonehome-gui.exe" KeyPath="yes" />
+          </Component>
           <Component Id="Docs" Guid="4E7B2D95-1C3A-4F6E-8B0D-6A9C5E2F1B87" Win64="yes">
             <File Id="license" Name="LICENSE.txt" Source="$(var.SourceDir)/LICENSE.txt" KeyPath="yes" />
             <File Id="readme" Name="README.txt" Source="$(var.SourceDir)/README.txt" />
@@ -59,6 +62,8 @@
           <Component Id="MenuShortcut" Guid="B3C9E1F4-7A2D-4E6B-9C58-0D1F3A6E8B72" Win64="yes">
             <Shortcut Id="TrayShortcut" Name="ETPH" Description="ETPH - internet from your phone"
                       Target="[INSTALLDIR]etph-tray.exe" WorkingDirectory="INSTALLDIR" Icon="etph.ico" />
+            <Shortcut Id="GuiShortcut" Name="ETPH window" Description="ETPH desktop window (asks for Administrator)"
+                      Target="[INSTALLDIR]etphonehome-gui.exe" WorkingDirectory="INSTALLDIR" Icon="etph.ico" />
             <Shortcut Id="PromptShortcut" Name="ETPH command prompt" Description="Command prompt for the etphonehome CLI (right-click > Run as administrator to connect)"
                       Target="[SystemFolder]cmd.exe" Arguments="/k title ETPH command prompt &amp;&amp; etphonehome --help"
                       WorkingDirectory="INSTALLDIR" Icon="etph.ico" />
@@ -73,6 +78,7 @@
       <ComponentRef Id="Cli" />
       <ComponentRef Id="Wintun" />
       <ComponentRef Id="Tray" />
+      <ComponentRef Id="Gui" />
       <ComponentRef Id="Docs" />
       <ComponentRef Id="MenuShortcut" />
     </Feature>

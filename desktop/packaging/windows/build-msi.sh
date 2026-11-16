@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the Windows installer (MSI) and the portable zip on Linux.
 #
-#   build-msi.sh <bin dir with etphonehome.exe + etph-tray.exe> <version> <out dir>
+#   build-msi.sh <bin dir with etphonehome.exe + etph-tray.exe + etphonehome-gui.exe> <version> <out dir>
 #
 # Bundles Wintun 0.14.1 (wintun.net, signed by WireGuard LLC; checked by
 # SHA-256 here) and registers the ETPH service. Needs: wixl (msitools),
@@ -26,7 +26,7 @@ echo "$WINTUN_SHA  $S/wintun.zip" | sha256sum -c -
 unzip -q "$S/wintun.zip" -d "$S"
 cp "$S/wintun/bin/amd64/wintun.dll" "$S/wintun.dll"
 cp "$S/wintun/LICENSE.txt" "$S/wintun-LICENSE.txt"
-for f in etphonehome.exe etph-tray.exe; do
+for f in etphonehome.exe etph-tray.exe etphonehome-gui.exe; do
   if command -v x86_64-w64-mingw32-strip >/dev/null; then
     x86_64-w64-mingw32-strip -o "$S/$f" "$BIN/$f"
   else
@@ -36,18 +36,21 @@ done
 cp "$ROOT/LICENSE" "$S/LICENSE.txt"
 sed 's/$/\r/' "$HERE/README.txt" >"$S/README.txt"
 python3 "$HERE/../make-icon.py" ico "$S/etph.ico"
-for f in etphonehome.exe etph-tray.exe wintun.dll; do
+for f in etphonehome.exe etph-tray.exe etphonehome-gui.exe wintun.dll; do
   [ "$(head -c 2 "$S/$f")" = MZ ] || { echo "$f is not a PE file" >&2; exit 1; }
 done
 wixl -a x64 -D Version="$VER" -D SourceDir="$S" -o "$OUT/etph-windows-$TAG.msi" "$HERE/etph.wxs"
 # Portable zip: same files, for people who don't want an installer.
-(cd "$S" && zip -q "$OUT/etphonehome-windows-$TAG.zip" etphonehome.exe etph-tray.exe wintun.dll wintun-LICENSE.txt LICENSE.txt README.txt)
+(cd "$S" && zip -q "$OUT/etphonehome-windows-$TAG.zip" etphonehome.exe etph-tray.exe etphonehome-gui.exe wintun.dll wintun-LICENSE.txt LICENSE.txt README.txt)
 # Sanity: the MSI really carries the binaries, the DLL and the service.
 if command -v msiinfo >/dev/null; then
   # No `grep -q` on the pipe: it exits at the first match, msiinfo then gets
   # SIGPIPE and pipefail turns that into exit 141 (MSI job, runs 710/4722).
   msiinfo export "$OUT/etph-windows-$TAG.msi" File >"$S/msi-File.txt"
   grep wintun.dll "$S/msi-File.txt" >/dev/null
+  grep etphonehome-gui.exe "$S/msi-File.txt" >/dev/null
+  # The GUI carries a requireAdministrator manifest (needed for the TUN adapter).
+  grep -a requireAdministrator "$S/etphonehome-gui.exe" >/dev/null
   msiinfo export "$OUT/etph-windows-$TAG.msi" ServiceInstall >"$S/msi-Svc.txt"
   grep 'service --windows-service' "$S/msi-Svc.txt" >/dev/null
 fi

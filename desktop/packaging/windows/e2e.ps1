@@ -26,7 +26,7 @@ if ($OldMsi) {
 }
 $p = Start-Process msiexec.exe -ArgumentList "/i `"$Msi`" /qn /l*v `"$W\msi.log`"" -Wait -PassThru
 if ($p.ExitCode -eq 0) { Pass "msiexec /i $(Split-Path $Msi -Leaf)" } else { Get-Content "$W\msi.log" -Tail 40; Fail "msiexec exit $($p.ExitCode)" }
-foreach ($f in "etphonehome.exe", "etph-tray.exe", "wintun.dll") {
+foreach ($f in "etphonehome.exe", "etph-tray.exe", "etphonehome-gui.exe", "wintun.dll") {
   if (Test-Path "C:\Program Files\ETPH\$f") { Pass "installed $f" } else { Fail "missing $f" }
 }
 $sig = Get-AuthenticodeSignature "C:\Program Files\ETPH\wintun.dll"

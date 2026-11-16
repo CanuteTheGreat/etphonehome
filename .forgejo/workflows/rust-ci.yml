@@ -397,8 +397,8 @@ jobs:
       - name: Build release
         working-directory: desktop
         run: |
-          cargo build --release -p etphonehome-windows -p etphonehome-tray --target x86_64-pc-windows-gnu
-          cargo clippy --release -p etphonehome-windows -p etphonehome-tray --target x86_64-pc-windows-gnu -- -D warnings
+          cargo build --release -p etphonehome-windows -p etphonehome-tray -p etphonehome-gui --target x86_64-pc-windows-gnu
+          cargo clippy --release -p etphonehome-windows -p etphonehome-tray -p etphonehome-gui --target x86_64-pc-windows-gnu -- -D warnings
       - name: Package (same script as release.yml)
         run: bash .forgejo/scripts/package.sh windows "ci-${GITHUB_SHA::8}"
       - name: Upload artifact

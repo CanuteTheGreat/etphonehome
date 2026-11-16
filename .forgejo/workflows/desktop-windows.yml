@@ -78,7 +78,7 @@ jobs:
           command -v node || sudo apt-get install -y -qq nodejs
       - name: Build
         working-directory: desktop
-        run: cargo build --release --target x86_64-pc-windows-gnu -p etphonehome-windows -p etphonehome-tray
+        run: cargo build --release --target x86_64-pc-windows-gnu -p etphonehome-windows -p etphonehome-tray -p etphonehome-gui
       - name: MSI + zip
         run: |
           bash desktop/packaging/windows/build-msi.sh desktop/target/x86_64-pc-windows-gnu/release "ci-${GITHUB_SHA::8}" dist

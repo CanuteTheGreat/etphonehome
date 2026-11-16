@@ -49,7 +49,7 @@ case "$KIND" in
     # same files; wintun.dll is what makes the TUN adapter work at all.
     REL="$ROOT/desktop/target/x86_64-pc-windows-gnu/release"
     bash "$ROOT/desktop/packaging/windows/build-msi.sh" "$REL" "$VER" "$DIST"
-    for f in etphonehome.exe etph-tray.exe wintun.dll; do
+    for f in etphonehome.exe etph-tray.exe etphonehome-gui.exe wintun.dll; do
       unzip -l "$DIST/etphonehome-windows-$VER.zip" | has "$f"
     done
     [ -s "$DIST/etph-windows-$VER.msi" ]

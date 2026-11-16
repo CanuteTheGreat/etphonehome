@@ -126,7 +126,7 @@ for ($i = 0; $i -lt 20 -and -not $gui.HasExited; $i++) {
 }
 if ($guiWin) { Pass "GUI opens a window (title: $($gui.MainWindowTitle))" }
 elseif (-not $gui.HasExited) { Pass "GUI starts and stays up (no top-level window handle seen)" }
-else { Fail "GUI exited ($($gui.ExitCode))"; Write-Host "---- GUI stderr/stdout ----"; Get-Content "$W\gui-err.log","$W\gui-out.log" -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { Write-Host $_ } }
+else { Fail "GUI exited ($($gui.ExitCode))"; Write-Host "---- GUI stderr/stdout ----"; Get-Content "$W\gui-err.log","$W\gui-out.log" -ErrorAction SilentlyContinue | Select-Object -Last 25 | ForEach-Object { Write-Host $_ } }
 if (-not $gui.HasExited) { $gui.Kill() }
 
 # ---- uninstall ------------------------------------------------------------

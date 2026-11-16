@@ -12,6 +12,15 @@ mod views;
 use app::EtPhoneHomeApp;
 
 fn main() -> iced::Result {
+    // On Windows the wgpu/DX12 path panics ("Surface::configure: Invalid surface",
+    // DXGI_ERROR_NOT_CURRENTLY_AVAILABLE) on machines without a usable GPU swap chain
+    // (VMs, RDP, CI). This form UI needs no GPU, so use iced's software renderer
+    // unless the user chose a backend.
+    #[cfg(windows)]
+    if std::env::var_os("ICED_BACKEND").is_none() {
+        std::env::set_var("ICED_BACKEND", "tiny-skia");
+    }
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     log::info!("Starting ET Phone Home GUI");

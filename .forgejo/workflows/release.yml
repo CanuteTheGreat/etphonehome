@@ -393,6 +393,8 @@ jobs:
           export GIT_CONFIG_VALUE_0
           git fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
           git checkout -q --force FETCH_HEAD
+      - name: Install Rust (cargo generate-lockfile for the SBOM)
+        uses: https://github.com/dtolnay/rust-toolchain@stable
       - name: Hash every asset, SBOM, replace SHA256SUMS, sign it
         env:
           TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
@@ -413,8 +415,11 @@ jobs:
           done < assets.txt
           # The router packages still match the sums the router build wrote.
           if [ -f router-sums ]; then (cd files && sha256sum -c --quiet ../router-sums); fi
-          # CycloneDX SBOM from the committed lockfiles (Cargo.lock + Gradle release classpath), hashed and signed with the rest.
+          # CycloneDX SBOM from the resolved Cargo.lock + the committed Gradle release lockfile, hashed and signed with the rest.
           SBOM="etphonehome-$TAG.cdx.json"
+          # Cargo.lock is not committed in this workspace: resolve it now, as the release builds did (no compile).
+          command -v cargo >/dev/null || { echo "cargo is required to resolve Cargo.lock for the SBOM"; exit 1; }
+          (cd "$SRC/desktop" && cargo generate-lockfile)
           python3 "$SRC/.forgejo/scripts/gen-sbom.py" --repo-root "$SRC" --version "$TAG" -o "files/$SBOM"
           (cd files && sha256sum -- * > ../SHA256SUMS)
           # Fails closed: no signature, no release (public key: keys/release-signing.asc).

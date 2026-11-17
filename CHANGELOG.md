@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Signed releases and SBOM:** every release now ships `SHA256SUMS.asc` (detached OpenPGP signature over `SHA256SUMS`, public key in `keys/release-signing.asc`) and a CycloneDX SBOM `etphonehome-<tag>.cdx.json` generated from the Cargo and Gradle lockfiles; the release fails if signing fails. `SECURITY.md` documents reporting and verification.
+- **Signed releases and SBOM:** every release now ships `SHA256SUMS.asc` (detached OpenPGP signature over `SHA256SUMS`, public key in `keys/release-signing.asc`) and a CycloneDX SBOM `etphonehome-<tag>.cdx.json` generated from the release's resolved Cargo dependencies and the Gradle lockfile; the release fails if signing fails. `SECURITY.md` documents reporting and verification.
 
 ### Changed
 - **Android app follows the device's light/dark setting:** brand colors now have night variants (the primary/secondary colors were hard to read in dark mode), the banner uses a color resource, and switching the system theme while the app is open restores the matching theme immediately. Shipped to Google Play internal testing as versionCode 15 (0.9.3).

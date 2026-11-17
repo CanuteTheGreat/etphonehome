@@ -1,0 +1,3 @@
+# OSV-Scanner config for ci/osv-scan.sh (dependency vulnerability gate).
+# Every [[IgnoredVulns]] entry needs a reason (why it is not exploitable here / not fixable yet, and the fix plan)
+# and an ignoreUntil date (osv-scanner stops honouring it after that date, which turns CI red again).

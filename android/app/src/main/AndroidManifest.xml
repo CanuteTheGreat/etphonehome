@@ -76,6 +76,13 @@
             android:label="@string/pro_title"
             android:theme="@style/Theme.ETPhoneHome" />
 
+        <!-- Open-source licenses (build-time generated list, see app/build.gradle aboutLibraries). -->
+        <activity
+            android:name=".OpenSourceLicensesActivity"
+            android:exported="false"
+            android:label="@string/oss_licenses_title"
+            android:theme="@style/Theme.ETPhoneHome" />
+
         <!-- Auto-start on plug-in (Pro): the computer runs `adb shell am start -n
              solutions.errant.etph/com.etphonehome.AutoStartActivity` over USB debugging. Exported
              so the shell can start it; it only ever starts USB sharing (loopback, behind adb

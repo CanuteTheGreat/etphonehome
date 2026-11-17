@@ -146,6 +146,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         upgradeButton.setOnClickListener { openUpgrade() }
+        findViewById<Button>(R.id.ossLicensesButton).setOnClickListener {
+            startActivity(Intent(this, OpenSourceLicensesActivity::class.java))
+        }
         findViewById<Button>(R.id.proRequiredButton).setOnClickListener { openUpgrade() }
         autoStartSwitch.isChecked = Pro.store.autoStart
         autoStartSwitch.setOnCheckedChangeListener { v, checked ->

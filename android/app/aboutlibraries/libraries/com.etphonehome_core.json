@@ -1,0 +1,13 @@
+{
+  "uniqueId": "com.etphonehome:core",
+  "name": "ETPH core",
+  "description": "ETPH's own relay/protocol library (this project), MIT licensed.",
+  "website": "https://github.com/CanuteTheGreat/etphonehome",
+  "licenses": [
+    "MIT"
+  ],
+  "developers": [],
+  "scm": {
+    "url": "https://github.com/CanuteTheGreat/etphonehome"
+  }
+}

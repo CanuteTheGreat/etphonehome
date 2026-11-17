@@ -49,3 +49,5 @@ e2e-bin/
 # Python bytecode (CI helper scripts)
 __pycache__/
 *.py[cod]
+osv-results.json
+osv-stderr.log

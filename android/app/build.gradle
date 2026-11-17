@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'com.mikepenz.aboutlibraries.plugin.android'
 }
 
 def billingTestHooks = project.findProperty('billingTestHooks') == 'true'
@@ -138,6 +139,37 @@ dependencies {
     implementation 'com.android.billingclient:billing:9.1.0'
 
     testImplementation 'junit:junit:4.13.2'
+    // Real org.json on the JVM unit-test classpath (android.jar only has stubs) for OpenSourceLicensesTest.
+    testImplementation 'org.json:json:20260814'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}
+
+// Open-source licenses screen (OpenSourceLicensesActivity): res/raw/aboutlibraries.json is generated from the
+// real dependency graph; aboutlibraries/ adds what Gradle cannot see (the `core` module is ours).
+// (property syntax: in Groovy a bare `collect { }` block would be Groovy's own Object.collect, not the extension's)
+aboutLibraries.collect.configPath.set(layout.projectDirectory.dir('aboutlibraries'))
+
+// OpenSourceLicensesTest reads the JSON the debug build really generates (the file the screen loads).
+['debug', 'release'].each { v ->
+    def cap = v.capitalize()
+    tasks.matching { it.name == "test${cap}UnitTest" }.configureEach { t ->
+        t.dependsOn("prepareLibraryDefinitions${cap}")
+        t.systemProperty('oss.aboutlibraries.json',
+            layout.buildDirectory.file("generated/aboutLibraries/${v}/res/raw/aboutlibraries.json").get().asFile.absolutePath)
+    }
+}
+
+// Dependency locking (supply-chain scanning, ../.forgejo ci osv-scan.sh): the release runtime classpath is locked
+// to app/gradle.lockfile; a drifting resolution fails the build and CI regenerates the file and fails on any diff.
+// After changing a dependency: ./gradlew :app:resolveLockedDependencies --write-locks
+configurations.matching { it.name == 'releaseRuntimeClasspath' }.configureEach {
+    resolutionStrategy.activateDependencyLocking()
+}
+tasks.register('resolveLockedDependencies') {
+    group = 'verification'
+    description = 'Resolves the locked releaseRuntimeClasspath (run with --write-locks to refresh gradle.lockfile).'
+    notCompatibleWithConfigurationCache('resolves a configuration at execution time')
+    def locked = configurations.named('releaseRuntimeClasspath')
+    doLast { println("releaseRuntimeClasspath: ${locked.get().incoming.resolutionResult.allComponents.size()} components") }
 }

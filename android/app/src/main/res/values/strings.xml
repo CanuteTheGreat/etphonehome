@@ -47,4 +47,7 @@
     <string name="paired_title">Paired computers and routers</string>
     <string name="paired_forget">Forget</string>
     <string name="usage_title">Data usage</string>
+    <string name="oss_licenses_title">Open-source licenses</string>
+    <string name="oss_licenses_intro">ETPH is built on these open-source components. Tap one for its license text.</string>
+    <string name="oss_licenses_website">Website</string>
 </resources>

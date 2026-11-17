@@ -18,7 +18,8 @@ on:
   # artifact of the latest main build, and etph-build-info.txt in it names the commit, so
   # the QA can prove it tests current code. PRs keep the path filter.
   push:
-    branches: [main]
+    # Every branch: work lands through a branch whose CI is green, then main is fast-forwarded to it.
+    branches: ['**']
   pull_request:
     branches: [main]
     paths:
@@ -95,6 +96,28 @@ jobs:
         continue-on-error: true
         run: |
           curl -fsS -m 5 http://10.1.10.103:8088/ci/env.sh -o /tmp/rw-cache-env.sh && RW_CACHE_WANT=gradle RW_CACHE_EXPORT=1 . /tmp/rw-cache-env.sh || true
+      # Dependency vulnerability gate: OSV-Scanner (pinned image, free api.osv.dev) over the committed
+      # android/app/gradle.lockfile (release runtime classpath, incl. the core module's dependencies);
+      # fails on High/Critical/unrated findings not documented in osv-scanner.toml. Rust deps: cargo audit (rust-ci.yml).
+      - name: Dependency vulnerability gate (osv-scanner)
+        run: |
+          python3 ci/test_osv_gate.py
+          bash ci/osv-scan.sh
+      # The scanned lockfile must be the real graph: regenerate it and fail on drift (see android/app/build.gradle).
+      - name: Dependency lockfile up to date
+        working-directory: android
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          for attempt in 1 2 3; do
+            ./gradlew --max-workers=2 :app:resolveLockedDependencies --write-locks && break
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep 20
+          done
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if ! git diff --exit-code -- app/gradle.lockfile; then
+            echo "::error::android/app/gradle.lockfile out of date. Run ./gradlew :app:resolveLockedDependencies --write-locks and commit it."
+            exit 1
+          fi
       - name: Run unit tests
         working-directory: android
         run: |

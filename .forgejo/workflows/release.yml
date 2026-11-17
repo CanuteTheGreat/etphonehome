@@ -382,28 +382,49 @@ jobs:
     runs-on: linux-cross-x86_64
     timeout-minutes: 15
     steps:
-      - name: Hash every asset, replace SHA256SUMS
+      - name: Fetch this commit (plain git; lockfiles for the SBOM, public key and signing script)
+        env:
+          REPO_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p src && cd src && git init -q .
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader
+          GIT_CONFIG_VALUE_0="Authorization: basic $(printf '%s' "x-access-token:$REPO_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          git fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$GITHUB_SHA"
+          git checkout -q --force FETCH_HEAD
+      - name: Hash every asset, SBOM, replace SHA256SUMS, sign it
         env:
           TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
           TAG: ${{ github.ref_name }}
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
           set -euo pipefail
           auth=(-H "Authorization: token $TOKEN")
+          SRC=$PWD/src
           mkdir -p sums/files && cd sums
           curl -fsS "${auth[@]}" "$API/releases/tags/$TAG" > rel.json
           ID=$(python3 -c 'import json; print(json.load(open("rel.json"))["id"])')
           python3 -c 'import json; [print(a["id"], a["name"], a["browser_download_url"]) for a in json.load(open("rel.json"))["assets"]]' > assets.txt
           while read -r id name url; do
-            if [ "$name" = SHA256SUMS ]; then out=router-sums; else out="files/$name"; fi
+            case "$name" in SHA256SUMS) out=router-sums;; SHA256SUMS.asc|etphonehome-*.cdx.json) out=/dev/null;; *) out="files/$name";; esac
             curl -fsSL --retry 3 "${auth[@]}" -o "$out" "$url"
           done < assets.txt
           # The router packages still match the sums the router build wrote.
           if [ -f router-sums ]; then (cd files && sha256sum -c --quiet ../router-sums); fi
+          # CycloneDX SBOM from the committed lockfiles (Cargo.lock + Gradle release classpath), hashed and signed with the rest.
+          SBOM="etphonehome-$TAG.cdx.json"
+          python3 "$SRC/.forgejo/scripts/gen-sbom.py" --repo-root "$SRC" --version "$TAG" -o "files/$SBOM"
           (cd files && sha256sum -- * > ../SHA256SUMS)
-          for a in $(awk '$2 == "SHA256SUMS" {print $1}' assets.txt); do
+          # Fails closed: no signature, no release (public key: keys/release-signing.asc).
+          "$SRC/.forgejo/scripts/sign-sha256sums.sh" SHA256SUMS
+          for a in $(awk -v s="$SBOM" '$2 == "SHA256SUMS" || $2 == "SHA256SUMS.asc" || $2 == s {print $1}' assets.txt); do
             curl -fsS "${auth[@]}" -X DELETE "$API/releases/$ID/assets/$a"
           done
+          curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=$SBOM" -F "attachment=@files/$SBOM" >/dev/null
+          curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=$SBOM" -F "attachment=@files/$SBOM" >/dev/null
+          curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=SHA256SUMS.asc" -F "attachment=@SHA256SUMS.asc" >/dev/null
           curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=SHA256SUMS" -F "attachment=@SHA256SUMS" >/dev/null
           (cd files && sha256sum -c --quiet ../SHA256SUMS)
           echo "SHA256SUMS covers $(wc -l < SHA256SUMS) files"; cat SHA256SUMS
@@ -428,7 +449,7 @@ jobs:
           tag = r["tag_name"]
           v = tag[1:] + "-r1"
           want = {f"etphonehome-linux-{tag}.tar.gz", f"etphonehome-linux-aarch64-{tag}.tar.gz", f"etphonehome-windows-{tag}.zip", f"etphonehome-gui-{tag}.tar.gz", f"etphonehome-{tag}.apk",
-                  "etph-openwrt-install.sh", "SHA256SUMS", "sizes.tsv", f"luci-app-etph_{v}_all.ipk", f"luci-app-etph-{v}_noarch.apk"}
+                  "etph-openwrt-install.sh", "SHA256SUMS", "SHA256SUMS.asc", f"etphonehome-{tag}.cdx.json", "sizes.tsv", f"luci-app-etph_{v}_all.ipk", f"luci-app-etph-{v}_noarch.apk"}
           want |= {f"etph-windows-{tag}.msi", f"etph-winget-{tag}.zip", f"etph-macos-{tag}.pkg", f"etphonehome-macos-{tag}.tar.gz",
                    f"etphonehome-{tag[1:]}-freebsd14-amd64.pkg", f"etphonehome-{tag[1:]}-freebsd15-amd64.pkg",
                    f"etphonehome-{tag[1:]}-freebsd14-aarch64.pkg", f"etphonehome-{tag[1:]}-freebsd15-aarch64.pkg",

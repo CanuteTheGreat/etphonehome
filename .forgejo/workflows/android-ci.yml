@@ -102,6 +102,7 @@ jobs:
       - name: Dependency vulnerability gate (osv-scanner)
         run: |
           python3 ci/test_osv_gate.py
+          python3 .forgejo/scripts/test_gen_sbom.py
           bash ci/osv-scan.sh
       # The scanned lockfile must be the real graph: regenerate it and fail on drift (see android/app/build.gradle).
       - name: Dependency lockfile up to date

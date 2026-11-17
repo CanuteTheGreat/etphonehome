@@ -355,7 +355,7 @@ See [GitHub Issues](https://github.com/yourusername/etphonehome/issues) for full
 
 **What makes this special:**
 - 🔓 **Open Source:** Full source code available
-- 💰 **Free:** No paid features or subscriptions
+- 💰 **Free + Pro:** USB to one computer is free; Pro is a one-time purchase (no subscription)
 - 🛡️ **Privacy:** No telemetry or data collection
 - 🔧 **Extensible:** Well-documented, easy to modify
 - 📖 **Well-Documented:** 12 comprehensive guides

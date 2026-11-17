@@ -474,7 +474,7 @@ Check the LICENSE file for details. Generally:
 
 **Advantages of ET Phone Home:**
 - Open source
-- Free (no paid version needed)
+- Free for USB to one computer; Pro is a one-time purchase (no subscription)
 - Active development
 - Modern feature set (token auth, auto-reconnect, profiles, mDNS)
 - Bluetooth support on Linux (EasyTether doesn't have this)

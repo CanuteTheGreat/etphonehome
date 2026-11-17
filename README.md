@@ -44,7 +44,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 - ✅ **Free: USB to one computer** - no speed cap and no time limit; a second computer or a router is refused by the phone with "Pro required on the phone", and the phone lists paired computers with Forget
 - ✅ **ETPH Pro is enforced by the phone** - one-time Google Play purchase (Play Billing, acknowledged, restored on reinstall or a new phone, pending purchases and refunds handled); the handshake tells computers and routers whether the phone has Pro, nothing is ever licensed on them
 - ✅ **Auto-start on plug-in (Pro)** - the computer asks the phone over USB debugging to start sharing (once per plug-in); the phone keeps waiting for the computer after a disconnect
-- ✅ **Data usage (Pro)** - history per computer/router (today, this month, 30 days) and by kind of traffic (web, DNS, email, calls...), kept on the phone only
+- ✅ **Data usage (Pro)** - history per computer/router (today, this month, 30 days) and by kind of traffic (web, DNS, email, calls...), kept on the phone only; optional monthly data limit (off/1/2/5/10/20/50 GB) with a warning at 80% and at the limit
 
 - ✅ **Real internet for the computer, no root** - the app relays the computer's TCP, UDP (DNS included) and ping traffic through ordinary phone sockets (a userspace relay). Verified in CI against public HTTPS and on a real phone (Samsung, Android 13)
 - ✅ **The phone keeps its internet** - no phone VPN is used, so the phone's own apps are never affected

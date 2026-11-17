@@ -11,6 +11,7 @@ the owner on 2026-10-20:
 | Several computers and routers | one computer | yes |
 | Auto-start when the computer asks over USB; keeps waiting after a disconnect | start/stop by hand | yes |
 | Data usage per computer/router and by kind of traffic | live numbers only | yes |
+| Monthly data limit with warnings at 80% and at the limit | no | yes |
 
 Pro is a one-time (non-consumable) Google Play in-app product, id `pro`, purchase option
 `lifetime`, 15.00 USD (owner decision 2026-10-20) with Play's converted local prices everywhere

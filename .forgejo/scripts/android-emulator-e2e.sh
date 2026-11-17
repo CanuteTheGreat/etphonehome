@@ -202,6 +202,13 @@ tap() { # id
     adb shell input swipe 540 1500 540 900 200
     sleep 1
   done
+  # ...or above the current scroll position (the Pro cards made the screen longer than one page).
+  for _ in 1 2 3 4 5 6; do
+    adb shell input swipe 540 900 540 1700 200
+    sleep 1
+    dump
+    r=$(ui "$1") && { adb shell input tap ${r%%|*}; return 0; }
+  done
   return 1
 }
 text_of() { # id -> text; scrolls down when the view is off screen (WiFi mode's panel pushes it down)
@@ -737,6 +744,13 @@ if [ "$HAS_WIFI" = 1 ]; then
     fi
     adb shell "pkill -f 'nc -L -p 1888[9]'" >/dev/null 2>&1 || true
   else
+    dump
+    echo "diagnostic: visible texts in the app now:"; python3 - "$LOG/ui.xml" <<'PY' | head -40
+import sys, xml.etree.ElementTree as ET
+for n in ET.parse(sys.argv[1]).getroot().iter('node'):
+    t = n.get('text')
+    if t: print('  ', n.get('resource-id', '').split('/')[-1], '|', t[:100])
+PY
     fail "WiFi mode did not start (token='$TOKEN')"
   fi
 else

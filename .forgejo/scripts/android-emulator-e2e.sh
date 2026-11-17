@@ -430,11 +430,18 @@ adb logcat -c
 # The app draws behind the system bars on every version and pads its scroll content by the
 # insets; without that padding the first child of mainScroll starts at y=0, under the status bar.
 launch
-dump
 DENS=$(adb shell wm density 2>/dev/null | tr -d '\r' | grep -o '[0-9]*$' | tail -1)
-TOP=$(python3 - "$LOG/ui.xml" "$PKG" <<'PY'
+# `uiautomator dump` sometimes returns nothing on a freshly launched app (API 34, "could not get
+# idle state"): that is a tooling miss, not a layout result, so re-dump until the tree parses.
+TOP=
+for _ in 1 2 3 4 5 6; do
+  dump
+  TOP=$(python3 - "$LOG/ui.xml" "$PKG" <<'PY' 2>/dev/null
 import re, sys, xml.etree.ElementTree as ET
-root = ET.parse(sys.argv[1]).getroot()
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+except ET.ParseError:
+    sys.exit(0)
 for n in root.iter("node"):
     if n.get("package") == sys.argv[2] and (n.get("resource-id") or "").endswith(":id/mainScroll"):
         kids = list(n.findall("node"))
@@ -443,6 +450,10 @@ for n in root.iter("node"):
         break
 PY
 )
+  [ -n "$TOP" ] && break
+  sleep 3
+  launch
+done
 MIN=$(( ${DENS:-160} * 20 / 160 ))
 if [ -n "$TOP" ] && [ "$TOP" -ge "$MIN" ]; then
   pass "edge to edge: content starts below the status bar (top ${TOP}px >= ${MIN}px = 20dp)"

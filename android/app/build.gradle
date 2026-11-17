@@ -160,7 +160,7 @@ aboutLibraries.collect.configPath.set(layout.projectDirectory.dir('aboutlibrarie
     }
 }
 
-// Dependency locking (supply-chain scanning, ../.forgejo ci osv-scan.sh): the release runtime classpath is locked
+// Dependency locking (supply-chain scanning, ci/osv-scan.sh at the repo root): the release runtime classpath is locked
 // to app/gradle.lockfile; a drifting resolution fails the build and CI regenerates the file and fails on any diff.
 // After changing a dependency: ./gradlew :app:resolveLockedDependencies --write-locks
 configurations.matching { it.name == 'releaseRuntimeClasspath' }.configureEach {

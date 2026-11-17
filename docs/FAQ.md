@@ -15,7 +15,7 @@ ET Phone Home is an open-source tethering solution that allows you to share your
 
 **Differences:**
 - **Open Source:** Full source code available
-- **Free:** No paid features or subscriptions
+- **Free to use over USB, no subscription:** USB to one computer is free with no speed cap or time limit. Wi-Fi, Bluetooth, routers, several computers and auto-start are ETPH Pro, a one-time in-app purchase on the phone (see [pro.md](pro.md))
 - **Modern:** Built with modern languages (Kotlin, Rust)
 - **Extensible:** Easy to modify and contribute to
 
@@ -457,8 +457,7 @@ Check the LICENSE file for details. Generally:
 ### vs. PDANet
 
 **Advantages of ET Phone Home:**
-- Free and open source
-- No paid features
+- Open source; USB to one computer is free, extras are a one-time Pro purchase (no subscription)
 - Modern codebase
 - Token authentication for security (v0.4.0+)
 - Auto-reconnect with exponential backoff (v0.4.0+)

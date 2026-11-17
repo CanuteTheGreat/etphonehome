@@ -212,6 +212,13 @@ text_of() { # id -> text; scrolls down when the view is off screen (WiFi mode's 
     adb shell input swipe 540 1500 540 900 200
     sleep 1
   done
+  # Not below the current scroll position: it may be above (a longer Pro screen leaves the view scrolled past it).
+  for _ in 1 2 3 4 5 6; do
+    adb shell input swipe 540 900 540 1700 200
+    sleep 1
+    dump
+    r=$(ui "$1") && { printf '%s\n' "${r#*|}"; return 0; }
+  done
   return 1
 }
 launch() { adb shell am start -W -n "$ACT" >/dev/null; sleep 2; }

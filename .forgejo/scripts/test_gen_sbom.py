@@ -10,8 +10,9 @@ GEN = os.path.join(HERE, "gen-sbom.py")
 class SbomTest(unittest.TestCase):
     def gen(self):
         out = os.path.join(tempfile.mkdtemp(), "s.json")
-        subprocess.run([sys.executable, GEN, "--repo-root", ROOT, "--version", "v9.9.9",
-                        "--timestamp", "2026-01-01T00:00:00Z", "-o", out], check=True, capture_output=True)
+        r = subprocess.run([sys.executable, GEN, "--repo-root", ROOT, "--version", "v9.9.9",
+                            "--timestamp", "2026-01-01T00:00:00Z", "-o", out], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
         return open(out).read()
 
     def test_shape_and_both_ecosystems(self):

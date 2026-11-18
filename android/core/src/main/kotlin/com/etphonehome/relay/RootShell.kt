@@ -72,4 +72,23 @@ object PlanRunner {
     private fun teardown(p: KernelNatPlan.Params, exec: CommandExecutor) {
         for (step in KernelNatPlan.disable(p)) exec.run(step.argv)
     }
+
+    /**
+     * Creates the tun device ([TunDevicePlan.enable]); on the first failing
+     * step removes it again, so no half-configured interface stays behind.
+     */
+    fun enableTun(p: TunDevicePlan.Params, exec: CommandExecutor): Outcome {
+        for (step in TunDevicePlan.enable(p)) {
+            val r = exec.run(step.argv)
+            if (!r.ok && !step.ignoreFailure) {
+                disableTun(p, exec)
+                return Outcome.Failed(step, r)
+            }
+        }
+        return Outcome.Applied
+    }
+
+    fun disableTun(p: TunDevicePlan.Params, exec: CommandExecutor) {
+        for (step in TunDevicePlan.disable(p)) exec.run(step.argv)
+    }
 }

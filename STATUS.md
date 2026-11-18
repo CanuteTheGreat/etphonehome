@@ -31,8 +31,8 @@ against code, CI logs and the phone before changing a row.
 - **Root mode.** Removed in v0.6.0: nothing could start it and its iptables
   design redirected the phone's own traffic. A correct design needs kernel
   NAT (a tun device on the phone, `ip_forward`, MASQUERADE out of the
-  phone's uplink for the tether subnet). Started: steps 1-4 are
-  `KernelNatPlan` + `TunDevicePlan` (core/relay), the validated, tunnel-scoped iptables/ip
+  phone's uplink for the tether subnet). Started: steps 1-5 are
+  `KernelNatPlan` + `TunDevicePlan` + `TunPump` (core/relay: plans, and the desktop<->tun packet pump that drops spoofed/malformed packets), the validated, tunnel-scoped iptables/ip
   command plan with an exact teardown, unit-tested. Not yet run by anything:
   no root shell, tun device or app switch, so root mode is still not usable.
 - Windows Bluetooth, multi-device,

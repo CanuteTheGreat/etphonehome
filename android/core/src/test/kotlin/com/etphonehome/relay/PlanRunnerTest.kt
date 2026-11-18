@@ -66,6 +66,8 @@ class PlanRunnerTest {
         val missing = SuExecutor("/nonexistent/su").run(listOf("id"))
         assertEquals(127, missing.exitCode)
         assertFalse(missing.ok)
+        // the real exception message (names the missing binary), not just the class name
+        assertTrue(missing.output, missing.output.contains("/nonexistent/su"))
     }
 
     @Test

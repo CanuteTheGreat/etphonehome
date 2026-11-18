@@ -14,6 +14,45 @@ class KernelNatPlanTest {
     fun validParamsPass() = assertNull(KernelNatPlan.validate(p))
 
     @Test
+    fun boundaryAndRealisticValuesAreAccepted() {
+        for (subnet in listOf("10.0.0.0/8", "10.0.0.0/30", "10.0.0.4/30", "10.0.0.8/30", "192.168.1.0/24", "172.16.0.0/12", "10.255.0.0/16", "223.0.0.0/8")) {
+            assertNull(subnet, KernelNatPlan.validate(p.copy(subnet = subnet)))
+        }
+        assertNull(KernelNatPlan.validate(p.copy(upstreamTable = 1)))
+        assertNull(KernelNatPlan.validate(p.copy(upstreamTable = Int.MAX_VALUE)))
+        assertNull(KernelNatPlan.validate(p.copy(upstreamTable = null, previousIpForward = "1")))
+        assertNull(KernelNatPlan.validate(p.copy(tunInterface = "a".repeat(15))))
+    }
+
+    @Test
+    fun eachRejectionSaysWhy() {
+        val cases = listOf(
+            p.copy(tunInterface = "etph0; id") to "tunInterface",
+            p.copy(upstreamInterface = "a b") to "upstreamInterface",
+            p.copy(upstreamInterface = "etph0") to "must differ",
+            p.copy(subnet = "10.0.0.0/30 -j ACCEPT") to "IPv4 CIDR",
+            p.copy(subnet = "300.0.0.0/24") to "octet above 255",
+            p.copy(subnet = "10.0.0.0/7") to "prefix",
+            p.copy(subnet = "10.0.0.0/31") to "prefix",
+            p.copy(subnet = "10.0.0.1/30") to "host bits",
+            p.copy(subnet = "10.0.1.0/16") to "host bits",
+            p.copy(subnet = "10.1.0.0/8") to "host bits",
+            p.copy(subnet = "10.0.0.5/30") to "host bits",
+            p.copy(subnet = "0.0.0.0/8") to "unicast",
+            p.copy(subnet = "127.0.0.0/8") to "unicast",
+            p.copy(subnet = "224.0.0.0/8") to "unicast",
+            p.copy(upstreamTable = 0) to "upstreamTable",
+            p.copy(upstreamTable = -1) to "upstreamTable",
+            p.copy(previousIpForward = "2") to "previousIpForward",
+        )
+        for ((params, word) in cases) {
+            val why = KernelNatPlan.validate(params)
+            assertNotNull("should reject $params", why)
+            assertTrue("reason '$why' should mention '$word' for $params", why!!.contains(word))
+        }
+    }
+
+    @Test
     fun badParamsAreRejected() {
         val bad = listOf(
             p.copy(tunInterface = "etph0; reboot"),

@@ -19,6 +19,16 @@ class UpstreamDiscoveryTest {
     }
 
     @Test
+    fun tableNumberBoundaries() {
+        fun table(t: String) = UpstreamDiscovery.parse("1.1.1.1 dev wlan0 table $t src 1.2.3.4", "etph0")!!.table
+        assertEquals(1, table("1"))
+        assertEquals(Int.MAX_VALUE, table("2147483647"))
+        assertNull(table("0"))
+        assertNull(table("-5"))
+        assertNull(table("2147483648"))
+    }
+
+    @Test
     fun noTableTokenMeansNoTable() {
         assertEquals(UpstreamDiscovery.Upstream("wlan0", null), UpstreamDiscovery.parse("1.1.1.1 via 192.168.1.1 dev wlan0 src 192.168.1.50", "etph0"))
     }

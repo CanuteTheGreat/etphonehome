@@ -41,8 +41,8 @@ object PlanRunner {
 
     sealed class Outcome {
         object Applied : Outcome()
-        /** [step] failed with [result]; the plan was rolled back, [rollbackFailures] lists teardown steps that errored. */
-        data class Failed(val step: KernelNatPlan.Step, val result: ExecResult, val rollbackFailures: List<KernelNatPlan.Step>) : Outcome()
+        /** [step] failed with [result]; the whole plan was then torn down (every teardown step tolerates already-undone state). */
+        data class Failed(val step: KernelNatPlan.Step, val result: ExecResult) : Outcome()
     }
 
     /** True when the executor really is uid 0 (a `su` that exists but denies access is not root). */
@@ -59,15 +59,17 @@ object PlanRunner {
         for (step in KernelNatPlan.enable(p)) {
             val r = exec.run(step.argv)
             if (!r.ok && !step.ignoreFailure) {
-                return Outcome.Failed(step, r, teardown(p, exec))
+                teardown(p, exec)
+                return Outcome.Failed(step, r)
             }
         }
         return Outcome.Applied
     }
 
-    /** Runs [KernelNatPlan.disable]; returns the steps that failed although they may not (empty = clean). */
-    fun disable(p: KernelNatPlan.Params, exec: CommandExecutor): List<KernelNatPlan.Step> = teardown(p, exec)
+    /** Runs [KernelNatPlan.disable]: every step, in order; failures are expected (already undone) and ignored. */
+    fun disable(p: KernelNatPlan.Params, exec: CommandExecutor) = teardown(p, exec)
 
-    private fun teardown(p: KernelNatPlan.Params, exec: CommandExecutor): List<KernelNatPlan.Step> =
-        KernelNatPlan.disable(p).filter { !exec.run(it.argv).ok && !it.ignoreFailure }
+    private fun teardown(p: KernelNatPlan.Params, exec: CommandExecutor) {
+        for (step in KernelNatPlan.disable(p)) exec.run(step.argv)
+    }
 }

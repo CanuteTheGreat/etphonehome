@@ -2,7 +2,7 @@ package com.etphonehome.util
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.util.Log
+import com.etphonehome.log.Log
 import java.security.SecureRandom
 
 /**

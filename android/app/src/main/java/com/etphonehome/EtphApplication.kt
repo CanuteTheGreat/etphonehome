@@ -10,10 +10,10 @@ class EtphApplication : Application() {
         Log.debugEnabled = BuildConfig.DEBUG
         Log.sink = Log.Sink { level, tag, message, error ->
             when (level) {
-                Log.Level.DEBUG -> android.util.Log.d(tag, message, error)
-                Log.Level.INFO -> android.util.Log.i(tag, message, error)
-                Log.Level.WARN -> android.util.Log.w(tag, message, error)
-                Log.Level.ERROR -> android.util.Log.e(tag, message, error)
+                Log.Level.DEBUG -> android.util.Log.d(tag, Log.fields(level, message, error), error)
+                Log.Level.INFO -> android.util.Log.i(tag, Log.fields(level, message, error), error)
+                Log.Level.WARN -> android.util.Log.w(tag, Log.fields(level, message, error), error)
+                Log.Level.ERROR -> android.util.Log.e(tag, Log.fields(level, message, error), error)
             }
         }
         // ETPH Pro: remembered purchase now, then ask Google Play (every app start).

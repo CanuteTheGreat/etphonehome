@@ -126,7 +126,7 @@ address, default `10.0.0.1/24`: change it if your LAN uses 10.0.0.0/24),
 `peeraddr`, plus the usual `metric`, `defaultroute`, `peerdns`, `dns`.
 Router-wide: `/etc/config/etph` (`keygen`: create the router's adb key at
 boot). With `option auto '0'` a usb/auto uplink is started when a phone is
-plugged in and stopped when it is unplugged. Logs: `logread -e etph`.
+plugged in and stopped when it is unplugged. Logs: `logread -e etph` (structured `key=value` lines; level via the interface option `loglevel`, see [LOGGING.md](LOGGING.md)).
 Status for scripts: `/var/run/etph/<interface>.json`.
 
 ## How it works

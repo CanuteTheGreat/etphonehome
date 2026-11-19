@@ -22,7 +22,7 @@ if [ "$ACTION" = remove ]; then
 		}
 		config_load network
 		config_foreach stop_on_unplug interface
-		logger -t etph "phone unplugged"
+		logger -t etph -p daemon.notice "level=INFO source=hotplug event=phone_unplugged"
 	) &
 	exit 0
 fi
@@ -46,5 +46,5 @@ case "$ACTION" in add|bind) ;; *) exit 0 ;; esac
 	}
 	config_load network
 	config_foreach start_on_plug interface
-	logger -t etph "phone plugged in: USB uplinks retrying now"
+	logger -t etph -p daemon.notice "level=INFO source=hotplug event=phone_plugged_in action=usb_uplinks_retry"
 ) &

@@ -3,7 +3,7 @@ package com.etphonehome.util
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import android.util.Log
+import com.etphonehome.log.Log
 
 /**
  * Manager for mDNS/NSD service advertisement

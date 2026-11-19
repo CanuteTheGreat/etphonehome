@@ -11,7 +11,7 @@ fn is_root() -> bool {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    etphonehome_common::logfmt::init("info");
     cli::main(Platform {
         name: "Linux",
         privileged: is_root,

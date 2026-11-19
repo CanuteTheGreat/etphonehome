@@ -47,6 +47,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Installer refuses unverified packages and unsafe tags
         run: sh openwrt/test/installer-test.sh
+      - name: Router log lines are structured key=value with a level
+        run: sh openwrt/test/log-format-test.sh
 
   lint:
     name: Lint

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Structured logging with levels:** every client binary (router, desktop, GUI, tray) and the Android app now write `key=value` lines (`ts= level= target= msg=`), filterable with `ETPH_LOG` / `RUST_LOG` / the OpenWrt `loglevel` option; router hook lines carry `level= source= event=`. Log locations and the line format are in `docs/LOGGING.md`, with tests asserting the lines on Rust, Android core and router scripts.
+
 ### Security
 - **Threat model and security review:** `docs/security/threat-model.md` (assets, trust boundaries, STRIDE per boundary, mitigations with file references, residual risks).
 - **OpenWrt/GL.iNet installer verifies what it installs:** `etph-openwrt-install.sh` installs a package only when its SHA-256 is in the release's `SHA256SUMS`, refuses a missing sums file, an unlisted package, and a tag or architecture name with unsafe characters (tests in `openwrt/test/installer-test.sh`, run on every branch push).

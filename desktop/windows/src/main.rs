@@ -118,7 +118,7 @@ mod winsvc {
 fn service_logger() {
     let dir = etphonehome_common::daemon::state_dir();
     let _ = std::fs::create_dir_all(&dir);
-    let mut b = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    let mut b = etphonehome_common::logfmt::builder("info");
     if let Ok(f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -135,7 +135,7 @@ fn main() -> anyhow::Result<()> {
         service_logger();
         return winsvc::start();
     }
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    etphonehome_common::logfmt::init("info");
     tokio::runtime::Runtime::new()?.block_on(cli::main(Platform {
         name: "Windows",
         privileged: is_elevated,

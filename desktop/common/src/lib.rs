@@ -10,6 +10,7 @@ pub mod daemon;
 pub mod filter;
 pub mod host;
 pub mod identity;
+pub mod logfmt;
 pub mod protocol;
 pub mod runner;
 pub mod session;

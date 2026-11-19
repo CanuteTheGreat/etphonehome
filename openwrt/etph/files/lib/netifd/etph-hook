@@ -37,12 +37,12 @@ up)
 	json_add_string transport "$ETPH_TRANSPORT"
 	proto_close_data
 	proto_send_update "$INTERFACE"
-	logger -t etph "$INTERFACE up on $ETPH_IFNAME via ${ETPH_DEVICE:-phone} ($ETPH_TRANSPORT)"
+	logger -t etph -p daemon.notice "level=INFO source=netifd event=uplink_up interface=$INTERFACE ifname=$ETPH_IFNAME phone=\"${ETPH_DEVICE:-phone}\" transport=$ETPH_TRANSPORT"
 	;;
 down)
 	proto_init_update "$ETPH_IFNAME" 0
 	proto_send_update "$INTERFACE"
-	logger -t etph "$INTERFACE down: ${ETPH_REASON:-session ended}"
+	logger -t etph -p daemon.notice "level=INFO source=netifd event=uplink_down interface=$INTERFACE reason=\"${ETPH_REASON:-session ended}\""
 	;;
 esac
 exit 0

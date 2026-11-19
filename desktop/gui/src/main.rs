@@ -21,7 +21,7 @@ fn main() -> iced::Result {
         std::env::set_var("ICED_BACKEND", "tiny-skia");
     }
 
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    etphonehome_common::logfmt::init("info");
 
     log::info!("Starting ET Phone Home GUI");
 

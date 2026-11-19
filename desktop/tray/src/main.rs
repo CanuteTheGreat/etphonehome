@@ -11,7 +11,7 @@ mod app;
 
 #[cfg(any(target_os = "macos", windows))]
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    etphonehome_common::logfmt::init("info");
     app::run()
 }
 

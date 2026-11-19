@@ -71,7 +71,11 @@ pub fn filter_spec(default: &str) -> String {
     std::env::var("ETPH_LOG")
         .ok()
         .filter(|v| !v.trim().is_empty())
-        .or_else(|| std::env::var("RUST_LOG").ok().filter(|v| !v.trim().is_empty()))
+        .or_else(|| {
+            std::env::var("RUST_LOG")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+        })
         .unwrap_or_else(|| default.to_string())
 }
 
@@ -175,8 +179,16 @@ mod tests {
         );
         assert_eq!(lines.len(), 2, "{lines:?}");
         assert!(lines[0].starts_with("ts="), "{}", lines[0]);
-        assert!(lines[0].contains(" level=ERROR target=etph::t msg=\"boom\""), "{}", lines[0]);
-        assert!(lines[1].contains(" level=WARN target=etph::t msg=\"careful\""), "{}", lines[1]);
+        assert!(
+            lines[0].contains(" level=ERROR target=etph::t msg=\"boom\""),
+            "{}",
+            lines[0]
+        );
+        assert!(
+            lines[1].contains(" level=WARN target=etph::t msg=\"careful\""),
+            "{}",
+            lines[1]
+        );
     }
 
     #[test]

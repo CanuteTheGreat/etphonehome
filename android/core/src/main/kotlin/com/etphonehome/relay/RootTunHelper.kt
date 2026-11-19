@@ -7,6 +7,16 @@ fun interface ProcessStarter {
     fun start(argv: List<String>): Process
 }
 
+/** The real starter: a plain [ProcessBuilder] (stderr kept separate from the frame stream). */
+internal object SystemProcessStarter : ProcessStarter {
+    override fun start(argv: List<String>): Process = ProcessBuilder(argv).redirectErrorStream(false).start()
+}
+
+/** Close action for the helper's port; a named class (not a lambda) so it has no synthetic return to mutate. */
+private class DestroyProcess(private val p: Process) : () -> Unit {
+    override fun invoke() { p.destroyForcibly() }
+}
+
 /**
  * Root mode, step 6b: launches the root helper that opens the already-created
  * tun device ([TunDevicePlan]) and speaks the [StreamPacketPort] framing on its
@@ -35,7 +45,7 @@ object RootTunHelper {
     fun open(
         helperPath: String,
         tunInterface: String,
-        start: ProcessStarter = ProcessStarter { ProcessBuilder(it).redirectErrorStream(false).start() },
+        start: ProcessStarter = SystemProcessStarter,
         su: String = "su",
     ): PacketPort {
         val p = try {
@@ -44,6 +54,6 @@ object RootTunHelper {
             throw IOException("cannot start the root tun helper: ${e.message}", e)
         }
         if (!p.isAlive) throw IOException("root tun helper exited at once (code ${p.exitValue()})")
-        return StreamPacketPort(p.inputStream, p.outputStream) { p.destroyForcibly() }
+        return StreamPacketPort(p.inputStream, p.outputStream, DestroyProcess(p))
     }
 }

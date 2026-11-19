@@ -85,4 +85,24 @@ class RootTunHelperTest {
             assertTrue(e.message!!.contains("su: not found"))
         }
     }
+
+    @Test fun defaultStarterRunsARealHelperAndFramesRoundTrip() {
+        val dir = java.nio.file.Files.createTempDirectory("etph-helper").toFile()
+        val helper = java.io.File(dir, "helper.sh")
+        try {
+            helper.writeText("#!/bin/sh\nexec cat\n")
+            org.junit.Assume.assumeTrue(helper.setExecutable(true) && java.io.File("/bin/sh").canExecute())
+            val port = RootTunHelper.open(helper.absolutePath, "etph0", su = "/bin/sh")
+            try {
+                port.write(byteArrayOf(1, 2, 3, 4), 4)
+                val buf = ByteArray(100)
+                assertEquals(4, port.read(buf))
+                assertEquals(listOf<Byte>(1, 2, 3, 4), buf.take(4))
+            } finally {
+                port.close()
+            }
+        } finally {
+            helper.delete(); dir.delete()
+        }
+    }
 }

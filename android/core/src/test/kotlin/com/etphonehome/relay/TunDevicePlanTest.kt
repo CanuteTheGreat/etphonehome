@@ -103,4 +103,15 @@ class TunDevicePlanTest {
         PlanRunner.disableTun(p, f)
         assertEquals(TunDevicePlan.disable(p).map { it.argv }, f.calls)
     }
+
+    @Test
+    fun addressIsCheckedAgainstTheWholeNetworkNotJustTheLastOctet() {
+        val net = "192.168.1.0/24"
+        assertEquals(null, TunDevicePlan.validate(TunDevicePlan.Params("etph0", net, "192.168.1.1")))
+        assertEquals(null, TunDevicePlan.validate(TunDevicePlan.Params("etph0", net, "192.168.1.254")))
+        assertEquals("phoneAddress is outside the subnet",
+            TunDevicePlan.validate(TunDevicePlan.Params("etph0", net, "192.168.2.1")))
+        assertEquals("phoneAddress is outside the subnet",
+            TunDevicePlan.validate(TunDevicePlan.Params("etph0", net, "10.168.1.1")))
+    }
 }

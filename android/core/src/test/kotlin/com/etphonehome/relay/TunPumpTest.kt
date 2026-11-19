@@ -63,9 +63,12 @@ class TunPumpTest {
         assertFalse(p.fromDesktop(ipv4("10.0.0.4")))   // first address after the /30
         assertFalse(p.fromDesktop(ipv4("192.168.1.5")))
         assertFalse(p.fromDesktop(ipv4("9.255.255.255")))
+        assertFalse(p.fromDesktop(ipv4("10.0.1.1")))    // right last octet, wrong network
+        assertFalse(p.fromDesktop(ipv4("11.0.0.0")))
+        assertFalse(p.fromDesktop(ipv4("192.168.1.0")))
         assertTrue(p.fromDesktop(ipv4("10.0.0.3")))     // last address inside
         assertTrue(p.fromDesktop(ipv4("10.0.0.0")))     // first address inside
-        assertEquals(3, p.dropped)
+        assertEquals(6, p.dropped)
         assertEquals(2, tun.written.size)
         p.close()
     }
@@ -107,6 +110,7 @@ class TunPumpTest {
             assertEquals(2, out.size)
             assertArrayEquals(a, out[0]); assertArrayEquals(b, out[1])
         }
+        assertEquals(2, p.packetsToDesktop)
         p.close()
     }
 
@@ -149,5 +153,56 @@ class TunPumpTest {
     @Test(expected = IllegalArgumentException::class)
     fun rejectsADangerousSubnet() {
         TunPump(FakeTun(), "0.0.0.0/0", {})
+    }
+
+    @Test
+    fun aMinimalTwentyByteAndAnOptionHeaderPacketAreAccepted() {
+        val tun = FakeTun(); val p = pump(tun)
+        assertTrue(p.fromDesktop(ipv4("10.0.0.1", payload = 0)))             // size == ihl == 20
+        assertTrue(p.fromDesktop(ipv4("10.0.0.1", payload = 0, ihl = 6)))    // 24-byte header, size == ihl
+        assertEquals(0, p.dropped)
+        p.close()
+    }
+
+    @Test
+    fun rejectedSubnetExplainsWhy() {
+        val e = try { TunPump(FakeTun(), "0.0.0.0/0", {}); null } catch (e: IllegalArgumentException) { e }
+        assertTrue(e != null && e.message!!.isNotBlank())
+    }
+
+    @Test
+    fun emptyReadsAreSkippedAndTheLoopKeepsRunning() {
+        val tun = FakeTun(); val out = mutableListOf<ByteArray>()
+        val p = pump(tun, out)
+        tun.incoming.put(ByteArray(0))
+        val a = ipv4("93.184.216.34", "10.0.0.1")
+        tun.incoming.put(a)
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (p.packetsToDesktop < 1 && System.nanoTime() < deadline) Thread.sleep(10)
+        assertEquals(1, p.packetsToDesktop)
+        synchronized(out) { assertEquals(1, out.size) }
+        p.close()
+    }
+
+    @Test
+    fun readerIsADaemonThreadAndCloseWaitsForIt() {
+        val tun = FakeTun()
+        val seen = java.util.concurrent.atomic.AtomicReference<Thread>()
+        val inCallback = java.util.concurrent.CountDownLatch(1)
+        val p = TunPump(tun, "10.0.0.0/30", {
+            seen.set(Thread.currentThread()); inCallback.countDown(); Thread.sleep(300)
+        }).also { it.start() }
+        tun.incoming.put(ipv4("93.184.216.34", "10.0.0.1"))
+        assertTrue(inCallback.await(5, TimeUnit.SECONDS))
+        assertTrue(seen.get().isDaemon)
+        p.close()
+        assertFalse("close() must return only after the reader stopped", seen.get().isAlive)
+    }
+
+    @Test
+    fun closeWithoutStartIsHarmless() {
+        val tun = FakeTun()
+        TunPump(tun, "10.0.0.0/30", {}).close()
+        assertTrue(tun.closed)
     }
 }

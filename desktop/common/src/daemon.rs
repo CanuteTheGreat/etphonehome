@@ -30,8 +30,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{watch, Mutex};
+use tokio::io::{
+    AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
+};
+use tokio::sync::{watch, Mutex, Semaphore};
 use tokio::task::JoinHandle;
 
 /// Where the control channel lives by default.
@@ -305,6 +307,43 @@ async fn start(st: &mut State, req: &Request, opts: &Options) -> Result<()> {
     Ok(())
 }
 
+/// The longest control request line the service will buffer. Real requests are a few
+/// hundred bytes; the socket is writable by every local user, so an unbounded `read_line`
+/// would let any of them grow the root service's memory without limit.
+pub const MAX_REQUEST_LINE: usize = 16 * 1024;
+
+/// How many control connections the service serves at once. Each is cheap, but the
+/// socket is open to every local user, so the count is capped instead of unbounded.
+pub const MAX_CONTROL_CONNECTIONS: usize = 32;
+
+/// Read one `\n`-terminated request line of at most [`MAX_REQUEST_LINE`] bytes.
+/// `Ok(None)` = the peer closed the connection; a longer line is an `InvalidData`
+/// error after reading at most `MAX_REQUEST_LINE + 1` bytes (nothing more is buffered).
+async fn read_request_line<R: AsyncBufRead + Unpin>(r: &mut R) -> std::io::Result<Option<String>> {
+    let mut buf = Vec::new();
+    let n = (&mut *r)
+        .take(MAX_REQUEST_LINE as u64 + 1)
+        .read_until(b'\n', &mut buf)
+        .await?;
+    if n == 0 {
+        return Ok(None);
+    }
+    if buf.last() == Some(&b'\n') {
+        buf.pop();
+        if buf.last() == Some(&b'\r') {
+            buf.pop();
+        }
+    } else if buf.len() > MAX_REQUEST_LINE {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "request line too long",
+        ));
+    }
+    String::from_utf8(buf)
+        .map(Some)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
 async fn serve_conn<S>(
     stream: S,
     state: Arc<Mutex<State>>,
@@ -314,10 +353,27 @@ async fn serve_conn<S>(
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let (r, mut w) = tokio::io::split(stream);
-    let mut lines = BufReader::new(r).lines();
-    while let Ok(Ok(Some(line))) =
-        tokio::time::timeout(Duration::from_secs(30), lines.next_line()).await
-    {
+    let mut reader = BufReader::new(r);
+    loop {
+        let line =
+            match tokio::time::timeout(Duration::from_secs(30), read_request_line(&mut reader))
+                .await
+            {
+                Ok(Ok(Some(line))) => line,
+                Ok(Err(e)) if e.kind() == std::io::ErrorKind::InvalidData => {
+                    // Oversized or not UTF-8: answer once and drop the connection.
+                    let mut out = serde_json::to_string(&Reply {
+                        ok: false,
+                        error: Some("request too large or not text".into()),
+                        ..Default::default()
+                    })
+                    .unwrap_or_default();
+                    out.push('\n');
+                    let _ = w.write_all(out.as_bytes()).await;
+                    break;
+                }
+                _ => break,
+            };
         let reply = match serde_json::from_str::<Request>(&line) {
             Ok(req) => {
                 if let Some(t) = &token {
@@ -379,6 +435,7 @@ pub async fn run(opts: Options, mut shutdown: watch::Receiver<bool>) -> Result<(
         info!("ETPH service listening on 127.0.0.1:{}", CONTROL_PORT);
         (l, Arc::new(token))
     };
+    let slots = Arc::new(Semaphore::new(MAX_CONTROL_CONNECTIONS));
     loop {
         tokio::select! {
             _ = shutdown.wait_for(|v| *v) => break,
@@ -387,11 +444,24 @@ pub async fn run(opts: Options, mut shutdown: watch::Receiver<bool>) -> Result<(
                     Ok(x) => x,
                     Err(e) => { warn!("control accept: {e}"); continue; }
                 };
+                let Ok(permit) = slots.clone().try_acquire_owned() else {
+                    warn!("control: too many connections, dropping one");
+                    continue;
+                };
                 let (state, opts) = (state.clone(), opts.clone());
                 #[cfg(unix)]
-                tokio::spawn(serve_conn(stream, state, opts, None));
+                tokio::spawn(async move {
+                    serve_conn(stream, state, opts, None).await;
+                    drop(permit);
+                });
                 #[cfg(windows)]
-                tokio::spawn(serve_conn(stream, state, opts, Some(token.clone())));
+                {
+                    let token = token.clone();
+                    tokio::spawn(async move {
+                        serve_conn(stream, state, opts, Some(token)).await;
+                        drop(permit);
+                    });
+                }
             }
         }
     }
@@ -529,5 +599,101 @@ mod tests {
         let s = serde_json::to_string(&r).unwrap();
         assert_eq!(s, r#"{"cmd":"connect","mode":"usb"}"#);
         assert_eq!(serde_json::from_str::<Request>(&s).unwrap(), r);
+    }
+}
+
+#[cfg(test)]
+mod request_line_tests {
+    use super::*;
+
+    async fn read(input: &[u8]) -> std::io::Result<Option<String>> {
+        let mut r = BufReader::new(input);
+        read_request_line(&mut r).await
+    }
+
+    #[tokio::test]
+    async fn reads_a_normal_line_and_strips_the_newline() {
+        assert_eq!(
+            read(b"{\"cmd\":\"status\"}\n").await.unwrap().as_deref(),
+            Some("{\"cmd\":\"status\"}")
+        );
+        assert_eq!(read(b"x\r\n").await.unwrap().as_deref(), Some("x"));
+        // A last line without a newline (peer closed) is still a request.
+        assert_eq!(read(b"tail").await.unwrap().as_deref(), Some("tail"));
+        assert_eq!(read(b"").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_line_of_exactly_the_limit_is_accepted() {
+        let mut line = vec![b'a'; MAX_REQUEST_LINE];
+        line.push(b'\n');
+        assert_eq!(read(&line).await.unwrap().unwrap().len(), MAX_REQUEST_LINE);
+    }
+
+    #[tokio::test]
+    async fn an_oversized_line_is_refused_without_buffering_it_all() {
+        // No newline within the limit: refused, and at most limit+1 bytes were consumed.
+        let big = vec![b'a'; MAX_REQUEST_LINE * 4];
+        let mut r = BufReader::new(&big[..]);
+        let err = read_request_line(&mut r).await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        let mut rest = Vec::new();
+        r.read_to_end(&mut rest).await.unwrap();
+        assert!(
+            rest.len() >= MAX_REQUEST_LINE * 4 - MAX_REQUEST_LINE - 1 - 8192,
+            "the reader must not have pulled the whole oversized input in"
+        );
+        let mut long_with_newline = vec![b'a'; MAX_REQUEST_LINE + 1];
+        long_with_newline.push(b'\n');
+        assert!(read(&long_with_newline).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn non_utf8_is_refused() {
+        let err = read(b"\xff\xfe\n").await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_service_answers_an_oversized_request_with_an_error_and_keeps_serving() {
+        let dir = std::env::temp_dir().join(format!("etph-svc-big-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock = dir.join("c.sock");
+        let opts = Options {
+            control: sock.clone(),
+            config: dir.join("none.toml"),
+            ..Default::default()
+        };
+        let (tx, rx) = watch::channel(false);
+        let svc = tokio::spawn(run(opts, rx));
+        for _ in 0..50 {
+            if sock.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let mut s = tokio::net::UnixStream::connect(&sock).await.unwrap();
+        // 64 KiB with no newline: the service must reply and close, not buffer it all.
+        let _ = s.write_all(&vec![b'a'; 64 * 1024]).await;
+        let mut reply = String::new();
+        let _ = BufReader::new(&mut s).read_line(&mut reply).await;
+        assert!(reply.contains("too large"), "reply was {reply:?}");
+        let r = request(
+            &Request {
+                cmd: "status".into(),
+                ..Default::default()
+            },
+            &sock,
+        )
+        .await
+        .unwrap();
+        assert!(
+            r.ok,
+            "the service still answers after the oversized request"
+        );
+        tx.send(true).unwrap();
+        svc.await.unwrap().unwrap();
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

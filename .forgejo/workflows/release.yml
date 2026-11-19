@@ -428,7 +428,6 @@ jobs:
             curl -fsS "${auth[@]}" -X DELETE "$API/releases/$ID/assets/$a"
           done
           curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=$SBOM" -F "attachment=@files/$SBOM" >/dev/null
-          curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=$SBOM" -F "attachment=@files/$SBOM" >/dev/null
           curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=SHA256SUMS.asc" -F "attachment=@SHA256SUMS.asc" >/dev/null
           curl -fsS "${auth[@]}" -X POST "$API/releases/$ID/assets?name=SHA256SUMS" -F "attachment=@SHA256SUMS" >/dev/null
           (cd files && sha256sum -c --quiet ../SHA256SUMS)

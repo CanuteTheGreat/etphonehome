@@ -22,6 +22,8 @@ The Android APK is additionally signed with the ETPH release key (`apksigner ver
 
 ## Security design in brief
 
+The full threat model (assets, trust boundaries, STRIDE per boundary, mitigations, residual risks) and the latest code security review are in [docs/security/threat-model.md](docs/security/threat-model.md).
+
 - Desktop client and phone talk over a TLS 1.3 tunnel in WiFi mode (encryption can be required in the app); USB mode runs over the loopback `adb forward`.
 - Dependencies are gated in CI: `cargo audit` for Rust and OSV-Scanner over the locked Gradle graph for Android (High/Critical findings fail the build unless documented with an expiry).
 - No release secrets are stored in the repository; the signing keys live in CI secrets.

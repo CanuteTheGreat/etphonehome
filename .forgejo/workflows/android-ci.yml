@@ -39,6 +39,15 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  installer-tests:
+    name: OpenWrt installer tests (checksum gate)
+    runs-on: linux-any
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer refuses unverified packages and unsafe tags
+        run: sh openwrt/test/installer-test.sh
+
   lint:
     name: Lint
     runs-on: linux-cross-x86_64

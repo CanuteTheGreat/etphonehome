@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Threat model and security review:** `docs/security/threat-model.md` (assets, trust boundaries, STRIDE per boundary, mitigations with file references, residual risks).
+- **OpenWrt/GL.iNet installer verifies what it installs:** `etph-openwrt-install.sh` installs a package only when its SHA-256 is in the release's `SHA256SUMS`, refuses a missing sums file, an unlisted package, and a tag or architecture name with unsafe characters (tests in `openwrt/test/installer-test.sh`, run on every branch push).
+- **Local control service limits:** the privileged service (`etphonehome service`) now caps a control request at 16 KiB and serves at most 32 control connections at once, so a local user can no longer exhaust its memory through the world-writable socket.
+- **Release workflow:** the SBOM was uploaded twice in the checksums job; fixed so the signed-release step cannot fail on the duplicate asset.
+
 ### Added
 - **Signed releases and SBOM:** every release now ships `SHA256SUMS.asc` (detached OpenPGP signature over `SHA256SUMS`, public key in `keys/release-signing.asc`) and a CycloneDX SBOM `etphonehome-<tag>.cdx.json` generated from the release's resolved Cargo dependencies and the Gradle lockfile; the release fails if signing fails. `SECURITY.md` documents reporting and verification.
 

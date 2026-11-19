@@ -191,7 +191,12 @@ class TunPumpTest {
         val inCallback = java.util.concurrent.CountDownLatch(1)
         val p = TunPump(tun, "10.0.0.0/30", {
             seen.set(Thread.currentThread()); inCallback.countDown(); Thread.sleep(300)
-        }).also { it.start() }
+        })
+        // A new thread inherits the creator's daemon flag, and PIT's test thread may itself be a
+        // daemon, which would hide a missing setDaemon(true): start from an explicit non-daemon thread.
+        val starter = Thread { p.start() }.apply { isDaemon = false }
+        starter.start()
+        starter.join()
         tun.incoming.put(ipv4("93.184.216.34", "10.0.0.1"))
         assertTrue(inCallback.await(5, TimeUnit.SECONDS))
         assertTrue(seen.get().isDaemon)

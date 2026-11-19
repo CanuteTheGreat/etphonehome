@@ -107,4 +107,42 @@ class StreamPacketPortTest {
         }, ByteArrayOutputStream())
         try { p.read(ByteArray(10)); fail() } catch (e: IOException) { assertTrue(e.message!!.contains("pipe")) }
     }
+
+    private class Spy(val data: ByteArray = ByteArray(0)) {
+        var inClosed = false; var outClosed = false; var flushes = 0
+        val written = ByteArrayOutputStream()
+        val input = object : ByteArrayInputStream(data) { override fun close() { inClosed = true } }
+        val output = object : java.io.OutputStream() {
+            override fun write(b: Int) = written.write(b)
+            override fun write(b: ByteArray, off: Int, len: Int) = written.write(b, off, len)
+            override fun flush() { flushes++ }
+            override fun close() { outClosed = true }
+        }
+    }
+
+    @Test fun closeClosesBothStreams() {
+        val s = Spy()
+        StreamPacketPort(s.input, s.output).close()
+        assertTrue(s.inClosed); assertTrue(s.outClosed)
+    }
+
+    @Test fun writeFlushesEachFrame() {
+        val s = Spy()
+        val p = StreamPacketPort(s.input, s.output)
+        p.write(ByteArray(5), 5); p.write(ByteArray(5), 5)
+        assertEquals(2, s.flushes)
+    }
+
+    @Test fun writesLargestPacketAndLenEqualToBuffer() {
+        val s = Spy()
+        val p = StreamPacketPort(s.input, s.output)
+        p.write(ByteArray(65535), 65535)
+        assertEquals(65537, s.written.size())
+        p.write(ByteArray(8), 8)
+        assertEquals(65537 + 10, s.written.size())
+    }
+
+    @Test fun readsFrameWhoseLowLengthByteIsZero() {
+        assertEquals(256, port(frame(ByteArray(256))).read(ByteArray(300)))
+    }
 }

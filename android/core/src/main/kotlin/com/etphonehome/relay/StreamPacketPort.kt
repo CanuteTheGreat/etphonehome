@@ -18,7 +18,7 @@ import java.io.OutputStream
 class StreamPacketPort(
     input: InputStream,
     output: OutputStream,
-    private val onClose: () -> Unit = {},
+    private val onClose: (() -> Unit)? = null,
 ) : PacketPort {
 
     private val din = DataInputStream(input)
@@ -54,7 +54,7 @@ class StreamPacketPort(
         }
         try { din.close() } catch (_: IOException) {}
         try { dout.close() } catch (_: IOException) {}
-        onClose()
+        onClose?.invoke()
     }
 
     companion object {

@@ -58,8 +58,12 @@ jobs:
         run: .forgejo/scripts/prefetch-gradle.sh
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libdbus-1-dev pkg-config python3
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=20 update || true
+          for attempt in 1 2 3 4; do
+            sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=20 install -y build-essential libdbus-1-dev pkg-config python3 && break
+            [ "$attempt" = 4 ] && exit 1
+            sleep $((attempt * 20)); sudo apt-get -o Acquire::Retries=5 update || true
+          done
       - name: Build client (as released)
         run: |
           bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
@@ -115,8 +119,12 @@ jobs:
         run: .forgejo/scripts/prefetch-gradle.sh
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=20 update || true
+          for attempt in 1 2 3 4; do
+            sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=20 install -y build-essential libdbus-1-dev pkg-config && break
+            [ "$attempt" = 4 ] && exit 1
+            sleep $((attempt * 20)); sudo apt-get -o Acquire::Retries=5 update || true
+          done
       - name: Build client and privileged tests
         working-directory: desktop
         run: |
@@ -158,8 +166,12 @@ jobs:
         run: .forgejo/scripts/prefetch-gradle.sh
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libdbus-1-dev pkg-config
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=20 update || true
+          for attempt in 1 2 3 4; do
+            sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=20 install -y build-essential libdbus-1-dev pkg-config && break
+            [ "$attempt" = 4 ] && exit 1
+            sleep $((attempt * 20)); sudo apt-get -o Acquire::Retries=5 update || true
+          done
       - name: Build and package the client exactly as released
         run: |
           bash .forgejo/scripts/build-linux-release.sh etphonehome-linux etphonehome
@@ -196,8 +208,12 @@ jobs:
       - name: Install mingw-w64 and wine
         run: |
           sudo dpkg --add-architecture i386 || true
-          sudo apt-get update
-          sudo apt-get install -y mingw-w64 wine64 wine xvfb
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=20 update || true
+          for attempt in 1 2 3 4; do
+            sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=20 install -y mingw-w64 wine64 wine xvfb && break
+            [ "$attempt" = 4 ] && exit 1
+            sleep $((attempt * 20)); sudo apt-get -o Acquire::Retries=5 update || true
+          done
       - name: Build the Windows client
         working-directory: desktop
         run: cargo build --release -p etphonehome-windows --target x86_64-pc-windows-gnu

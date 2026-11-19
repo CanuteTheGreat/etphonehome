@@ -17,7 +17,7 @@ Assets, most valuable first:
 | A3 | The pairing tokens (Wi-Fi, Bluetooth) | Phone: `android/app/.../util/TokenManager.kt` (SharedPreferences, excluded from backup); computer: `auth.wifi_token` in `config.toml` (`desktop/common/src/config.rs`, mode 0600); router: UCI `network.<if>.token` |
 | A4 | The router's ADB key (the phone's "always allow from this computer" trust) | `desktop/common/src/adb/key.rs` (0600), `/etc/etph/.android` on routers |
 | A5 | The computer's/router's own network configuration (routes, DNS, tun device) | `desktop/common/src/runner.rs`, `host.rs`, `openwrt/etph/files/lib/netifd/` |
-| A6 | Release integrity: the binaries, packages and installers users run | `.forgejo/workflows/release.yml`, `keys/release-signing.asc`, `openwrt/etph-openwrt-install.sh` |
+| A6 | Release integrity: the binaries, packages and installers users run | `release.yml (CI workflows)`, `keys/release-signing.asc`, `openwrt/etph-openwrt-install.sh` |
 | A7 | The Pro entitlement (a one-time Google Play purchase) | `android/core/.../pro/` (low value by design, see `docs/pro.md`) |
 
 Attacker profiles: (a) someone on the same Wi-Fi as the phone or router; (b) another app on the phone; (c) another local user on the computer/router; (d) someone who can read or alter a download or a build; (e) someone with brief physical access to the cable or phone. A fully compromised phone or computer is out of scope: each peer is trusted by the other once paired.
@@ -33,7 +33,7 @@ Attacker profiles: (a) someone on the same Wi-Fi as the phone or router; (b) ano
            | B4 local control (service socket, LuCI/rpcd, netifd hooks)
   local users / web UI
   ----------------------------------------------------------------------------
-  B5 distribution: Forgejo release -> errant.solutions / GitHub / Google Play -> user
+  B5 distribution: release host -> errant.solutions / GitHub / Google Play -> user
   B6 Rustinion: none in this repository (see 3.6)
 ```
 
@@ -156,7 +156,13 @@ Checked and fine: token generation and comparison, null-token rejection, handsha
 
 ## 6. Release pipeline proof
 
-The signed `SHA256SUMS` and SBOM path is proven on a throwaway pre-release tag and then deleted, see the dated entry in [CHANGELOG.md](../../CHANGELOG.md) and `STATUS.md`.
+`release.yml` was run end to end on a throwaway pre-release tag (`v0.9.99`, 2026-11-18, all 11 jobs green; the tag, the release page and the mirror's copy of the tag were deleted afterwards). The throwaway commit also dropped the macOS-from-GitHub job and the GitHub workflows so nothing was built or published on the public mirror, so the macOS leg was not part of this proof. Results from the downloaded release assets:
+
+- `etphonehome-v0.9.99.cdx.json` present (CycloneDX 1.5, 739 components, listed in `SHA256SUMS`).
+- `SHA256SUMS` (50 files) and `SHA256SUMS.asc` present; `gpgv --keyring <keys/release-signing.asc>` reports a good signature from key `5439 3549 39B9 C055 2A68  E9BB E323 A6A3 AC0A 6506`.
+- A router package from the release matched its line in the signed sums.
+
+The run exposed one operational gap that review alone could not: the repository had no `RELEASE_SIGNING_KEY` secret (it was set on the other repositories only), so a real release would have stopped at the signing step. It is set now. Any new repository that publishes signed releases needs the same secret before its first tag.
 
 ## 7. Maintenance
 

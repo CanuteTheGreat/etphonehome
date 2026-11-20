@@ -51,3 +51,6 @@ __pycache__/
 *.py[cod]
 osv-results.json
 osv-stderr.log
+
+# root-mode helper, cross-built by .forgejo/scripts/build-tun-pipe-android.sh
+android/app/src/main/jniLibs/

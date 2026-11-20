@@ -173,6 +173,11 @@ jobs:
         continue-on-error: true
         run: |
           curl -fsS -m 5 http://10.1.10.103:8088/ci/env.sh -o /tmp/rw-cache-env.sh && RW_CACHE_WANT=gradle RW_CACHE_EXPORT=1 . /tmp/rw-cache-env.sh || true
+      - name: Cross-build the root-mode helper (tun-pipe) for the four Android ABIs
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          export CARGO_BUILD_JOBS=2
+          bash .forgejo/scripts/build-tun-pipe-android.sh
       - name: Build debug APK
         working-directory: android
         run: |
@@ -209,6 +214,16 @@ jobs:
           # its docker exec with "node: executable file not found in $PATH"
           # -- a resource-starvation symptom, not a missing binary.
           ./gradlew --stop
+      - name: APK carries the root-mode helper for every ABI, as real ELF files
+        run: |
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            unzip -l "$apk" | grep -q "lib/$abi/libtun_pipe.so" || { echo "missing lib/$abi/libtun_pipe.so in the APK"; exit 1; }
+            unzip -p "$apk" "lib/$abi/libtun_pipe.so" | head -c 4 | od -An -c | grep -q 'E *L *F' || { echo "lib/$abi/libtun_pipe.so is not an ELF file"; exit 1; }
+          done
+          # extractNativeLibs must not be false, or su could not exec the helper from nativeLibraryDir
+          unzip -p "$apk" AndroidManifest.xml >/dev/null
+          echo "all four ABIs present"
       - name: Package release APK (same script as release.yml)
         run: bash .forgejo/scripts/package.sh android "ci-${GITHUB_SHA::8}"
       - name: Build info (commit the APK was built from)

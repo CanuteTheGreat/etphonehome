@@ -101,6 +101,11 @@ android {
     }
 
     packaging {
+        // The root-mode helper ships as lib/<abi>/libtun_pipe.so and must be a real file on disk
+        // (su execs it from nativeLibraryDir), so the native libs are extracted at install.
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             // Bouncy Castle jars (TLS) each carry these.
             excludes += ['META-INF/versions/*/OSGI-INF/MANIFEST.MF', 'META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*']

@@ -25,14 +25,21 @@ import kotlin.concurrent.thread
 
 /** Step 6f: a session uses root mode when offered and falls back to the userspace relay when not. */
 class TetherSessionRootTest {
+    /** A helper that stays alive: its stdout blocks (like a real tun) until the process is destroyed. */
     private class Helper : Process() {
-        override fun getOutputStream(): OutputStream = ByteArrayOutputStream()
-        override fun getInputStream(): InputStream = ByteArrayInputStream(ByteArray(0))
+        private val gone = java.util.concurrent.CountDownLatch(1)
+        private val out = ByteArrayOutputStream()
+        private val silent = object : InputStream() {
+            override fun read(): Int { gone.await(); return -1 }
+            override fun read(b: ByteArray, off: Int, len: Int): Int { gone.await(); return -1 }
+        }
+        override fun getOutputStream(): OutputStream = out
+        override fun getInputStream(): InputStream = silent
         override fun getErrorStream(): InputStream = ByteArrayInputStream(ByteArray(0))
         override fun waitFor() = 0
         override fun exitValue(): Int = throw IllegalThreadStateException()
-        override fun destroy() {}
-        override fun destroyForcibly(): Process = this
+        override fun destroy() { gone.countDown() }
+        override fun destroyForcibly(): Process { gone.countDown(); return this }
         override fun isAlive() = true
     }
 

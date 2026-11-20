@@ -195,6 +195,10 @@ jobs:
     needs: [clippy]
     runs-on: linux-cross-x86_64
     timeout-minutes: 35
+    # run 1164: exit 137 (OOM kill) while 24 rustc jobs compiled tokio on a
+    # shared host with a cold cache; cap parallelism.
+    env:
+      CARGO_BUILD_JOBS: 4
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust

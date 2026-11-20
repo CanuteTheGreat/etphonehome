@@ -306,9 +306,24 @@ def main():
         # and the kernel switches it (log: "fib_algo ... switching algo to
         # radix4_lockless"); a kernel quirk, not ETPH: start on the final one.
         con.sh("sysctl net.route.algo.inet.algo=radix4_lockless")
-        con.sh("rm -f /tmp/assign.b64")
-        for k in range(0, len(b64), 200):
-            con.sh(f"printf %s {b64[k:k + 200]} >> /tmp/assign.b64")
+        # Typing ~4 KB into a serial console can stall or drop characters
+        # (run 1159: one chunk never echoed its marker). Every attempt starts
+        # from an empty file, Ctrl-C clears a half-typed line, and the byte
+        # count is checked, so a retry can never leave a duplicated chunk.
+        for attempt in (1, 2, 3):
+            try:
+                con.send("\x03")
+                time.sleep(1)
+                con.sh("rm -f /tmp/assign.b64")
+                for k in range(0, len(b64), 200):
+                    con.sh(f"printf %s {b64[k:k + 200]} >> /tmp/assign.b64", 60)
+                if con.sh(f"test $(wc -c < /tmp/assign.b64) -eq {len(b64)}", 30) == 0:
+                    break
+                log(f"assign.b64 upload attempt {attempt}: wrong size, retrying")
+            except TimeoutError as e:
+                log(f"assign.b64 upload attempt {attempt}: {str(e)[:120]}, retrying")
+        else:
+            raise RuntimeError("could not type pfsense-assign.php into the serial console in 3 attempts")
         con.sh("b64decode -r < /tmp/assign.b64 > /tmp/assign.php")
         pub = open(key + ".pub").read().strip()
         con.sh(f"php /tmp/assign.php ssh '{pub}'", 120)

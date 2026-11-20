@@ -309,7 +309,9 @@ def main():
         # Typing ~4 KB into a serial console can stall or drop characters
         # (run 1159: one chunk never echoed its marker). Every attempt starts
         # from an empty file, Ctrl-C clears a half-typed line, and the byte
-        # count is checked, so a retry can never leave a duplicated chunk.
+        # count is checked, so a retry can never leave a duplicated chunk. The
+        # console shell is tcsh (prompt ]/root): no $(...), use backticks (run
+        # 1167: the check line was a tcsh syntax error, so no marker ever came).
         for attempt in (1, 2, 3):
             try:
                 con.send("\x03")
@@ -317,7 +319,7 @@ def main():
                 con.sh("rm -f /tmp/assign.b64")
                 for k in range(0, len(b64), 200):
                     con.sh(f"printf %s {b64[k:k + 200]} >> /tmp/assign.b64", 60)
-                if con.sh(f"test $(wc -c < /tmp/assign.b64) -eq {len(b64)}", 30) == 0:
+                if con.sh(f"test `wc -c < /tmp/assign.b64` -eq {len(b64)}", 30) == 0:
                     break
                 log(f"assign.b64 upload attempt {attempt}: wrong size, retrying")
             except TimeoutError as e:

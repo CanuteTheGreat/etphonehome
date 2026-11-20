@@ -7,6 +7,7 @@ members = [
     "macos",
     "bsd",
     "tray",
+    "tun-pipe",
 ]
 resolver = "2"
 

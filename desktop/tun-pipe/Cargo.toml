@@ -1,0 +1,18 @@
+[package]
+name = "etphonehome-tun-pipe"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Root helper for the phone app's root mode: holds a tun fd and speaks length-framed packets on stdin/stdout"
+
+[lib]
+name = "tun_pipe"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tun-pipe"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"

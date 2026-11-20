@@ -18,7 +18,8 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 
 if [ ! -d "$SDK_ROOT/ndk/$NDK_VERSION" ]; then
-  yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "ndk;$NDK_VERSION" >/dev/null
+  # (no `yes |`: under pipefail yes dies of SIGPIPE, exit 141; the licences were accepted by setup-android-sdk.sh)
+  "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "ndk;$NDK_VERSION" >/dev/null
 fi
 BIN="$SDK_ROOT/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
 [ -x "$BIN/aarch64-linux-android$API-clang" ] || { echo "NDK clang not found in $BIN" >&2; exit 1; }

@@ -32,7 +32,7 @@ against code, CI logs and the phone before changing a row.
   design redirected the phone's own traffic. A correct design needs kernel
   NAT (a tun device on the phone, `ip_forward`, MASQUERADE out of the
   phone's uplink for the tether subnet). Started: steps 1-6b are
-  `RootTunHelper` (launches the root helper under su, `tun-pipe <ifname>`, returns the framed port; the helper binary `tun-pipe` is in desktop/tun-pipe: attaches to the tun device and relays the framed packets; cross-built for the four Android ABIs by .forgejo/scripts/build-tun-pipe-android.sh and packaged in the APK as lib/<abi>/libtun_pipe.so, CI-checked; nothing in the app runs it yet) + `KernelNatPlan` + `TunDevicePlan` + `TunPump` + `StreamPacketPort` (framed pipe to the root helper that will hold the tun fd) (core/relay: plans, and the desktop<->tun packet pump that drops spoofed/malformed packets), the validated, tunnel-scoped iptables/ip
+  `RootTunHelper` (launches the root helper under su, `tun-pipe <ifname>`, returns the framed port; the helper binary `tun-pipe` is in desktop/tun-pipe: attaches to the tun device and relays the framed packets; cross-built for the four Android ABIs by the CI helper build-tun-pipe-android.sh and packaged in the APK as lib/<abi>/libtun_pipe.so, CI-checked; nothing in the app runs it yet) + `KernelNatPlan` + `TunDevicePlan` + `TunPump` + `StreamPacketPort` (framed pipe to the root helper that will hold the tun fd) (core/relay: plans, and the desktop<->tun packet pump that drops spoofed/malformed packets), the validated, tunnel-scoped iptables/ip
   command plan with an exact teardown, unit-tested. Not yet run by anything:
   no root shell, tun device or app switch, so root mode is still not usable.
 - Windows Bluetooth, multi-device,

@@ -217,13 +217,14 @@ jobs:
       - name: APK carries the root-mode helper for every ABI, as real ELF files
         run: |
           apk=android/app/build/outputs/apk/debug/app-debug.apk
+          # no `grep -q`/`head` on the right of a pipe: under pipefail they SIGPIPE the writer (exit 141)
+          unzip -l "$apk" > /tmp/apk-list.txt
           for abi in arm64-v8a armeabi-v7a x86_64 x86; do
-            unzip -l "$apk" | grep -q "lib/$abi/libtun_pipe.so" || { echo "missing lib/$abi/libtun_pipe.so in the APK"; exit 1; }
-            unzip -p "$apk" "lib/$abi/libtun_pipe.so" | head -c 4 | od -An -c | grep -q 'E *L *F' || { echo "lib/$abi/libtun_pipe.so is not an ELF file"; exit 1; }
+            grep -c "lib/$abi/libtun_pipe.so" /tmp/apk-list.txt > /dev/null || { echo "missing lib/$abi/libtun_pipe.so in the APK"; exit 1; }
+            unzip -p "$apk" "lib/$abi/libtun_pipe.so" > /tmp/tun_pipe.so
+            [ "$(od -An -tx1 -N4 /tmp/tun_pipe.so | tr -d ' ')" = "7f454c46" ] || { echo "lib/$abi/libtun_pipe.so is not an ELF file"; exit 1; }
           done
-          # extractNativeLibs must not be false, or su could not exec the helper from nativeLibraryDir
-          unzip -p "$apk" AndroidManifest.xml >/dev/null
-          echo "all four ABIs present"
+          echo "all four ABIs present as ELF files"
       - name: Package release APK (same script as release.yml)
         run: bash .forgejo/scripts/package.sh android "ci-${GITHUB_SHA::8}"
       - name: Build info (commit the APK was built from)

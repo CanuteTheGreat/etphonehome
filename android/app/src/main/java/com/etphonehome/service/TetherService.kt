@@ -31,6 +31,7 @@ import com.etphonehome.relay.RelayConfig
 import com.etphonehome.session.SessionInfo
 import com.etphonehome.session.SessionListener
 import com.etphonehome.session.SessionLoop
+import com.etphonehome.relay.RootStarter
 import com.etphonehome.session.SessionOptions
 import com.etphonehome.session.SessionSnapshot
 import com.etphonehome.session.TcpLink
@@ -315,6 +316,7 @@ class TetherService : Service() {
                 runSession(
                     link.stream,
                     SessionOptions(
+                        rootStart = rootStarter(),
                         // USB arrives through adb's loopback forward: the address (::1) says
                         // nothing, so name the transport.
                         peer = if (usb) USB_PEER_ADB else sock.inetAddress.hostAddress ?: "desktop",
@@ -359,6 +361,7 @@ class TetherService : Service() {
                 runSession(
                     com.etphonehome.protocol.MessageStream(c.input, c.output),
                     SessionOptions(
+                        rootStart = rootStarter(),
                         peer = USB_PEER_ACCESSORY,
                         encrypted = false,
                         tokenVerifier = null,
@@ -409,6 +412,7 @@ class TetherService : Service() {
                 runSession(
                     MessageStream(sock.inputStream, sock.outputStream),
                     SessionOptions(
+                        rootStart = rootStarter(),
                         peer = sock.remoteDevice.name ?: sock.remoteDevice.address,
                         // RFCOMM between paired devices is link-encrypted by Bluetooth.
                         encrypted = true,
@@ -457,6 +461,11 @@ class TetherService : Service() {
 
     /** Set once a session got past the handshake; Free stops sharing after such a session. */
     @Volatile private var hadSession = false
+
+    private fun rootStarter() = RootStarter.create(
+        Settings.rootMode(this),
+        java.io.File(applicationInfo.nativeLibraryDir, "libtun_pipe.so").path,
+    )
 
     private suspend fun runSession(stream: MessageStream, options: SessionOptions, transport: String) {
         val label = modeLabel(transport)

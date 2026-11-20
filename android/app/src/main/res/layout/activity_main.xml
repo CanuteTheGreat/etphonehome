@@ -149,6 +149,13 @@
             android:text="@string/require_encryption"
             android:visibility="gone" />
 
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/rootModeSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/root_mode" />
+
         <TextView
             android:id="@+id/wifiIpText"
             android:layout_width="match_parent"

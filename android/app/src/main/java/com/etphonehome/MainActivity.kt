@@ -66,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var wifiIpText: TextView
     private lateinit var bluetoothInfoText: TextView
     private lateinit var requireEncryptionSwitch: SwitchCompat
+    private lateinit var rootModeSwitch: SwitchCompat
     private lateinit var legacyAppBanner: View
     private lateinit var proStatusText: TextView
     private lateinit var upgradeButton: Button
@@ -124,6 +125,7 @@ class MainActivity : AppCompatActivity() {
         wifiIpText = findViewById(R.id.wifiIpText)
         bluetoothInfoText = findViewById(R.id.bluetoothInfoText)
         requireEncryptionSwitch = findViewById(R.id.requireEncryptionSwitch)
+        rootModeSwitch = findViewById(R.id.rootModeSwitch)
         legacyAppBanner = findViewById(R.id.legacyAppBanner)
         findViewById<Button>(R.id.legacyAppButton).setOnClickListener {
             startActivity(LegacyApp.settingsIntent())
@@ -173,6 +175,9 @@ class MainActivity : AppCompatActivity() {
         requireEncryptionSwitch.setOnCheckedChangeListener { _, checked ->
             Settings.setRequireEncryption(this, checked)
         }
+
+        rootModeSwitch.isChecked = Settings.rootMode(this)
+        rootModeSwitch.setOnCheckedChangeListener { _, checked -> Settings.setRootMode(this, checked) }
 
         startButton.setOnClickListener { requestPermissionsAndStart() }
         stopButton.setOnClickListener {
@@ -300,6 +305,7 @@ class MainActivity : AppCompatActivity() {
         stopButton.isEnabled = running
         for (i in 0 until connectionModeGroup.childCount) connectionModeGroup.getChildAt(i).isEnabled = !running
         requireEncryptionSwitch.isEnabled = !running
+        rootModeSwitch.isEnabled = !running
         requireEncryptionSwitch.setText(
             when (WifiText.encryptionLabel(Settings.requireEncryption(this), running)) {
                 WifiText.EncryptionLabel.IDLE -> R.string.require_encryption

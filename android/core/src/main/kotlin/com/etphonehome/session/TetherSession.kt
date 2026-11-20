@@ -15,6 +15,7 @@ import com.etphonehome.protocol.ProtocolException
 import com.etphonehome.protocol.ServerHandshake
 import com.etphonehome.protocol.StatsUpdate
 import com.etphonehome.relay.RelayConfig
+import com.etphonehome.relay.RootNatSession
 import com.etphonehome.relay.UserspaceRelay
 import com.etphonehome.relay.ipFromString
 import kotlinx.coroutines.CancellationException
@@ -111,10 +112,24 @@ class TetherSession(
         Log.i(tag, "Handshake complete (${options.peer}, ${if (options.encrypted) "TLS 1.3" else "plaintext"})")
 
         val started = System.currentTimeMillis()
-        val relay = UserspaceRelay({ pkt -> stream.write(IpPacket(pkt)) }, options.relayConfig)
+        // Root mode (kernel NAT) when the caller offers it and it starts; any
+        // refusal falls back to the userspace relay, so a phone without root,
+        // or with a broken su, tethers exactly as before.
+        val toDesktop: (ByteArray) -> Unit = { pkt -> stream.write(IpPacket(pkt)) }
+        val root = options.rootStart?.let { start ->
+            when (val r = start(toDesktop)) {
+                is RootNatSession.Start.Ready -> r.session
+                is RootNatSession.Start.Unavailable -> {
+                    Log.i(tag, "Root mode unavailable (${r.reason}): using the userspace relay")
+                    null
+                }
+            }
+        }
+        val relay = if (root == null) UserspaceRelay(toDesktop, options.relayConfig) else null
         this@TetherSession.relay = relay
-        relay.start()
-        Log.i(tag, "Relay started: desktop traffic now goes out through the phone's own network")
+        relay?.start()
+        if (root != null) Log.i(tag, "Root mode: desktop traffic is NATed by the phone's kernel")
+        else Log.i(tag, "Relay started: desktop traffic now goes out through the phone's own network")
         listener.onConnected(
             SessionInfo(
                 options.peer, options.encrypted, request.token != null,
@@ -123,17 +138,17 @@ class TetherSession(
         )
 
         fun snapshot() = SessionSnapshot(
-            bytesToDesktop = relay.stats.bytesToDesktop.get(),
-            bytesFromDesktop = relay.stats.bytesFromDesktop.get(),
+            bytesToDesktop = relay?.stats?.bytesToDesktop?.get() ?: 0L,
+            bytesFromDesktop = relay?.stats?.bytesFromDesktop?.get() ?: 0L,
             uptimeSeconds = ((System.currentTimeMillis() - started) / 1000).toInt(),
-            activeTcp = relay.stats.activeTcp.get(),
-            activeUdp = relay.stats.activeUdp.get(),
-            tcpFlows = relay.stats.tcpFlowsOpened.get(),
-            udpFlows = relay.stats.udpFlowsOpened.get(),
-            packetsFiltered = relay.stats.packetsFiltered.get(),
+            activeTcp = relay?.stats?.activeTcp?.get() ?: 0,
+            activeUdp = relay?.stats?.activeUdp?.get() ?: 0,
+            tcpFlows = relay?.stats?.tcpFlowsOpened?.get() ?: 0L,
+            udpFlows = relay?.stats?.udpFlowsOpened?.get() ?: 0L,
+            packetsFiltered = relay?.stats?.packetsFiltered?.get() ?: 0L,
             filterEnabled = filter.getConfig().enabled,
             filterRules = filter.getConfig().rules.size,
-            bytesByKind = relay.stats.kindSnapshot(),
+            bytesByKind = relay?.stats?.kindSnapshot() ?: emptyMap(),
         )
 
         try {
@@ -206,7 +221,7 @@ class TetherSession(
                     }
                 }
                 try {
-                    readLoop(relay)
+                    readLoop(relay, root)
                 } finally {
                     watchdog.cancel()
                     stats.cancel()
@@ -215,7 +230,8 @@ class TetherSession(
                 }
             }
         } finally {
-            relay.close()
+            relay?.close()
+            root?.close()
             this@TetherSession.relay = null
             listener.onStats(snapshot())
             Log.i(tag, "Session ended")
@@ -223,7 +239,7 @@ class TetherSession(
         request
     }
 
-    private fun readLoop(relay: UserspaceRelay) {
+    private fun readLoop(relay: UserspaceRelay?, root: RootNatSession?) {
         while (true) {
             val message = try {
                 stream.read()
@@ -238,7 +254,11 @@ class TetherSession(
             }
             lastFromDesktop = System.currentTimeMillis()
             when (message) {
-                is IpPacket -> relay.handlePacket(message.packetData)
+                is IpPacket -> {
+                    if (relay != null) relay.handlePacket(message.packetData)
+                    else if (filter.getConfig().enabled && !filter.shouldAllow(message.packetData)) Unit
+                    else root?.fromDesktop(message.packetData)
+                }
                 is Disconnect -> {
                     Log.i(tag, "Desktop requested disconnect: ${message.reason}")
                     return
@@ -253,11 +273,11 @@ class TetherSession(
         }
     }
 
-    private fun applyConfig(message: ConfigUpdate, relay: UserspaceRelay) {
+    private fun applyConfig(message: ConfigUpdate, relay: UserspaceRelay?) {
         val updated = filter.getConfig().applyUpdate(message.config)
         filter.updateConfig(updated)
-        relay.packetFilter = if (updated.enabled) filter::shouldAllow else null
-        relay.filterChanged()
+        relay?.packetFilter = if (updated.enabled) filter::shouldAllow else null
+        relay?.filterChanged()
         Log.i(
             tag,
             "Traffic filter from desktop: enabled=${updated.enabled} mode=${updated.mode} " +
@@ -285,6 +305,8 @@ data class SessionOptions(
     val capabilities: Int = Protocol.CAP_USB or Protocol.CAP_WIFI,
     val dns: Int = ipFromString("8.8.8.8"),
     val relayConfig: RelayConfig = RelayConfig(),
+    /** Offers root mode: called once per session with the desktop writer; null = userspace relay only. */
+    val rootStart: (((ByteArray) -> Unit) -> RootNatSession.Start)? = null,
     val statsIntervalMs: Long = 5000,
     val keepaliveIntervalMs: Long = 30000,
     /** Version advertised in the HandshakeResponse (test hook: the CI

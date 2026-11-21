@@ -86,7 +86,9 @@ class KernelNatPlanTest {
             val line = s.toString()
             val a = s.argv
             val chainJump = (a.contains("FORWARD") || a.contains("POSTROUTING")) && a.contains("-I")
-            if (a.contains("FORWARD") && chainJump) {
+            if (line == "iptables -w -t mangle -I FORWARD 1 -j ETPH_MSS") {
+                // jump into our own mangle chain, whose rules are all scoped (checked below)
+            } else if (a.contains("FORWARD") && chainJump) {
                 // The only unscoped-looking rule is a jump into our own chain, which only accepts tunnel traffic.
                 assertEquals("iptables -w -I FORWARD 1 -j ETPH_FWD", line)
             } else {
@@ -118,7 +120,27 @@ class KernelNatPlanTest {
         assertEquals("sysctl -w net.ipv4.ip_forward=0", lines.last())
         // enable starts with a full teardown (idempotent after a crash) and then sets up.
         assertEquals(dis, en.take(dis.size))
-        assertTrue(en.drop(dis.size).none { it.ignoreFailure })
+        // every required step must fail loudly; only the best-effort MSS clamp may be tolerated
+        assertTrue(en.drop(dis.size).filter { !it.toString().contains("mangle") }.none { it.ignoreFailure })
+    }
+
+    @Test
+    fun tcpMssIsClampedBothWaysScopedToTheTunnelAndIsBestEffort() {
+        val en = KernelNatPlan.enable(p)
+        val lines = en.map { it.toString() }
+        val out = "iptables -w -t mangle -A ETPH_MSS -s 10.0.0.0/30 -i etph0 -o rmnet_data0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu"
+        val back = "iptables -w -t mangle -A ETPH_MSS -d 10.0.0.0/30 -i rmnet_data0 -o etph0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu"
+        assertTrue(lines.contains(out) && lines.contains(back))
+        val mss = en.drop(KernelNatPlan.disable(p).size).filter { it.toString().contains("mangle") }
+        assertEquals(4, mss.size)
+        assertTrue("a kernel without TCPMSS must not abort root mode", mss.all { it.ignoreFailure })
+        // chain exists before its rules and before the jump; teardown removes jump, rules, chain
+        assertTrue(lines.indexOf("iptables -w -t mangle -N ETPH_MSS") < lines.indexOf(out))
+        assertTrue(lines.indexOf(back) < lines.indexOf("iptables -w -t mangle -I FORWARD 1 -j ETPH_MSS"))
+        val dis = KernelNatPlan.disable(p).map { it.toString() }
+        assertTrue(dis.indexOf("iptables -w -t mangle -D FORWARD -j ETPH_MSS") < dis.indexOf("iptables -w -t mangle -F ETPH_MSS"))
+        assertTrue(dis.indexOf("iptables -w -t mangle -F ETPH_MSS") < dis.indexOf("iptables -w -t mangle -X ETPH_MSS"))
+        assertTrue(dis.any { it.contains("-t mangle -S FORWARD") && it.contains("-j ETPH_MSS") })
     }
 
     @Test

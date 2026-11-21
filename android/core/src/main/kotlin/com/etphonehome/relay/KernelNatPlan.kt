@@ -17,6 +17,8 @@ object KernelNatPlan {
 
     const val NAT_CHAIN = "ETPH_NAT"
     const val FWD_CHAIN = "ETPH_FWD"
+    /** mangle-table chain that clamps the TCP MSS of tunnel flows (best effort, see [enable]). */
+    const val MSS_CHAIN = "ETPH_MSS"
     const val RULE_PRIORITY = 11000
 
     /** One command to run as root. [ignoreFailure] is for teardown steps that may already be undone. */
@@ -90,6 +92,17 @@ object KernelNatPlan {
             "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT",
         )
         steps += ipt("-I", "FORWARD", "1", "-j", FWD_CHAIN)
+        // The tunnel MTU is lower than the uplink's, so without a clamp a server's full-size segments
+        // exceed it and stall wherever ICMP "fragmentation needed" is lost. Clamp the MSS of SYNs in
+        // both directions to the route MTU. Best effort: a kernel without xt_TCPMSS must not stop
+        // root mode, hence ignoreFailure on every step here.
+        steps += ipt("-t", "mangle", "-N", MSS_CHAIN, ignore = true)
+        for (dir in listOf(listOf("-s", p.subnet, "-i", p.tunInterface, "-o", p.upstreamInterface),
+                           listOf("-d", p.subnet, "-i", p.upstreamInterface, "-o", p.tunInterface))) {
+            steps += ipt("-t", "mangle", "-A", MSS_CHAIN, *dir.toTypedArray(), "-p", "tcp",
+                "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu", ignore = true)
+        }
+        steps += ipt("-t", "mangle", "-I", "FORWARD", "1", "-j", MSS_CHAIN, ignore = true)
         if (p.upstreamTable != null) {
             steps += Step(listOf("ip", "rule", "add", "from", p.subnet, "lookup", p.upstreamTable.toString(), "priority", RULE_PRIORITY.toString()))
         }
@@ -105,10 +118,14 @@ object KernelNatPlan {
         // them and the chains could not be recreated. Sweep anything pointing at OUR chains/priority.
         steps += sweep("nat", "POSTROUTING", NAT_CHAIN)
         steps += sweep(null, "FORWARD", FWD_CHAIN)
+        steps += sweep("mangle", "FORWARD", MSS_CHAIN)
         steps += Step(listOf("sh", "-c", "for i in 1 2 3 4 5 6 7 8; do ip rule del priority $RULE_PRIORITY 2>/dev/null || break; done; true"), true)
         if (p.upstreamTable != null) {
             steps += Step(listOf("ip", "rule", "del", "from", p.subnet, "lookup", p.upstreamTable.toString(), "priority", RULE_PRIORITY.toString()), true)
         }
+        steps += ipt("-t", "mangle", "-D", "FORWARD", "-j", MSS_CHAIN, ignore = true)
+        steps += ipt("-t", "mangle", "-F", MSS_CHAIN, ignore = true)
+        steps += ipt("-t", "mangle", "-X", MSS_CHAIN, ignore = true)
         steps += ipt("-D", "FORWARD", "-j", FWD_CHAIN, ignore = true)
         steps += ipt("-F", FWD_CHAIN, ignore = true)
         steps += ipt("-X", FWD_CHAIN, ignore = true)

@@ -145,7 +145,7 @@ class TetherSession(
             activeUdp = relay?.stats?.activeUdp?.get() ?: 0,
             tcpFlows = relay?.stats?.tcpFlowsOpened?.get() ?: 0L,
             udpFlows = relay?.stats?.udpFlowsOpened?.get() ?: 0L,
-            packetsFiltered = relay?.stats?.packetsFiltered?.get() ?: 0L,
+            packetsFiltered = relay?.stats?.packetsFiltered?.get() ?: root?.filtered ?: 0L,
             filterEnabled = filter.getConfig().enabled,
             filterRules = filter.getConfig().rules.size,
             bytesByKind = relay?.stats?.kindSnapshot() ?: emptyMap(),
@@ -267,17 +267,18 @@ class TetherSession(
                     desktopKeepsAlive = true
                     Log.d(tag, "Desktop sends keepalives: ending the session after ${options.desktopIdleTimeoutMs / 1000}s of silence")
                 }
-                is ConfigUpdate -> applyConfig(message, relay)
+                is ConfigUpdate -> applyConfig(message, relay, root)
                 else -> Log.w(tag, "Unexpected message: $message")
             }
         }
     }
 
-    private fun applyConfig(message: ConfigUpdate, relay: UserspaceRelay?) {
+    private fun applyConfig(message: ConfigUpdate, relay: UserspaceRelay?, root: RootNatSession?) {
         val updated = filter.getConfig().applyUpdate(message.config)
         filter.updateConfig(updated)
         relay?.packetFilter = if (updated.enabled) filter::shouldAllow else null
         relay?.filterChanged()
+        root?.packetFilter = if (updated.enabled) filter::shouldAllow else null
         Log.i(
             tag,
             "Traffic filter from desktop: enabled=${updated.enabled} mode=${updated.mode} " +

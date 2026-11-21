@@ -49,6 +49,15 @@ class TunPump(
     private val drops = AtomicLong()
     private val bytesTun = AtomicLong()
     private val bytesDesk = AtomicLong()
+    private val blocked = AtomicLong()
+
+    /**
+     * Desktop traffic filter (the profile's rules): null = allow all. A packet
+     * it refuses is dropped before the kernel sees it, so a blocked flow never
+     * starts; checked per packet, so a rule change applies at once.
+     */
+    @Volatile var packetFilter: ((ByteArray) -> Boolean)? = null
+    val filtered get() = blocked.get()
     @Volatile private var running = false
     private var reader: Thread? = null
 
@@ -69,6 +78,10 @@ class TunPump(
     fun fromDesktop(packet: ByteArray): Boolean {
         if (!running || !acceptable(packet)) {
             drops.incrementAndGet()
+            return false
+        }
+        if (packetFilter?.invoke(packet) == false) {
+            blocked.incrementAndGet()
             return false
         }
         return try {

@@ -42,6 +42,12 @@ class RootNatSession private constructor(
     val dropped get() = pump.dropped
     val bytesToKernel get() = pump.bytesToKernel
     val bytesToDesktop get() = pump.bytesToDesktop
+    val filtered get() = pump.filtered
+
+    /** The desktop's traffic filter (null = allow all); applied before the kernel. */
+    var packetFilter: ((ByteArray) -> Boolean)?
+        get() = pump.packetFilter
+        set(v) { pump.packetFilter = v }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return

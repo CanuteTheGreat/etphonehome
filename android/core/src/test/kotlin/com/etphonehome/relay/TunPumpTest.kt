@@ -46,6 +46,21 @@ class TunPumpTest {
         TunPump(tun, "10.0.0.0/30", { synchronized(out) { out += it } }, mtu).also { it.start() }
 
     @Test
+    fun filterRefusedPacketsNeverReachTheKernelAndAreCounted() {
+        val tun = FakeTun(); val p = pump(tun)
+        p.packetFilter = { pkt -> pkt[19].toInt() != 99 }   // block dst x.x.x.99
+        assertFalse(p.fromDesktop(ipv4("10.0.0.1", dst = "1.2.3.99")))
+        assertTrue(p.fromDesktop(ipv4("10.0.0.1", dst = "1.2.3.4")))
+        assertEquals(1, tun.written.size)
+        assertEquals(1, p.filtered)
+        assertEquals(1, p.packetsToKernel)
+        p.packetFilter = null
+        assertTrue(p.fromDesktop(ipv4("10.0.0.1", dst = "1.2.3.99")))
+        assertEquals(2, tun.written.size)
+        p.close()
+    }
+
+    @Test
     fun forwardsAWellFormedPacketFromInsideTheSubnet() {
         val tun = FakeTun(); val p = pump(tun)
         val pkt = ipv4("10.0.0.1")

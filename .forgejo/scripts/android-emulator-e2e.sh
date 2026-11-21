@@ -65,6 +65,8 @@ cleanup() {
   sleep 2
   pkill -f "qemu-system.*etph$API" 2>/dev/null
   rm -f /tmp/etph-fwd-*.sock
+  # give the disk back to the next API level's emulator
+  [ -n "${AVD_DIR:-}" ] && rm -rf "$AVD_DIR"
 }
 trap cleanup EXIT
 
@@ -75,6 +77,14 @@ sdkmanager --sdk_root="$SDK" "emulator" "platform-tools" "$IMG" >/dev/null || { 
 # A phone-sized screen (the default AVD is 320x640, where system dialogs
 # cover the app).
 echo no | avdmanager create avd -n "etph$API" -k "$IMG" -d pixel_5 --force >/dev/null
+# pixel_5 asks for a 6 GB userdata partition (7.4 GB free needed at boot); the third emulator of a
+# run died on "Not enough space to create userdata partition. Available 4327 MB" (run 1278, API 26).
+# The tests need a fraction of that.
+AVD_DIR="${ANDROID_AVD_HOME:-$HOME/.android/avd}/etph$API.avd"
+if [ -f "$AVD_DIR/config.ini" ]; then
+  sed -i '/^disk.dataPartition.size=/d' "$AVD_DIR/config.ini"
+  echo "disk.dataPartition.size=2G" >>"$AVD_DIR/config.ini"
+fi
 ls -l /dev/kvm
 boot_emulator() { # one emulator boot, 0 = booted
   adb emu kill >/dev/null 2>&1

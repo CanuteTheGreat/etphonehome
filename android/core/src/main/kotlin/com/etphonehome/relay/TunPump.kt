@@ -47,12 +47,17 @@ class TunPump(
     private val toTun = AtomicLong()
     private val toDesk = AtomicLong()
     private val drops = AtomicLong()
+    private val bytesTun = AtomicLong()
+    private val bytesDesk = AtomicLong()
     @Volatile private var running = false
     private var reader: Thread? = null
 
     val packetsToKernel get() = toTun.get()
     val packetsToDesktop get() = toDesk.get()
     val dropped get() = drops.get()
+    /** Bytes handed to the kernel (desktop upload) / read from it (desktop download). */
+    val bytesToKernel get() = bytesTun.get()
+    val bytesToDesktop get() = bytesDesk.get()
 
     fun start() {
         check(!running) { "already started" }
@@ -69,6 +74,7 @@ class TunPump(
         return try {
             synchronized(tun) { tun.write(packet, packet.size) }
             toTun.incrementAndGet()
+            bytesTun.addAndGet(packet.size.toLong())
             true
         } catch (e: java.io.IOException) {
             drops.incrementAndGet()
@@ -94,6 +100,7 @@ class TunPump(
             if (n < 0) break
             if (n == 0) continue
             toDesk.incrementAndGet()
+            bytesDesk.addAndGet(n.toLong())
             toDesktop(buf.copyOf(n))
         }
         running = false

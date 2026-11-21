@@ -40,6 +40,8 @@ class RootNatSession private constructor(
     val packetsToKernel get() = pump.packetsToKernel
     val packetsToDesktop get() = pump.packetsToDesktop
     val dropped get() = pump.dropped
+    val bytesToKernel get() = pump.bytesToKernel
+    val bytesToDesktop get() = pump.bytesToDesktop
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return

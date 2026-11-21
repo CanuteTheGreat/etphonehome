@@ -58,6 +58,19 @@ class TunPumpTest {
     }
 
     @Test
+    fun countsBytesInBothDirectionsAndNotDroppedPackets() {
+        val tun = FakeTun(); val out = mutableListOf<ByteArray>(); val p = pump(tun, out)
+        assertTrue(p.fromDesktop(ipv4("10.0.0.1", payload = 8)))   // 28 bytes
+        assertFalse(p.fromDesktop(ipv4("192.168.1.5", payload = 100)))
+        tun.incoming.put(ipv4("93.184.216.34", "10.0.0.1", payload = 20))   // 40 bytes
+        val end = System.currentTimeMillis() + 3000
+        while (p.packetsToDesktop < 1 && System.currentTimeMillis() < end) Thread.sleep(10)
+        assertEquals(28L, p.bytesToKernel)
+        assertEquals(40L, p.bytesToDesktop)
+        p.close()
+    }
+
+    @Test
     fun dropsSpoofedSourcesOutsideTheSubnet() {
         val tun = FakeTun(); val p = pump(tun)
         assertFalse(p.fromDesktop(ipv4("10.0.0.4")))   // first address after the /30

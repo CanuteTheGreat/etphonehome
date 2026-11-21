@@ -138,8 +138,8 @@ class TetherSession(
         )
 
         fun snapshot() = SessionSnapshot(
-            bytesToDesktop = relay?.stats?.bytesToDesktop?.get() ?: 0L,
-            bytesFromDesktop = relay?.stats?.bytesFromDesktop?.get() ?: 0L,
+            bytesToDesktop = relay?.stats?.bytesToDesktop?.get() ?: root?.bytesToDesktop ?: 0L,
+            bytesFromDesktop = relay?.stats?.bytesFromDesktop?.get() ?: root?.bytesToKernel ?: 0L,
             uptimeSeconds = ((System.currentTimeMillis() - started) / 1000).toInt(),
             activeTcp = relay?.stats?.activeTcp?.get() ?: 0,
             activeUdp = relay?.stats?.activeUdp?.get() ?: 0,

@@ -15,6 +15,7 @@ import com.etphonehome.relay.RelayConfig
 import com.etphonehome.relay.ipFromString
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.DatagramPacket
@@ -509,5 +510,50 @@ class TetherSessionTest {
         assertEquals(null, holder[0]!!.relay)
         sock.close()
         echo.close()
+    }
+
+    /** The UI snapshot reports the relay's own TCP numbers: a flow open, the flow count, and what the
+     *  filter refused (these are only distinguishable from the zero fallback when they are non-zero). */
+    @Test
+    fun `relay mode snapshot reports open tcp flows, flow totals and filtered packets`() {
+        val open = ServerSocket(0, 5, InetAddress.getLoopbackAddress())
+        val snaps = CopyOnWriteArrayList<SessionSnapshot>()
+        val listener = object : SessionListener { override fun onStats(snapshot: SessionSnapshot) { snaps += snapshot } }
+        val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        val t = thread {
+            server.accept().use { s ->
+                val link = TcpLink.accept(s, null)
+                val session = TetherSession(
+                    link.stream,
+                    SessionOptions(peer = "laptop", encrypted = true, tokenVerifier = { it == "tok" }, statsIntervalMs = 60_000, relayConfig = loopbackNet),
+                    listener,
+                )
+                runCatching { runBlocking { session.run() } }
+            }
+            server.close()
+        }
+        val sock = Socket(InetAddress.getLoopbackAddress(), server.localPort)
+        val desk = MessageStream(sock.getInputStream(), sock.getOutputStream())
+        desk.write(HandshakeRequest(capabilities = 2, token = "tok"))
+        desk.read() as HandshakeResponse
+        desk.write(ConfigUpdate(mapOf("filter.enabled" to "true", "filter.rules" to "1", "filter.rule.0" to "r1|true|block|tcp||9||")))
+        fun syn(port: Int, srcPort: Int) = IpPacket(
+            PacketBuilder.tcp(ipFromString("10.0.0.1"), srcPort, ipFromString("127.0.0.1"), port, 1000, 0,
+                com.etphonehome.relay.TcpFlags.SYN, 65535, null, 0, 0, mss = 1460),
+        )
+        desk.write(syn(9, 41009))                 // refused by the filter: counted, never leaves the phone
+        desk.write(syn(open.localPort, 41010))    // allowed: opens one TCP flow
+        assertTrue("SYN-ACK relayed", desk.read() is IpPacket)
+        val deadline = System.currentTimeMillis() + 5000
+        while (snaps.none { it.activeTcp == 1 && it.packetsFiltered == 1L } && System.currentTimeMillis() < deadline) Thread.sleep(50)
+        val live = snaps.firstOrNull { it.activeTcp == 1 && it.packetsFiltered == 1L }
+        assertNotNull("snapshot with one open flow and one filtered packet: ${snaps.toList()}", live)
+        assertEquals(1L, live!!.tcpFlows)
+        assertEquals(0, live.activeUdp)
+        assertTrue("bytes to desktop counted (the SYN-ACK): $live", live.bytesToDesktop > 0)
+        desk.write(Disconnect("bye"))
+        t.join(5000)
+        sock.close()
+        open.close()
     }
 }

@@ -70,6 +70,7 @@ class RootNatSessionTest {
         val root = FakeRoot()
         val r = RootNatSession.start(cfg, root, {}, { FakeProcess(alive = false) })
         assertTrue(r is RootNatSession.Start.Unavailable)
+        assertEquals("root tun helper exited at once (code 1)", (r as RootNatSession.Start.Unavailable).reason)
         val tail = root.log.takeLast(3)
         assertTrue(tail.any { it.startsWith("sysctl -w net.ipv4.ip_forward=1") }) // previous value restored
         assertTrue(root.log.last().startsWith("ip "))

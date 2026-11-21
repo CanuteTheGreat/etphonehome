@@ -30,9 +30,19 @@ class TetherSessionRootTest {
     private class Helper : Process() {
         private val gone = java.util.concurrent.CountDownLatch(1)
         private val out = ByteArrayOutputStream()
+        private val q = java.util.concurrent.LinkedBlockingQueue<Int>()
+        /** A packet the kernel sends to the desktop (2-byte length frame, as the helper writes it). */
+        fun kernelSends(payload: ByteArray) {
+            q.put(payload.size shr 8); q.put(payload.size and 0xff)
+            payload.forEach { q.put(it.toInt() and 0xff) }
+        }
         private val silent = object : InputStream() {
-            override fun read(): Int { gone.await(); return -1 }
-            override fun read(b: ByteArray, off: Int, len: Int): Int { gone.await(); return -1 }
+            override fun read(): Int {
+                while (true) {
+                    q.poll(20, java.util.concurrent.TimeUnit.MILLISECONDS)?.let { return it }
+                    if (gone.count == 0L) return -1
+                }
+            }
         }
         override fun getOutputStream(): OutputStream = out
         override fun getInputStream(): InputStream = silent
@@ -59,6 +69,8 @@ class TetherSessionRootTest {
     }
 
     private class Run(val desk: MessageStream, val sock: Socket, val server: Thread, val session: Array<TetherSession?>)
+
+    private val helpers = java.util.concurrent.CopyOnWriteArrayList<Helper>()
 
     private fun serve(
         listener: SessionListener = SessionListener.NONE,
@@ -130,7 +142,7 @@ class TetherSessionRootTest {
         var started: RootNatSession? = null
         val snaps = java.util.concurrent.CopyOnWriteArrayList<SessionSnapshot>()
         val r = serve(object : SessionListener { override fun onStats(stats: SessionSnapshot) { snaps += stats } }) { toDesktop ->
-            RootNatSession.start(RootNatSession.Config(helperPath = "/lib/libtun_pipe.so"), root, toDesktop, { Helper() })
+            RootNatSession.start(RootNatSession.Config(helperPath = "/lib/libtun_pipe.so"), root, toDesktop, { Helper().also { h -> helpers += h } })
                 .also { started = (it as? RootNatSession.Start.Ready)?.session }
         }
         fun waitKernel(n: Long) {
@@ -153,6 +165,11 @@ class TetherSessionRootTest {
         waitKernel(3)
         assertEquals(1L, started!!.filtered)
 
+        // kernel -> desktop: counted in the session's snapshot
+        helpers.single().kernelSends(ByteArray(40) { 7 })
+        val dl = System.currentTimeMillis() + 5000
+        while (started?.packetsToDesktop != 1L && System.currentTimeMillis() < dl) Thread.sleep(20)
+        assertEquals(1L, started!!.packetsToDesktop)
         val before = root.log.size
         r.desk.write(Disconnect("bye"))
         r.server.join(5000)
@@ -162,7 +179,7 @@ class TetherSessionRootTest {
         val last = snaps.last()
         assertEquals(3L * 28, last.bytesFromDesktop)
         assertEquals(1L, last.packetsFiltered)
-        assertEquals(0L, last.bytesToDesktop)
+        assertEquals(40L, last.bytesToDesktop)
         r.sock.close()
     }
 }

@@ -132,4 +132,17 @@ class KernelNatPlanTest {
         assertTrue(KernelNatPlan.enable(q).none { it.argv.first() == "ip" })
         assertTrue(KernelNatPlan.disable(q).none { it.argv.first() == "ip" })
     }
+
+    @Test
+    fun staleRulesFromAnotherUpstreamAreSweptByChainAndPriorityOnly() {
+        val lines = KernelNatPlan.disable(p).map { it.toString() }
+        val nat = lines.first { it.contains("-t nat -S POSTROUTING") }
+        val fwd = lines.first { it.contains("-S FORWARD") }
+        assertTrue(nat.contains("-j ETPH_NAT") && nat.contains("-D"))
+        assertTrue(fwd.contains("-j ETPH_FWD") && fwd.contains("-D"))
+        assertTrue(lines.any { it.contains("ip rule del priority 11000") })
+        // the sweeps run before the chains are flushed/deleted, and are not tied to this run's interface
+        assertTrue(lines.indexOf(nat) < lines.indexOf("iptables -w -t nat -X ETPH_NAT"))
+        assertTrue(!nat.contains("rmnet_data0") && !fwd.contains("rmnet_data0"))
+    }
 }

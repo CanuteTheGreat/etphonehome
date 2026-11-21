@@ -63,6 +63,13 @@ object KernelNatPlan {
         return null
     }
 
+    /** Deletes every rule in [parent] that jumps to our [chain], whatever interface it names. */
+    private fun sweep(table: String?, parent: String, chain: String): Step {
+        val t = if (table != null) "-t $table " else ""
+        return Step(listOf("sh", "-c",
+            "iptables -w $t-S $parent 2>/dev/null | while read -r a r; do case \"\$r\" in *\"-j $chain\") iptables -w $t-D \$r;; esac; done; true"), true)
+    }
+
     private fun check(p: Params) = validate(p)?.let { throw IllegalArgumentException(it) }
 
     private fun ipt(vararg a: String, ignore: Boolean = false) = Step(listOf("iptables", "-w") + a, ignore)
@@ -93,6 +100,12 @@ object KernelNatPlan {
     fun disable(p: Params): List<Step> {
         check(p)
         val steps = mutableListOf<Step>()
+        // A crashed earlier run may have used another upstream (wifi vs mobile data): its jump rules
+        // and policy rule are keyed on that old interface/table, so the exact deletes below would miss
+        // them and the chains could not be recreated. Sweep anything pointing at OUR chains/priority.
+        steps += sweep("nat", "POSTROUTING", NAT_CHAIN)
+        steps += sweep(null, "FORWARD", FWD_CHAIN)
+        steps += Step(listOf("sh", "-c", "for i in 1 2 3 4 5 6 7 8; do ip rule del priority $RULE_PRIORITY 2>/dev/null || break; done; true"), true)
         if (p.upstreamTable != null) {
             steps += Step(listOf("ip", "rule", "del", "from", p.subnet, "lookup", p.upstreamTable.toString(), "priority", RULE_PRIORITY.toString()), true)
         }

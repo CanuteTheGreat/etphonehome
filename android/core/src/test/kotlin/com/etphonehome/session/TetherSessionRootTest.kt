@@ -1,5 +1,6 @@
 package com.etphonehome.session
 
+import com.etphonehome.protocol.ConfigUpdate
 import com.etphonehome.protocol.Disconnect
 import com.etphonehome.protocol.HandshakeRequest
 import com.etphonehome.protocol.HandshakeResponse
@@ -59,14 +60,17 @@ class TetherSessionRootTest {
 
     private class Run(val desk: MessageStream, val sock: Socket, val server: Thread, val session: Array<TetherSession?>)
 
-    private fun serve(rootStart: (((ByteArray) -> Unit) -> RootNatSession.Start)?): Run {
+    private fun serve(
+        listener: SessionListener = SessionListener.NONE,
+        rootStart: (((ByteArray) -> Unit) -> RootNatSession.Start)?,
+    ): Run {
         val ss = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
         val holder = arrayOfNulls<TetherSession>(1)
         val t = thread {
             ss.accept().use { s ->
                 val link = TcpLink.accept(s, "tok")
                 val opts = SessionOptions(peer = "d", encrypted = link.encrypted, tokenVerifier = { it == "tok" }, rootStart = rootStart)
-                val session = TetherSession(link.stream, opts)
+                val session = TetherSession(link.stream, opts, listener)
                 holder[0] = session
                 runCatching { runBlocking { session.run() } }
             }
@@ -117,6 +121,48 @@ class TetherSessionRootTest {
         assertEquals(listOf("id -u"), root.log)
         r.desk.write(Disconnect("bye"))
         r.server.join(5000)
+        r.sock.close()
+    }
+
+    @Test
+    fun `root mode applies the desktop's filter before the kernel, counts it, and tears the tun down`() {
+        val root = FakeRoot("0")
+        var started: RootNatSession? = null
+        val snaps = java.util.concurrent.CopyOnWriteArrayList<SessionSnapshot>()
+        val r = serve(object : SessionListener { override fun onStats(stats: SessionSnapshot) { snaps += stats } }) { toDesktop ->
+            RootNatSession.start(RootNatSession.Config(helperPath = "/lib/libtun_pipe.so"), root, toDesktop, { Helper() })
+                .also { started = (it as? RootNatSession.Start.Ready)?.session }
+        }
+        fun waitKernel(n: Long) {
+            val deadline = System.currentTimeMillis() + 5000
+            while (started?.packetsToKernel != n && System.currentTimeMillis() < deadline) Thread.sleep(20)
+            assertEquals(n, started?.packetsToKernel)
+        }
+        r.desk.write(IpPacket(ipv4(1, 8)))
+        waitKernel(1)
+        // block everything to 8.8.8.99: refused before the kernel, counted, the next packet passes
+        r.desk.write(ConfigUpdate(mapOf("filter.enabled" to "true", "filter.rules" to "1",
+            "filter.rule.0" to "r1|true|block|any|8.8.8.99/32|||")))
+        r.desk.write(IpPacket(ipv4(1, 99)))
+        r.desk.write(IpPacket(ipv4(1, 9)))
+        waitKernel(2)
+        assertEquals(1L, started!!.filtered)
+        // filter off again: the same destination goes through
+        r.desk.write(ConfigUpdate(mapOf("filter.enabled" to "false")))
+        r.desk.write(IpPacket(ipv4(1, 99)))
+        waitKernel(3)
+        assertEquals(1L, started!!.filtered)
+
+        val before = root.log.size
+        r.desk.write(Disconnect("bye"))
+        r.server.join(5000)
+        assertTrue(!r.server.isAlive)
+        assertTrue(root.log.drop(before).toString(), root.log.drop(before).any { it.startsWith("ip link del dev etph0") })
+        // the UI's final snapshot shows the kernel-mode counters
+        val last = snaps.last()
+        assertEquals(3L * 28, last.bytesFromDesktop)
+        assertEquals(1L, last.packetsFiltered)
+        assertEquals(0L, last.bytesToDesktop)
         r.sock.close()
     }
 }

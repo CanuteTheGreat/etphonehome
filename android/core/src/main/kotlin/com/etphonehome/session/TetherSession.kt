@@ -125,6 +125,9 @@ class TetherSession(
                 }
             }
         }
+        // The pump checks every packet against the live filter before the kernel sees it (a disabled
+        // filter allows all) and counts what it refuses, so a rule change applies at once.
+        root?.packetFilter = filter::shouldAllow
         val relay = if (root == null) UserspaceRelay(toDesktop, options.relayConfig) else null
         this@TetherSession.relay = relay
         relay?.start()
@@ -256,7 +259,6 @@ class TetherSession(
             when (message) {
                 is IpPacket -> {
                     if (relay != null) relay.handlePacket(message.packetData)
-                    else if (filter.getConfig().enabled && !filter.shouldAllow(message.packetData)) Unit
                     else root?.fromDesktop(message.packetData)
                 }
                 is Disconnect -> {
@@ -267,18 +269,17 @@ class TetherSession(
                     desktopKeepsAlive = true
                     Log.d(tag, "Desktop sends keepalives: ending the session after ${options.desktopIdleTimeoutMs / 1000}s of silence")
                 }
-                is ConfigUpdate -> applyConfig(message, relay, root)
+                is ConfigUpdate -> applyConfig(message, relay)
                 else -> Log.w(tag, "Unexpected message: $message")
             }
         }
     }
 
-    private fun applyConfig(message: ConfigUpdate, relay: UserspaceRelay?, root: RootNatSession?) {
+    private fun applyConfig(message: ConfigUpdate, relay: UserspaceRelay?) {
         val updated = filter.getConfig().applyUpdate(message.config)
         filter.updateConfig(updated)
         relay?.packetFilter = if (updated.enabled) filter::shouldAllow else null
         relay?.filterChanged()
-        root?.packetFilter = if (updated.enabled) filter::shouldAllow else null
         Log.i(
             tag,
             "Traffic filter from desktop: enabled=${updated.enabled} mode=${updated.mode} " +

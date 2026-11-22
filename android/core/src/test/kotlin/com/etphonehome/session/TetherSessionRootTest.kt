@@ -155,6 +155,20 @@ class TetherSessionRootTest {
     }
 
     @Test
+    fun `root mode waits a full interval before the first uplink re-check`() {
+        val root = FakeRoot("0")
+        val r = serve(upstreamCheckMs = 60_000) { toDesktop ->
+            RootNatSession.start(RootNatSession.Config(helperPath = "/lib/libtun_pipe.so"), root, toDesktop, { Helper() })
+        }
+        Thread.sleep(300)
+        assertEquals("only the start's discovery, no immediate re-check", 1, root.log.count { it.startsWith("ip route get") })
+        r.desk.write(Disconnect("bye"))
+        r.server.join(5000)
+        assertTrue(!r.server.isAlive)
+        r.sock.close()
+    }
+
+    @Test
     fun `no root falls back to the userspace relay`() {
         val root = FakeRoot("10123")
         val r = serve { toDesktop ->

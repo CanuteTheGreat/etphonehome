@@ -75,8 +75,8 @@ class TetherSessionRootTest {
 
     private fun serve(
         listener: SessionListener = SessionListener.NONE,
-        rootStart: (((ByteArray) -> Unit) -> RootNatSession.Start)?,
         upstreamCheckMs: Long = 5000,
+        rootStart: (((ByteArray) -> Unit) -> RootNatSession.Start)?,
     ): Run {
         val ss = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
         val holder = arrayOfNulls<TetherSession>(1)

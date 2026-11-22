@@ -13,7 +13,7 @@ import java.io.IOException
  */
 class RootNatSession private constructor(
     private val pump: TunPump,
-    private val nat: KernelNatPlan.Params,
+    nat: KernelNatPlan.Params,
     private val tun: TunDevicePlan.Params,
     private val exec: CommandExecutor,
 ) : Closeable {
@@ -31,6 +31,31 @@ class RootNatSession private constructor(
         val mtu: Int = 1400,
         val helperPath: String,
     )
+
+    @Volatile private var nat = nat
+
+    /**
+     * The phone's uplink can change mid-session (WiFi <-> mobile data): the MASQUERADE rule and the
+     * policy rule are keyed on the old interface/table, so the desktop would lose internet while the
+     * tunnel looks fine. Re-discovers the upstream and re-applies the NAT plan when it moved.
+     * Returns true when the rules were switched. A failed switch keeps the old rules and returns false;
+     * no upstream right now (between networks) changes nothing and is retried on the next call.
+     */
+    @Synchronized
+    fun refreshUpstream(): Boolean {
+        if (closed.get()) return false
+        val up = UpstreamDiscovery.discover(exec, tun.tunInterface) ?: return false
+        val cur = nat
+        if (up.interfaceName == cur.upstreamInterface && up.table == cur.upstreamTable) return false
+        val next = cur.copy(upstreamInterface = up.interfaceName, upstreamTable = up.table)
+        if (KernelNatPlan.validate(next) != null) return false
+        if (PlanRunner.enable(next, exec) is PlanRunner.Outcome.Failed) {
+            PlanRunner.enable(cur, exec)   // put the old rules back
+            return false
+        }
+        nat = next
+        return true
+    }
 
     private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
 

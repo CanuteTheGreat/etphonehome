@@ -27,7 +27,7 @@ class RootNatSessionTest {
 
     private class FakeRoot(
         val uid: String = "0",
-        val route: String = "1.1.1.1 via 10.1.2.3 dev rmnet_data0 table 1002 src 10.1.2.4",
+        var route: String = "1.1.1.1 via 10.1.2.3 dev rmnet_data0 table 1002 src 10.1.2.4",
         val failOn: String? = null,
         val ipForward: ExecResult = ExecResult(0, "1"),
     ) : CommandExecutor {
@@ -189,5 +189,28 @@ class RootNatSessionTest {
         val r = RootNatSession.start(cfg.copy(mtu = 10), root, {}, { throw AssertionError("helper started") })
         assertNotNull((r as RootNatSession.Start.Unavailable).reason)
         assertTrue(root.log.none { it.startsWith("ip tuntap") || it.contains("MASQUERADE") })
+    }
+
+    @Test fun uplinkChangeMovesNatRulesAndSameUplinkTouchesNothing() {
+        val root = FakeRoot()
+        val s = (RootNatSession.start(cfg, root, {}, { LiveHelper() }) as RootNatSession.Start.Ready).session
+        val n = root.log.size
+        assertEquals(false, s.refreshUpstream())
+        assertEquals(n + 1, root.log.size)           // only the `ip route get`
+        root.route = "1.1.1.1 dev wlan0 table 1003 src 192.168.1.9"
+        assertEquals(true, s.refreshUpstream())
+        val after = root.log.drop(n)
+        assertTrue(after.any { it.contains("-o wlan0 -j MASQUERADE") })
+        assertTrue(after.any { it.contains("ip rule add from 10.0.0.0/30 lookup 1003") })
+        assertEquals(false, s.refreshUpstream())     // now stable
+        root.route = ""                              // between networks: keep rules, retry later
+        val m = root.log.size
+        assertEquals(false, s.refreshUpstream())
+        assertEquals(m + 1, root.log.size)
+        s.close()
+        assertTrue(root.log.takeLast(8).any { it.contains("-o wlan0") })   // teardown uses the NEW uplink
+        val k = root.log.size
+        assertEquals(false, s.refreshUpstream())     // closed: no-op
+        assertEquals(k, root.log.size)
     }
 }

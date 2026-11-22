@@ -177,6 +177,21 @@ class TetherSession(
                         Log.d(tag, "Stats sender stopped: ${e.message}")
                     }
                 }
+                // Root mode: follow the phone's uplink when it changes (WiFi <-> mobile data).
+                val upstreamWatch = root?.let { r ->
+                    launch(Dispatchers.IO) {
+                        while (true) {
+                            delay(options.upstreamCheckIntervalMs)
+                            try {
+                                if (r.refreshUpstream()) Log.i(tag, "Root mode: phone uplink changed, NAT rules moved")
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                Log.w(tag, "Root mode: uplink check failed: ${e.message}")
+                            }
+                        }
+                    }
+                }
                 val keepalive = launch {
                     try {
                         while (true) {
@@ -229,6 +244,7 @@ class TetherSession(
                     watchdog.cancel()
                     stats.cancel()
                     keepalive.cancel()
+                    upstreamWatch?.cancel()
                     disconnectTimer?.cancel()
                 }
             }
@@ -311,6 +327,8 @@ data class SessionOptions(
     val rootStart: (((ByteArray) -> Unit) -> RootNatSession.Start)? = null,
     val statsIntervalMs: Long = 5000,
     val keepaliveIntervalMs: Long = 30000,
+    /** Root mode: how often to re-check which network carries the phone's internet. */
+    val upstreamCheckIntervalMs: Long = 5000,
     /** Version advertised in the HandshakeResponse (test hook: the CI
      *  stand-in plays a future, incompatible phone with it). */
     val protocolVersion: Short = Protocol.PROTOCOL_VERSION,

@@ -1,5 +1,6 @@
 package com.etphonehome.session
 
+import com.etphonehome.log.Log
 import com.etphonehome.protocol.ConfigUpdate
 import com.etphonehome.protocol.Disconnect
 import com.etphonehome.protocol.HandshakeRequest
@@ -126,15 +127,23 @@ class TetherSessionRootTest {
     @Test
     fun `root mode follows the phone's uplink while the session runs`() {
         val root = FakeRoot("0")
+        val lines = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val oldSink = Log.sink
+        Log.sink = Log.Sink { _, _, m, _ -> lines.add(m) }
+        try {
         val r = serve(upstreamCheckMs = 30) { toDesktop ->
             RootNatSession.start(RootNatSession.Config(helperPath = "/lib/libtun_pipe.so"), root, toDesktop, { Helper() })
         }
         Thread.sleep(150)
         assertTrue("same uplink: no rule change", root.log.none { it.contains("-o wlan0") })
+        assertTrue("same uplink: nothing logged as moved", lines.none { it.contains("NAT rules moved") })
         root.route = "1.1.1.1 dev wlan0 table 1003 src 192.168.1.9"
         val deadline = System.currentTimeMillis() + 5000
         while (root.log.none { it.contains("-o wlan0 -j MASQUERADE") } && System.currentTimeMillis() < deadline) Thread.sleep(20)
         assertTrue(root.log.any { it.contains("-o wlan0 -j MASQUERADE") })
+        val d2 = System.currentTimeMillis() + 5000
+        while (lines.none { it.contains("NAT rules moved") } && System.currentTimeMillis() < d2) Thread.sleep(20)
+        assertEquals("moved is logged exactly once", 1, lines.count { it.contains("NAT rules moved") })
         r.desk.write(Disconnect("bye"))
         r.server.join(5000)
         assertTrue("session ends (watch cancelled)", !r.server.isAlive)
@@ -142,6 +151,7 @@ class TetherSessionRootTest {
         Thread.sleep(150)
         assertEquals("no uplink checks after the session", n, root.log.size)
         r.sock.close()
+        } finally { Log.sink = oldSink }
     }
 
     @Test

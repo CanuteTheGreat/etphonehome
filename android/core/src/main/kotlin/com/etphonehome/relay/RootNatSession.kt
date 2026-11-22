@@ -48,7 +48,8 @@ class RootNatSession private constructor(
         val cur = nat
         if (up.interfaceName == cur.upstreamInterface && up.table == cur.upstreamTable) return false
         val next = cur.copy(upstreamInterface = up.interfaceName, upstreamTable = up.table)
-        if (KernelNatPlan.validate(next) != null) return false
+        // No separate validate(): discovery only yields plain names, and the plan itself throws
+        // (before any command runs) on a bad value, which the caller's watch loop logs and retries.
         if (PlanRunner.enable(next, exec) is PlanRunner.Outcome.Failed) {
             PlanRunner.enable(cur, exec)   // put the old rules back
             return false

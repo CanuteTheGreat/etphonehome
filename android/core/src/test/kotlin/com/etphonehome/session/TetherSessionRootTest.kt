@@ -55,13 +55,14 @@ class TetherSessionRootTest {
     }
 
     private class FakeRoot(val uid: String) : CommandExecutor {
-        val log = mutableListOf<String>()
+        @Volatile var route = "1.1.1.1 via 10.1.2.3 dev rmnet_data0 table 1002 src 10.1.2.4"
+        val log = java.util.concurrent.CopyOnWriteArrayList<String>()
         override fun run(argv: List<String>): ExecResult {
             val line = argv.joinToString(" ")
             log += line
             return when {
                 line == "id -u" -> ExecResult(0, uid)
-                line.startsWith("ip route get") -> ExecResult(0, "1.1.1.1 via 10.1.2.3 dev rmnet_data0 table 1002 src 10.1.2.4")
+                line.startsWith("ip route get") -> ExecResult(0, route)
                 line == "cat /proc/sys/net/ipv4/ip_forward" -> ExecResult(0, "0")
                 else -> ExecResult(0, "")
             }
@@ -75,13 +76,14 @@ class TetherSessionRootTest {
     private fun serve(
         listener: SessionListener = SessionListener.NONE,
         rootStart: (((ByteArray) -> Unit) -> RootNatSession.Start)?,
+        upstreamCheckMs: Long = 5000,
     ): Run {
         val ss = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
         val holder = arrayOfNulls<TetherSession>(1)
         val t = thread {
             ss.accept().use { s ->
                 val link = TcpLink.accept(s, "tok")
-                val opts = SessionOptions(peer = "d", encrypted = link.encrypted, tokenVerifier = { it == "tok" }, rootStart = rootStart)
+                val opts = SessionOptions(peer = "d", encrypted = link.encrypted, tokenVerifier = { it == "tok" }, rootStart = rootStart, upstreamCheckIntervalMs = upstreamCheckMs)
                 val session = TetherSession(link.stream, opts, listener)
                 holder[0] = session
                 runCatching { runBlocking { session.run() } }
@@ -118,6 +120,27 @@ class TetherSessionRootTest {
         assertTrue(!r.server.isAlive)
         assertTrue("NAT undone after the session", root.log.any { it.contains("MASQUERADE") && (it.contains(" -D ") || it.contains("-D")) } ||
             root.log.any { it.startsWith("ip link del") || it.contains("tuntap del") })
+        r.sock.close()
+    }
+
+    @Test
+    fun `root mode follows the phone's uplink while the session runs`() {
+        val root = FakeRoot("0")
+        val r = serve(upstreamCheckMs = 30) { toDesktop ->
+            RootNatSession.start(RootNatSession.Config(helperPath = "/lib/libtun_pipe.so"), root, toDesktop, { Helper() })
+        }
+        Thread.sleep(150)
+        assertTrue("same uplink: no rule change", root.log.none { it.contains("-o wlan0") })
+        root.route = "1.1.1.1 dev wlan0 table 1003 src 192.168.1.9"
+        val deadline = System.currentTimeMillis() + 5000
+        while (root.log.none { it.contains("-o wlan0 -j MASQUERADE") } && System.currentTimeMillis() < deadline) Thread.sleep(20)
+        assertTrue(root.log.any { it.contains("-o wlan0 -j MASQUERADE") })
+        r.desk.write(Disconnect("bye"))
+        r.server.join(5000)
+        assertTrue("session ends (watch cancelled)", !r.server.isAlive)
+        val n = root.log.size
+        Thread.sleep(150)
+        assertEquals("no uplink checks after the session", n, root.log.size)
         r.sock.close()
     }
 

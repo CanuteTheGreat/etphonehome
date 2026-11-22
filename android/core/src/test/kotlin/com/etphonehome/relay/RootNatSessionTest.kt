@@ -28,7 +28,7 @@ class RootNatSessionTest {
     private class FakeRoot(
         val uid: String = "0",
         var route: String = "1.1.1.1 via 10.1.2.3 dev rmnet_data0 table 1002 src 10.1.2.4",
-        val failOn: String? = null,
+        var failOn: String? = null,
         val ipForward: ExecResult = ExecResult(0, "1"),
     ) : CommandExecutor {
         val log = mutableListOf<String>()
@@ -212,5 +212,20 @@ class RootNatSessionTest {
         val k = root.log.size
         assertEquals(false, s.refreshUpstream())     // closed: no-op
         assertEquals(k, root.log.size)
+    }
+
+    @Test fun failedUplinkSwitchKeepsOldRulesReturnsFalseAndRetries() {
+        val root = FakeRoot()
+        val s = (RootNatSession.start(cfg, root, {}, { LiveHelper() }) as RootNatSession.Start.Ready).session
+        root.route = "1.1.1.1 dev wlan0 table 1003 src 192.168.1.9"
+        root.failOn = "-o wlan0"
+        val n = root.log.size
+        assertEquals(false, s.refreshUpstream())
+        // the old rules were put back after the failed switch
+        assertTrue(root.log.drop(n).any { it.contains("-o rmnet_data0 -j MASQUERADE") })
+        root.failOn = null
+        assertEquals(true, s.refreshUpstream())      // not remembered as switched: retried and now succeeds
+        assertEquals(false, s.refreshUpstream())
+        s.close()
     }
 }

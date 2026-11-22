@@ -105,6 +105,7 @@ class KernelNatPlanTest {
         assertTrue(lines.contains("iptables -w -t nat -A ETPH_NAT -s 10.0.0.0/30 -o rmnet_data0 -j MASQUERADE"))
         assertTrue(lines.contains("ip rule add from 10.0.0.0/30 lookup 1002 priority 11000"))
         assertTrue(lines.contains("sysctl -w net.ipv4.ip_forward=1"))
+        assertTrue(lines.contains("sysctl -w net.ipv4.conf.etph0.rp_filter=0"))
     }
 
     @Test
@@ -121,7 +122,7 @@ class KernelNatPlanTest {
         // enable starts with a full teardown (idempotent after a crash) and then sets up.
         assertEquals(dis, en.take(dis.size))
         // every required step must fail loudly; only the best-effort MSS clamp may be tolerated
-        assertTrue(en.drop(dis.size).filter { !it.toString().contains("mangle") }.none { it.ignoreFailure })
+        assertTrue(en.drop(dis.size).filter { !it.toString().contains("mangle") && !it.toString().contains("rp_filter") }.none { it.ignoreFailure })
     }
 
     @Test

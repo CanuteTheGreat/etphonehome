@@ -82,6 +82,10 @@ object KernelNatPlan {
         // Start from a clean slate so a crashed earlier run can't leave duplicates.
         steps += disable(p)
         steps += Step(listOf("sysctl", "-w", "net.ipv4.ip_forward=1"))
+        // Strict reverse-path filtering on the tun would drop the desktop's packets whenever the route's
+        // best path back to the source is not the tun. The interface is deleted with the session, so no
+        // restore step; best effort (a kernel without the knob keeps root mode working).
+        steps += Step(listOf("sysctl", "-w", "net.ipv4.conf.${p.tunInterface}.rp_filter=0"), true)
         steps += ipt("-t", "nat", "-N", NAT_CHAIN)
         steps += ipt("-t", "nat", "-A", NAT_CHAIN, "-s", p.subnet, "-o", p.upstreamInterface, "-j", "MASQUERADE")
         steps += ipt("-t", "nat", "-I", "POSTROUTING", "1", "-s", p.subnet, "-o", p.upstreamInterface, "-j", NAT_CHAIN)

@@ -28,7 +28,7 @@ class RootNatSessionTest {
     private class FakeRoot(
         val uid: String = "0",
         var route: String = "1.1.1.1 via 10.1.2.3 dev rmnet_data0 table 1002 src 10.1.2.4",
-        var failOn: String? = null,
+        @Volatile var failOn: String? = null,
         val ipForward: ExecResult = ExecResult(0, "1"),
     ) : CommandExecutor {
         val log = mutableListOf<String>()
@@ -39,7 +39,7 @@ class RootNatSessionTest {
                 line == "id -u" -> ExecResult(0, uid)
                 line.startsWith("ip route get") -> ExecResult(if (route.isEmpty()) 2 else 0, route)
                 line == "cat /proc/sys/net/ipv4/ip_forward" -> ipForward
-                failOn != null && line.contains(failOn) && !line.contains(" del ") && !line.contains("-D") && !line.contains("-F") && !line.contains("-X") -> ExecResult(1, "boom")
+                failOn?.let { line.contains(it) } == true && !line.contains(" del ") && !line.contains("-D") && !line.contains("-F") && !line.contains("-X") -> ExecResult(1, "boom")
                 else -> ExecResult(0, "")
             }
         }

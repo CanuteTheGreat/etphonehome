@@ -59,7 +59,11 @@ class KernelNatPlanKernelTest {
         assertTrue(during, "-A POSTROUTING -s 10.0.0.0/30 -o up0 -j ETPH_NAT" in during)
         assertTrue(during, "-A ETPH_NAT -s 10.0.0.0/30 -o up0 -j MASQUERADE" in during)
         assertTrue(during, "-A FORWARD -j ETPH_FWD" in during)
-        assertTrue(during, "-A ETPH_FWD -i etph0 -o up0 -s 10.0.0.0/30 -j ACCEPT" in during)
+        // iptables prints match options in a version-dependent order (1.8.11 nf_tables puts -s first), so
+        // compare the set of tokens of the egress rule, not the string.
+        val egress = during.lines().firstOrNull { it.startsWith("-A ETPH_FWD ") && "-o up0" in it && "-i etph0" in it }
+        assertTrue(during, egress != null)
+        assertEquals(during, setOf("-A", "ETPH_FWD", "-i", "etph0", "-o", "up0", "-s", "10.0.0.0/30", "-j", "ACCEPT"), egress!!.trim().split(" ").toSet())
         assertTrue(during, "--ctstate RELATED,ESTABLISHED -j ACCEPT" in during)
         assertTrue(during, "from 10.0.0.0/30 lookup 1002" in during)
         assertTrue(during, "ipfwd=1" in during)

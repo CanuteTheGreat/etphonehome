@@ -135,6 +135,8 @@ jobs:
         run: |
           export ANDROID_HOME="$HOME/android-sdk"
           export PATH="$PATH:$ANDROID_HOME/platform-tools"
+          # KernelNatPlanKernelTest must really run (netns + iptables), never skip silently.
+          export ETPH_KERNEL_E2E_REQUIRED=1
           # Retry on transient Maven Central/dl.google.com dependency-resolution
           # flakes (see lint job above and LIVE-STATUS.md 2026-10-10/10-11).
           for attempt in 1 2 3; do

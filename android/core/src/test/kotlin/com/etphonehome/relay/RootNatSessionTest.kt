@@ -120,6 +120,30 @@ class RootNatSessionTest {
         assertTrue(!f.exists())
     }
 
+    private fun tmpState(content: String? = null) = java.io.File.createTempFile("etph-fwd", ".state").also {
+        if (content == null) it.delete() else it.writeText(content)
+    }
+
+    @Test fun everyFailedStartPathForgetsTheStateFile() {
+        val bad = tmpState(); RootNatSession.start(cfg.copy(stateFile = bad, mtu = 10), FakeRoot(), {}, { throw AssertionError() })
+        assertTrue("invalid config", !bad.exists())
+        val tun = tmpState(); RootNatSession.start(cfg.copy(stateFile = tun), FakeRoot(failOn = "tuntap"), {}, { throw AssertionError() })
+        assertTrue("tun setup failure", !tun.exists())
+        val helper = tmpState(); RootNatSession.start(cfg.copy(stateFile = helper), FakeRoot(), {}, { FakeProcess(alive = false) })
+        assertTrue("helper failure", !helper.exists())
+    }
+
+    @Test fun savedOriginalOfOneWinsOverACurrentZeroAndGarbageIsIgnored() {
+        val one = tmpState("1")
+        val root = FakeRoot(ipForward = ExecResult(0, "0"))
+        (RootNatSession.start(cfg.copy(stateFile = one), root, {}, { FakeProcess() }) as RootNatSession.Start.Ready).session.close()
+        assertTrue(root.log.last { it.startsWith("sysctl") }.endsWith("=1"))
+        val junk = tmpState("banana")
+        val root2 = FakeRoot(ipForward = ExecResult(0, "0"))
+        (RootNatSession.start(cfg.copy(stateFile = junk), root2, {}, { FakeProcess() }) as RootNatSession.Start.Ready).session.close()
+        assertTrue(root2.log.last { it.startsWith("sysctl") }.endsWith("=0"))
+    }
+
     /** A helper that stays alive: stdout is fed by the test (kernel -> desktop frames), stdin is recorded. */
     private class LiveHelper : Process() {
         val stdin = ByteArrayOutputStream()

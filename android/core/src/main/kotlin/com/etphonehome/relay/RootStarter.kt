@@ -10,8 +10,8 @@ object RootStarter {
     fun create(
         enabled: Boolean,
         helperPath: String,
-        exec: CommandExecutor = SuExecutor(),
         stateFile: java.io.File? = null,
+        exec: CommandExecutor = SuExecutor(),
     ): (((ByteArray) -> Unit) -> RootNatSession.Start)? {
         if (!enabled) return null
         return { toDesktop ->

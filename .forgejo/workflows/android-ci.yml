@@ -178,14 +178,14 @@ jobs:
             || { echo "::error::this runner cannot run unprivileged netns + iptables"; exit 1; }
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
-      - name: Run KernelNatPlanKernelTest (required)
+      - name: Run KernelNat*KernelTest (plan + real forwarding) (required)
         working-directory: android/core
         env:
           ETPH_KERNEL_E2E_REQUIRED: '1'
         run: |
           export ANDROID_HOME="$HOME/android-sdk"
           for attempt in 1 2 3; do
-            ../gradlew --max-workers=2 test --tests '*KernelNatPlanKernelTest' && break
+            ../gradlew --max-workers=2 test --tests '*KernelNatPlanKernelTest' --tests '*KernelNatForwardingKernelTest' && break
             [ "$attempt" -eq 3 ] && exit 1
             sleep 20
           done

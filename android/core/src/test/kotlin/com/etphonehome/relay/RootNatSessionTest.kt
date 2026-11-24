@@ -100,6 +100,26 @@ class RootNatSessionTest {
         assertEquals(n, root.log.size)
     }
 
+    @Test fun ipForwardOriginalSurvivesAKilledSession() {
+        val f = java.io.File.createTempFile("etph-fwd", ".state").also { it.delete() }
+        val c = cfg.copy(stateFile = f)
+        // session 1: phone had forwarding off; the app is then killed (no close())
+        RootNatSession.start(c, FakeRoot(ipForward = ExecResult(0, "0")), {}, { FakeProcess() })
+        assertEquals("0", f.readText())
+        // session 2: kernel still reads 1 (leaked); the saved original must win and be restored on close
+        val root = FakeRoot(ipForward = ExecResult(0, "1"))
+        val r = RootNatSession.start(c, root, {}, { FakeProcess() }) as RootNatSession.Start.Ready
+        r.session.close()
+        assertTrue(root.log.any { it.startsWith("sysctl -w net.ipv4.ip_forward=0") })
+        assertTrue(!f.exists())   // clean close forgets it
+    }
+
+    @Test fun failedStartLeavesNoStateFile() {
+        val f = java.io.File.createTempFile("etph-fwd", ".state").also { it.delete() }
+        RootNatSession.start(cfg.copy(stateFile = f), FakeRoot(failOn = "MASQUERADE"), {}, { throw AssertionError() })
+        assertTrue(!f.exists())
+    }
+
     /** A helper that stays alive: stdout is fed by the test (kernel -> desktop frames), stdin is recorded. */
     private class LiveHelper : Process() {
         val stdin = ByteArrayOutputStream()

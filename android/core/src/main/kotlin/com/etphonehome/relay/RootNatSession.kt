@@ -16,6 +16,7 @@ class RootNatSession private constructor(
     nat: KernelNatPlan.Params,
     private val tun: TunDevicePlan.Params,
     private val exec: CommandExecutor,
+    private val stateFile: java.io.File? = null,
 ) : Closeable {
 
     sealed class Start {
@@ -30,6 +31,12 @@ class RootNatSession private constructor(
         val phoneAddress: String = "10.0.0.2",
         val mtu: Int = 1400,
         val helperPath: String,
+        /**
+         * Where the phone's original ip_forward value is kept while a session runs. If the app is
+         * killed mid-session the kernel keeps forwarding on; without this file the next start would
+         * read that leaked "1" as the original and never turn it back off. null = not persisted.
+         */
+        val stateFile: java.io.File? = null,
     )
 
     @Volatile private var nat = nat
@@ -80,6 +87,7 @@ class RootNatSession private constructor(
         pump.close()
         PlanRunner.disable(nat, exec)
         PlanRunner.disableTun(tun, exec)
+        stateFile?.delete()
     }
 
     companion object {
@@ -94,28 +102,36 @@ class RootNatSession private constructor(
             val up = UpstreamDiscovery.discover(exec, cfg.tunInterface)
                 ?: return Start.Unavailable("no internet-facing network found on the phone")
             val fwd = exec.run(listOf("cat", "/proc/sys/net/ipv4/ip_forward"))
-            val previous = fwd.output.trim().lines().lastOrNull()?.trim()?.takeIf { fwd.ok && (it == "0" || it == "1") } ?: "0"
+            val current = fwd.output.trim().lines().lastOrNull()?.trim()?.takeIf { fwd.ok && (it == "0" || it == "1") } ?: "0"
+            // A leftover state file = the last session died without close(): its saved value is the real original.
+            val saved = try { cfg.stateFile?.takeIf { it.isFile }?.readText()?.trim()?.takeIf { it == "0" || it == "1" } } catch (e: IOException) { null }
+            val previous = saved ?: current
+            try { cfg.stateFile?.writeText(previous) } catch (e: IOException) { /* best effort */ }
+            fun forgetState() { cfg.stateFile?.delete() }
 
             val tunP = TunDevicePlan.Params(cfg.tunInterface, cfg.subnet, cfg.phoneAddress, cfg.mtu)
             val natP = KernelNatPlan.Params(cfg.tunInterface, cfg.subnet, up.interfaceName, up.table, previous)
-            (TunDevicePlan.validate(tunP) ?: KernelNatPlan.validate(natP))?.let { return Start.Unavailable(it) }
+            (TunDevicePlan.validate(tunP) ?: KernelNatPlan.validate(natP))?.let { forgetState(); return Start.Unavailable(it) }
 
             (PlanRunner.enableTun(tunP, exec) as? PlanRunner.Outcome.Failed)?.let {
+                forgetState()
                 return Start.Unavailable("tun device setup failed at '${it.step}': ${it.result.output}")
             }
             (PlanRunner.enable(natP, exec) as? PlanRunner.Outcome.Failed)?.let {
                 PlanRunner.disableTun(tunP, exec)
+                forgetState()
                 return Start.Unavailable("NAT setup failed at '${it.step}': ${it.result.output}")
             }
             val port = try {
                 RootTunHelper.open(cfg.helperPath, cfg.tunInterface, starter, su)
             } catch (e: IOException) {
                 PlanRunner.disable(natP, exec); PlanRunner.disableTun(tunP, exec)
+                forgetState()
                 return Start.Unavailable(e.message ?: "root tun helper failed")
             }
             val pump = TunPump(port, cfg.subnet, toDesktop, cfg.mtu)
             pump.start()
-            return Start.Ready(RootNatSession(pump, natP, tunP, exec))
+            return Start.Ready(RootNatSession(pump, natP, tunP, exec, cfg.stateFile))
         }
     }
 }

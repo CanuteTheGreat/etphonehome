@@ -465,6 +465,7 @@ class TetherService : Service() {
     private fun rootStarter() = RootStarter.create(
         Settings.rootMode(this),
         java.io.File(applicationInfo.nativeLibraryDir, "libtun_pipe.so").path,
+        stateFile = java.io.File(filesDir, "root-nat-ipforward.state"),
     )
 
     private suspend fun runSession(stream: MessageStream, options: SessionOptions, transport: String) {

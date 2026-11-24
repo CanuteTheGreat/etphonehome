@@ -11,10 +11,11 @@ object RootStarter {
         enabled: Boolean,
         helperPath: String,
         exec: CommandExecutor = SuExecutor(),
+        stateFile: java.io.File? = null,
     ): (((ByteArray) -> Unit) -> RootNatSession.Start)? {
         if (!enabled) return null
         return { toDesktop ->
-            RootNatSession.start(RootNatSession.Config(helperPath = helperPath), exec, toDesktop)
+            RootNatSession.start(RootNatSession.Config(helperPath = helperPath, stateFile = stateFile), exec, toDesktop)
         }
     }
 }

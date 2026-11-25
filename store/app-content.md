@@ -9,7 +9,7 @@ release build really does (AndroidManifest.xml, build.gradle, store/data-safety.
 | Privacy policy | `https://errant.solutions/privacy.html` |
 | App access | "All functionality is available without special access" (no account, no login) |
 | Ads | "No, my app does not contain ads" |
-| Content rating | IARC questionnaire, category **Utility, Productivity, Communication, or Other**; email support@errant.solutions; answer **No** to every question (no violence, sexuality, language, controlled substances, gambling; users cannot interact or share content with each other through the app; no location sharing; no digital purchases) -> rated Everyone / PEGI 3 |
+| Content rating | IARC questionnaire, category **Utility, Productivity, Communication, or Other**; email support@errant.solutions; answer **No** to every content question (no violence, sexuality, language, controlled substances, gambling; users cannot interact or share content with each other through the app; no location sharing), but **Yes** to "digital purchases" (the one-time in-app product ETPH Pro, sold through Google Play Billing) -> rated Everyone / PEGI 3 with "In-App Purchases" |
 | Target audience and content | Age groups **18 and over** only; "Could your store listing unintentionally appeal to children?" **No** |
 | News app | No |
 | COVID-19 contact tracing / status | My app is not a publicly available COVID-19 contact tracing or status app |

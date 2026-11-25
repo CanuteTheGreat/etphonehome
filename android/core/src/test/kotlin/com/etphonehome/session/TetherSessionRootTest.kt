@@ -77,6 +77,7 @@ class TetherSessionRootTest {
     private fun serve(
         listener: SessionListener = SessionListener.NONE,
         upstreamCheckMs: Long = 5000,
+        abortOnAbortLink: Boolean = false,
         rootStart: (((ByteArray) -> Unit) -> RootNatSession.Start)?,
     ): Run {
         val ss = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
@@ -84,7 +85,8 @@ class TetherSessionRootTest {
         val t = thread {
             ss.accept().use { s ->
                 val link = TcpLink.accept(s, "tok")
-                val opts = SessionOptions(peer = "d", encrypted = link.encrypted, tokenVerifier = { it == "tok" }, rootStart = rootStart, upstreamCheckIntervalMs = upstreamCheckMs)
+                val opts = SessionOptions(peer = "d", encrypted = link.encrypted, tokenVerifier = { it == "tok" }, rootStart = rootStart, upstreamCheckIntervalMs = upstreamCheckMs,
+                    abortLink = { if (abortOnAbortLink) runCatching { s.close() } })
                 val session = TetherSession(link.stream, opts, listener)
                 holder[0] = session
                 runCatching { runBlocking { session.run() } }
@@ -152,6 +154,23 @@ class TetherSessionRootTest {
         assertEquals("no uplink checks after the session", n, root.log.size)
         r.sock.close()
         } finally { Log.sink = oldSink }
+    }
+
+    @Test
+    fun `root mode ends the session when the root helper dies`() {
+        val root = FakeRoot("0")
+        val helper = Helper()
+        val r = serve(abortOnAbortLink = true) { toDesktop ->
+            RootNatSession.start(RootNatSession.Config(helperPath = "/lib/libtun_pipe.so"), root, toDesktop, { helper })
+        }
+        Thread.sleep(100)
+        assertTrue("session runs while the helper lives", r.server.isAlive)
+        helper.destroy()   // helper stdout hits EOF, like tun-pipe exiting
+        r.server.join(5000)
+        assertTrue("session ended by itself", !r.server.isAlive)
+        assertTrue("linkLost flagged so the service reconnects", r.session[0]!!.linkLost)
+        assertTrue("NAT undone", root.log.any { it.contains("-D") || it.contains("tuntap del") || it.startsWith("ip link del") })
+        r.sock.close()
     }
 
     @Test

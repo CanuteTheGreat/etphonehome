@@ -192,6 +192,17 @@ class TetherSession(
                         }
                     }
                 }
+                // Root mode: if the root helper dies the pump stops silently and the desktop would sit
+                // on a "connected" tunnel that carries nothing. End the session so the desktop
+                // reconnects (and the next session re-tries root, falling back to the relay).
+                val helperWatch = root?.let { r ->
+                    launch {
+                        while (r.alive) delay(250)
+                        Log.w(tag, "Root mode: the root helper stopped, ending the session")
+                        linkLost = true
+                        options.abortLink()
+                    }
+                }
                 val keepalive = launch {
                     try {
                         while (true) {
@@ -245,6 +256,7 @@ class TetherSession(
                     stats.cancel()
                     keepalive.cancel()
                     upstreamWatch?.cancel()
+                    helperWatch?.cancel()
                     disconnectTimer?.cancel()
                 }
             }

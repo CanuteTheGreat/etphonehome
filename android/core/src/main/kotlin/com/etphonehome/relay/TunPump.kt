@@ -61,6 +61,8 @@ class TunPump(
     @Volatile private var running = false
     private var reader: Thread? = null
 
+    /** False once the helper's stream ended or the pump was closed: nothing moves any more. */
+    val alive get() = running
     val packetsToKernel get() = toTun.get()
     val packetsToDesktop get() = toDesk.get()
     val dropped get() = drops.get()

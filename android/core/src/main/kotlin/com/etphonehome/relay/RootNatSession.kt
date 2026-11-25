@@ -70,6 +70,9 @@ class RootNatSession private constructor(
     /** Desktop -> kernel; false when dropped (spoofed/malformed/not running). */
     fun fromDesktop(packet: ByteArray) = pump.fromDesktop(packet)
 
+    /** False when the root helper died (su killed, tun-pipe crashed): the desktop's traffic goes nowhere. */
+    val alive get() = !closed.get() && pump.alive
+
     val packetsToKernel get() = pump.packetsToKernel
     val packetsToDesktop get() = pump.packetsToDesktop
     val dropped get() = pump.dropped

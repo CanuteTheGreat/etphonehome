@@ -176,6 +176,15 @@ jobs:
           sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
           unshare -rn sh -c 'ip link add probe0 type dummy && iptables -w -t nat -S && iptables -w -t mangle -S' \
             || { echo "::error::this runner cannot run unprivileged netns + iptables"; exit 1; }
+      - name: Set up Rust (stable) for the root helper test
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+      - name: Real tun-pipe helper vs a real tun device (required)
+        working-directory: desktop
+        env:
+          ETPH_KERNEL_E2E_REQUIRED: '1'
+        run: |
+          sudo apt-get install -y -qq build-essential
+          cargo test -p etphonehome-tun-pipe --test real_tun -- --nocapture
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
       - name: Run KernelNat*KernelTest (plan + real forwarding) (required)

@@ -757,8 +757,14 @@ if [ "$HAS_WIFI" = 1 ]; then
   launch
   tap radioWifi
   sleep 1
-  TOKEN=$(text_of wifiIpText | grep -o 'Auth Token: [^ ]*' | head -1 | cut -d' ' -f3)
+  wifi_token() { text_of wifiIpText | grep -o 'Auth Token: [^ ]*' | head -1 | cut -d' ' -f3; }
+  # The Wi-Fi panel can still be settling right after the previous part's Stop (run 1557: the read
+  # came back empty while the panel showed the token a moment later), so retry the read, and read
+  # it again once the mode has started (the token is persistent, Start doesn't change it).
+  TOKEN=""
+  for _ in 1 2 3; do TOKEN=$(wifi_token); [ -n "$TOKEN" ] && break; sleep 2; done
   start_mode radioWifi
+  for _ in 1 2 3; do [ -n "$TOKEN" ] && break; sleep 2; TOKEN=$(wifi_token); done
   if [ -n "$TOKEN" ] && wait_log "WiFi server listening" 20; then
     # Not a plain `adb forward` to 8888: that arrives on the phone's loopback, which Wi-Fi mode
     # treats as USB (plain, no token) since USB works in every mode. A relay on the phone dials

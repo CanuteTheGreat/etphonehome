@@ -9,6 +9,7 @@ import com.etphonehome.BuildConfig
 import com.etphonehome.log.Log
 import com.etphonehome.pro.Entitlement
 import com.etphonehome.pro.EntitlementEngine
+import com.etphonehome.pro.InstallChannel
 import com.etphonehome.pro.PlayPurchase
 import com.etphonehome.pro.PurchaseVerifier
 import kotlinx.coroutines.CoroutineScope
@@ -34,7 +35,15 @@ object Pro {
     lateinit var store: ProStore
         private set
     private lateinit var engine: EntitlementEngine
-    private lateinit var gateway: PlayBillingGateway
+    /** Null when Google Play didn't install this copy: then Play Billing is never touched. */
+    private var gateway: PlayBillingGateway? = null
+
+    /** Who installed this copy (docs/pro.md "Where Pro is bought"). */
+    var channel: InstallChannel = InstallChannel.DIRECT
+        private set
+
+    /** Pro is sold and checked through Google Play Billing (Play-installed copies only). */
+    val usesPlayBilling: Boolean get() = channel == InstallChannel.PLAY
 
     val state: StateFlow<Entitlement> get() = engine.state
 
@@ -58,7 +67,12 @@ object Pro {
         val verifier = PurchaseVerifier(BuildConfig.PLAY_LICENSE_KEY)
         if (!verifier.enforcing) Log.w(TAG, "No Play licence key in this build: purchase signatures are not checked")
         engine = EntitlementEngine(verifier, appContext.packageName, BuildConfig.PRO_PRODUCT_ID, store)
-        gateway = PlayBillingGateway(appContext, BuildConfig.PRO_PRODUCT_ID, ::onPurchasesUpdated)
+        val installer = InstallSource.installer(appContext)
+        channel = InstallChannel.of(installer)
+        Log.i(TAG, "ETPH Pro channel: $channel (installer ${installer ?: "none"})")
+        if (channel == InstallChannel.PLAY) {
+            gateway = PlayBillingGateway(appContext, BuildConfig.PRO_PRODUCT_ID, ::onPurchasesUpdated)
+        }
         engine.initial()
         refreshAsync()
     }
@@ -68,8 +82,9 @@ object Pro {
     }
 
     suspend fun refresh(): Entitlement {
+        val g = gateway
         val e = try {
-            engine.refresh(gateway)
+            if (g == null) engine.withoutPlay() else engine.refresh(g)
         } catch (e: Exception) {
             Log.w(TAG, "Pro check failed: ${e.message}")
             engine.state.value
@@ -79,9 +94,10 @@ object Pro {
     }
 
     fun loadProduct() {
+        val g = gateway ?: return
         scope.launch {
             _product.value = try {
-                gateway.product()
+                g.product()
             } catch (e: Exception) {
                 PlayBillingGateway.Product.Unavailable(e.message ?: "Google Play error")
             }
@@ -90,14 +106,16 @@ object Pro {
 
     fun buy(activity: Activity) {
         _flowMessage.value = null
-        val r = gateway.launch(activity)
+        val g = gateway ?: return
+        val r = g.launch(activity)
         if (r.responseCode != BillingResponseCode.OK) _flowMessage.value = PlayBillingGateway.describe(r)
     }
 
     private fun onPurchasesUpdated(result: BillingResult, purchases: List<Purchase>?) {
         when (result.responseCode) {
             BillingResponseCode.OK -> scope.launch {
-                engine.onPurchasesUpdated(purchases.orEmpty().map { PlayPurchase(it.originalJson, it.signature) }, gateway)
+                val g = gateway ?: return@launch
+                engine.onPurchasesUpdated(purchases.orEmpty().map { PlayPurchase(it.originalJson, it.signature) }, g)
                 Log.i(TAG, "ETPH Pro after purchase update: ${engine.state.value.status}")
             }
             BillingResponseCode.ITEM_ALREADY_OWNED -> refreshAsync()

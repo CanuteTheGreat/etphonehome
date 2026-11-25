@@ -42,6 +42,9 @@
     <string name="pro_buy">Buy ETPH Pro for %1$s</string>
     <string name="pro_restore">Restore purchase</string>
     <string name="pro_owned">You have ETPH Pro. Thank you!</string>
+    <string name="pro_direct_status">This copy of ETPH wasn\'t installed from Google Play, so Google Play can\'t sell ETPH Pro to it.</string>
+    <string name="pro_direct_open_play">Get ETPH from Google Play</string>
+    <string name="pro_direct_fine_print">Pro bought on Google Play belongs to the Google account and works in the copy installed from Google Play.</string>
     <string name="pro_fine_print">Bought with the Google account on this phone. A new phone or a reinstall gets Pro back automatically (or tap Restore purchase). Refunds go through Google Play.</string>
     <string name="auto_start">Start when the computer asks (USB)</string>
     <string name="auto_start_pro">Start when the computer asks (USB) · Pro</string>

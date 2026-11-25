@@ -1,5 +1,8 @@
 package com.etphonehome
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
@@ -22,6 +25,10 @@ import kotlinx.coroutines.launch
 /**
  * "Upgrade to Pro": what Pro adds, what stays free, the price from Google Play, Buy and
  * Restore. Only ever opened by the user (the Upgrade link, or tapping a Pro feature).
+ *
+ * Copies Google Play didn't install ([Pro.usesPlayBilling] false) never call Play Billing (Play
+ * refuses to sell to them); they get the direct purchase flow instead. Play-installed copies show
+ * Play Billing only, never another way to pay (Play payments policy).
  */
 class UpgradeActivity : AppCompatActivity() {
     private lateinit var status: TextView
@@ -45,6 +52,10 @@ class UpgradeActivity : AppCompatActivity() {
             t.textSize = 15f
             t.setPadding(0, 8, 0, 8)
             list.addView(t)
+        }
+        if (!Pro.usesPlayBilling) {
+            showDirect()
+            return
         }
         buy.setOnClickListener { Pro.buy(this) }
         findViewById<Button>(R.id.restoreButton).setOnClickListener {
@@ -87,5 +98,38 @@ class UpgradeActivity : AppCompatActivity() {
             (p as? PlayBillingGateway.Product.Unavailable)?.why,
             flowMessage?.replaceFirstChar { it.uppercase() },
         ).distinct().joinToString("\n")
+    }
+
+    // DIRECT-PRO: copies installed outside Google Play. The direct purchase (buy in the browser,
+    // enter a licence key) plugs in here; until then the only way offered is Play's own listing.
+    private fun showDirect() {
+        findViewById<Button>(R.id.restoreButton).visibility = View.GONE
+        findViewById<TextView>(R.id.upgradeFinePrint).text = getString(R.string.pro_direct_fine_print)
+        buy.isEnabled = true
+        buy.text = getString(R.string.pro_direct_open_play)
+        buy.setOnClickListener { openPlayListing() }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                Pro.state.collect { e ->
+                    if (e.isPro) {
+                        status.text = getString(R.string.pro_owned)
+                        buy.visibility = View.GONE
+                    } else {
+                        status.text = listOfNotNull(getString(R.string.pro_direct_status), e.message).joinToString("\n")
+                        buy.visibility = View.VISIBLE
+                    }
+                }
+            }
+        }
+        Pro.refreshAsync()
+    }
+
+    private fun openPlayListing() {
+        val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName"))
+        try {
+            startActivity(market)
+        } catch (e: ActivityNotFoundException) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName")))
+        }
     }
 }

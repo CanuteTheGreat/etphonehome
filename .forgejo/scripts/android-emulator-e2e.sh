@@ -615,7 +615,16 @@ else
   fail "free: Upgrade screen not shown (see ui.xml)"
 fi
 UST=$(text_of upgradeStatus)
-grep -qi "isn't available" <<<"$UST" && pass "free: without Google Play the Upgrade screen says billing isn't available ($UST)" || fail "free: Upgrade status ('$UST')"
+# adb installs have no installer, so this copy is DIRECT: Play Billing is never called and the
+# Upgrade screen says why (docs/pro.md "Where Pro is bought").
+grep -q "wasn't installed from Google Play" <<<"$UST" && pass "free: an adb-installed copy says Google Play can't sell Pro to it ($UST)" || fail "free: Upgrade status ('$UST')"
+adb shell input keyevent KEYCODE_BACK
+adb shell am force-stop $PKG
+adb logcat -c
+launch
+wait_log "ETPH Pro channel: DIRECT (installer none)" 10 && pass "free: Pro channel is DIRECT for an adb install" || fail "free: Pro channel log"
+sleep 2
+! adb logcat -d | grep -q "BillingClient" && pass "free: a DIRECT copy never starts Google Play Billing" || fail "free: a DIRECT copy talked to Google Play Billing"
 no_service_within 3 && pass "free: Wi-Fi sharing was not started" || fail "free: Wi-Fi sharing started"
 adb shell input keyevent KEYCODE_BACK
 launch

@@ -45,6 +45,24 @@ Everything Pro is enforced in the app, never on computers or routers:
   (so a Stop tapped on the phone is respected until the cable is replugged). The phone decides:
   Free refuses, Pro starts USB sharing if "Start when the computer asks" is on.
 
+## Where Pro is bought: who installed the app decides
+
+`core/.../pro/InstallChannel.kt` + `billing/InstallSource.kt`: at start the app reads
+`PackageManager.getInstallSourceInfo(...).installingPackageName` (`getInstallerPackageName` below
+Android 11) and logs `ETPH Pro channel: PLAY|DIRECT (installer ...)`.
+
+- PLAY (installer `com.android.vending`): Pro is sold and restored through Google Play Billing
+  only, as below. No other way to pay is shown (Google Play payments policy for digital goods in
+  Play-distributed apps).
+- DIRECT (anything else: the APK from errant.solutions or GitHub, `adb install`, other stores, no
+  installer): Google Play Billing is never started (`Pro` creates no `BillingClient`), because Play
+  refuses to sell to a copy it didn't install (users saw "not available in your country"). The
+  entitlement is the test override, else a remembered Play purchase still in its 30-day grace,
+  else Free (`EntitlementEngine.withoutPlay`). The Upgrade screen explains this and offers the
+  direct purchase (`UpgradeActivity.showDirect`, marked `DIRECT-PRO`) plus the Play listing.
+- QA: `adb install` gives DIRECT; `adb install -i com.android.vending <apk>` gives PLAY on a phone
+  with the Play Store (the emulator e2e checks the DIRECT path).
+
 ## Purchases: Play Billing, verified on the phone, no backend
 
 `android/app/.../billing/`: Play Billing Library 9.1 (`PlayBillingGateway`, a thin wrapper)

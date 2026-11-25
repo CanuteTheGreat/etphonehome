@@ -91,6 +91,16 @@ class EntitlementEngine(
         }
     }
 
+    /**
+     * Copies not installed by Google Play ([InstallChannel.DIRECT]) never ask Play: the test
+     * override, then a remembered Play purchase still in its grace period, else Free (never stuck
+     * on CHECKING, which only means "Play hasn't answered yet").
+     */
+    suspend fun withoutPlay(): Entitlement = lock.withLock {
+        store.override()?.let { return@withLock set(testState(it)) }
+        set(fromCache(null) ?: Entitlement(Entitlement.Status.FREE))
+    }
+
     /** New purchases pushed by Play (the purchase flow finished, or a pending one completed). */
     suspend fun onPurchasesUpdated(purchases: List<PlayPurchase>, gateway: BillingGateway): Entitlement = lock.withLock {
         store.override()?.let { return@withLock set(testState(it)) }

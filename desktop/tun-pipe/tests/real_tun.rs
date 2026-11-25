@@ -87,7 +87,8 @@ fn kernel_ping_through_the_real_helper_gets_its_answer() {
     let script = format!(
         "set -e; ip link set lo up; ip tuntap add dev etph0 mode tun; \
          ip addr add 10.0.0.2/30 dev etph0; ip link set etph0 up; \
-         (if ping -c 1 -W 8 10.0.0.1 >/dev/null 2>&1; then echo PING_OK >&2; else echo PING_FAIL >&2; fi) & \
+         (ok=0; for i in 1 2 3 4 5 6 7 8; do if ping -c 1 -W 2 10.0.0.1 >/dev/null 2>&1; then ok=1; break; fi; sleep 1; done; \
+          if [ $ok = 1 ]; then echo PING_OK >&2; else echo PING_FAIL >&2; fi) & \
          exec '{helper}' tun-pipe etph0"
     );
     let mut child = Command::new("unshare")

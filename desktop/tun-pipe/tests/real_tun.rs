@@ -9,7 +9,7 @@
 //! (then it fails instead of skipping).
 #![cfg(target_os = "linux")]
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;

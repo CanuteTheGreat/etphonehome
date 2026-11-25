@@ -119,3 +119,5 @@ ipv6-routers	README.md	IPv6 through the tunnel (OpenWrt routers)	openwrt/test/vm
 ipv6-routers	README.md	IPv6 through the tunnel (OpenWrt routers)	openwrt/test/vm-test.py	IPv6 tunnel address fd65:7470:6800::1 and default route via the phone (netifd)
 ipv6-macos	README.md	IPv6 through the tunnel (macOS computers)	desktop/packaging/macos/e2e.sh	ICMPv6: 3/3 pings to the phone (fd65:7470:6800::2) answered
 ipv6-macos	README.md	IPv6 through the tunnel (macOS computers)	desktop/packaging/macos/e2e.sh	IPv6 tunnel address fd65:7470:6800::1 on
+pro-direct	README.md	ETPH Pro bought on errant.solutions	android/core/src/test/kotlin/com/etphonehome/pro/LicenseVerifierTest.kt	fun wrongKeyProductVersionAndTamper
+pro-direct	README.md	ETPH Pro bought on errant.solutions	android/core/src/test/kotlin/com/etphonehome/pro/LicenseVerifierTest.kt	fun serverVectorsVerify

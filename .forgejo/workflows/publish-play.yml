@@ -121,8 +121,10 @@ jobs:
           # ETPH Pro: a Play bundle must never carry the e2e test hook that forces Pro.
           BC=$(find android/app/build/generated -name BuildConfig.java -path '*release*' -print -quit)
           [ -n "$BC" ] || { find android/app/build/generated -name 'BuildConfig*' >&2; echo "no release BuildConfig.java" >&2; exit 1; }
-          grep -E 'BILLING_TEST_HOOKS|PRO_PRODUCT_ID' "$BC" || true
+          grep -E 'BILLING_TEST_HOOKS|PRO_PRODUCT_ID|DIRECT_PRO' "$BC" || true
           grep -Eq 'BILLING_TEST_HOOKS *= *false' "$BC" || { echo "BILLING_TEST_HOOKS is not false in the Play build ($BC)" >&2; exit 1; }
+          # Play payments policy: the Play bundle has no direct (non-Play) purchase flow (-PdistChannel=play).
+          grep -Eq 'DIRECT_PRO *= *false' "$BC" || { echo "DIRECT_PRO is not false in the Play build ($BC): build with -PdistChannel=play" >&2; exit 1; }
           grep -Fq 'PRO_PRODUCT_ID = "pro"' "$BC" || { echo "Pro product id missing ($BC)" >&2; exit 1; }
           # The Play licence key must be compiled in, so the phone checks purchase signatures.
           KEY=$(tr -d ' \n\r' < android/app/play-license-key.txt)

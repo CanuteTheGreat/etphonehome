@@ -116,6 +116,17 @@ class LicenseEngineMutationTest {
     }
 
     @Test
+    fun revocationTakesEffectOnTheLiveStateImmediately() = runBlocking {
+        val e = engine()
+        e.activate(LicenseTestKeys.license(seed, "EP-1"))
+        assertEquals(Entitlement.Status.PRO_LICENSE, e.state.value.status)
+        assertTrue(e.applyRevocations(rev(listOf("EP-1"), 1_800_000_000)))
+        // read the published state directly (no re-evaluation in between)
+        assertEquals(Entitlement.Status.FREE, e.state.value.status)
+        assertEquals("License EP-1 was refunded or revoked.", e.state.value.message)
+    }
+
+    @Test
     fun recheckWindowEdgesAndProblemTexts() = runBlocking {
         val e = engine()
         e.activate(LicenseTestKeys.license(seed, "EP-1"))

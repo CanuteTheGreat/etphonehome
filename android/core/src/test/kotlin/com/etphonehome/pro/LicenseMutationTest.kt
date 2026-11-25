@@ -1,5 +1,8 @@
 package com.etphonehome.pro
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -171,5 +174,34 @@ class LicenseEngineMutationTest {
         assertTrue(e.revocationCheckDue())
         clock = t0 - 1
         assertTrue(e.revocationCheckDue())
+    }
+
+    @Test
+    fun refusalReasonIsReadable() = runBlocking {
+        val r = engine().activate("hello") as EntitlementEngine.Activation.Refused
+        assertEquals("Not activated: that isn't an ETPH license key.", r.why)
+    }
+
+    /**
+     * Every call takes the engine's lock; under contention Mutex.lock suspends and the call returns
+     * COROUTINE_SUSPENDED, a path a sequential test never reaches. Hammer each from many threads and
+     * check every single answer.
+     */
+    @Test
+    fun answersSurviveContendedCalls() = runBlocking(Dispatchers.Default) {
+        val key = LicenseTestKeys.license(seed, "EP-C")
+        val e = engine()
+        repeat(10) {
+            val acts = List(100) { async { e.activate(key) } }.awaitAll()
+            assertTrue(acts.all { it is EntitlementEngine.Activation.Done && it.entitlement.isPro })
+            val revs = List(100) { async { e.applyRevocations(rev(emptyList(), 1_800_000_000)) } }.awaitAll()
+            assertTrue(revs.all { it })
+            val states = List(100) { async { e.withoutPlay() } }.awaitAll()
+            assertTrue(states.all { it.status == Entitlement.Status.PRO_LICENSE })
+            val removed = List(100) { async { e.removeLicense() } }.awaitAll()
+            assertTrue(removed.all { it == Entitlement(Entitlement.Status.FREE) })
+            val refused = List(100) { async { engine(licenses = false).activate(key) } }.awaitAll()
+            assertTrue(refused.all { it is EntitlementEngine.Activation.Refused })
+        }
     }
 }

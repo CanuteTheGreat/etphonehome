@@ -164,7 +164,7 @@ class EntitlementEngine(
         val prev = store.loadRevocations()
         if (prev != null && list.issuedAtSec < prev.issuedAtSec) return@withLock false
         store.saveRevocations(EntitlementStore.Revocations(list.ids, list.issuedAtSec, now()))
-        if (store.override() == null && licenses != null) {
+        if (store.override() == null) {
             set(fromLicense() ?: fromCache(null) ?: licenseProblem() ?: Entitlement(Entitlement.Status.FREE))
         }
         true

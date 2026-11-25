@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-11-24
+
+### Added
+- **ETPH Pro for copies not installed from Google Play:** the APK from errant.solutions or GitHub can now buy ETPH Pro (US$15, one time) on https://errant.solutions/etphonehome/pro/ (card payment through Stripe) and unlock it with a license key: Upgrade to Pro > Enter license key, or the "Activate on this phone" link from the key page and email. The key is checked on the phone (Ed25519 signature, no account, works offline); refunded keys stop working once the phone is online again (signed list checked about once a day, 60 days offline grace). Same Pro features as the Google Play purchase. Lost keys are emailed again from the website. Copies installed from Google Play keep buying Pro in Google Play only. Details: `docs/PRO-DIRECT.md`.
+
 ## [0.9.4] - 2026-11-24
 
 ### Added

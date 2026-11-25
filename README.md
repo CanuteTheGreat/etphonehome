@@ -40,8 +40,9 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 | Auto-start on plug-in, keeps waiting after a disconnect | start/stop by hand | yes |
 | Data usage per computer/router and kind of traffic | live numbers only | yes |
 
-### Current Features (v0.9.4)
+### Current Features (v0.9.5)
 - ✅ **Free: USB to one computer** - no speed cap and no time limit; a second computer or a router is refused by the phone with "Pro required on the phone", and the phone lists paired computers with Forget
+- ✅ **ETPH Pro bought on errant.solutions** - copies installed from errant.solutions/GitHub (not Google Play) buy Pro there (US$15, Stripe) and enter an offline-checked license key ([docs/PRO-DIRECT.md](docs/PRO-DIRECT.md))
 - ✅ **ETPH Pro is enforced by the phone** - one-time Google Play purchase (Play Billing, acknowledged, restored on reinstall or a new phone, pending purchases and refunds handled); the handshake tells computers and routers whether the phone has Pro, nothing is ever licensed on them
 - ✅ **Auto-start on plug-in (Pro)** - the computer asks the phone over USB debugging to start sharing (once per plug-in); the phone keeps waiting for the computer after a disconnect
 - ✅ **Data usage (Pro)** - history per computer/router (today, this month, 30 days) and by kind of traffic (web, DNS, email, calls...), kept on the phone only; optional monthly data limit (off/1/2/5/10/20/50 GB) with a warning at 80% and at the limit
@@ -456,4 +457,4 @@ You are free to use, modify, and distribute this software for any purpose, inclu
 
 ---
 
-**Note:** Current version is v0.9.4 (Beta). Downloads (Linux/Windows/macOS/FreeBSD clients, Linux GUI, Android APK, OpenWrt router packages, OPNsense plugin, pfSense package): [Releases](https://errant.solutions/etphonehome/). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.
+**Note:** Current version is v0.9.5 (Beta). Downloads (Linux/Windows/macOS/FreeBSD clients, Linux GUI, Android APK, OpenWrt router packages, OPNsense plugin, pfSense package): [Releases](https://errant.solutions/etphonehome/). See the roadmap in [FAQ.md](docs/FAQ.md) for planned features.

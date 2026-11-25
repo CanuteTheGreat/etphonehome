@@ -28,7 +28,7 @@ class LicenseVerifier(
     private val productId: String = PRODUCT_ID,
 ) {
     private val keys: Map<String, List<ByteArray>> = keys.mapValues { (_, l) ->
-        l.map { it.trim() }.filter { it.isNotEmpty() }.map { Base64.getDecoder().decode(it) }.filter { it.size == Ed25519.PUBLIC_KEY_SIZE }
+        l.map { Base64.getDecoder().decode(it.trim()) }.filter { it.size == Ed25519.PUBLIC_KEY_SIZE }
     }.filterValues { it.isNotEmpty() }
 
     /** At least one key is compiled in (else every key is refused). */
@@ -77,11 +77,8 @@ class LicenseVerifier(
     private fun checks(pub: ByteArray, message: String, sig: ByteArray): Boolean {
         if (sig.size != Ed25519.SIGNATURE_SIZE) return false
         val m = message.toByteArray(Charsets.US_ASCII)
-        return try {
-            Ed25519.verify(sig, 0, pub, 0, m, 0, m.size)
-        } catch (e: Exception) {
-            false
-        }
+        // sizes are checked (pub is 32 bytes by construction), so verify() only answers true/false
+        return Ed25519.verify(sig, 0, pub, 0, m, 0, m.size)
     }
 
     private fun decode(s: String): ByteArray? = try {
@@ -105,7 +102,7 @@ class LicenseVerifier(
         fun normalize(input: String): String {
             var s = input.replace(Regex("\\s+"), "")
             val at = s.indexOf("$PREFIX.")
-            if (at > 0) s = s.substring(at)
+            if (at != -1) s = s.substring(at)
             return s.trim('"', '\'', '<', '>', '(', ')', '[', ']', '.', ',', ';')
         }
 

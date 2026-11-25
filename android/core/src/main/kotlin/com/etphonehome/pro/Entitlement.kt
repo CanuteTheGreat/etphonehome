@@ -190,15 +190,15 @@ class EntitlementEngine(
         return Entitlement(Entitlement.Status.PRO_LICENSE, "License ${lic.id}")
     }
 
-    /** Why a stored key doesn't give Pro (shown on the Pro screen), or null if there is none. */
+    /**
+     * Why a stored key doesn't give Pro (shown on the Pro screen), or null if there is none. Only
+     * called after [fromLicense] answered null, so a valid, unrevoked key can only be stale.
+     */
     private fun licenseProblem(): Entitlement? {
-        val stored = store.loadLicense() ?: return null
+        if (store.loadLicense() == null) return null
         val lic = license() ?: return Entitlement(Entitlement.Status.FREE, "The saved license key is not valid in this build.")
         if (lic.id in revokedIds()) return Entitlement(Entitlement.Status.FREE, "License ${lic.id} was refunded or revoked.")
-        if (now() - maxOf(stored.activatedAtMs, store.loadRevocations()?.checkedAtMs ?: 0L) > licenseRecheckMs) {
-            return Entitlement(Entitlement.Status.FREE, "License ${lic.id}: connect this phone to the internet once so ETPH can re-check it.")
-        }
-        return null
+        return Entitlement(Entitlement.Status.FREE, "License ${lic.id}: connect this phone to the internet once so ETPH can re-check it.")
     }
 
     /** New purchases pushed by Play (the purchase flow finished, or a pending one completed). */

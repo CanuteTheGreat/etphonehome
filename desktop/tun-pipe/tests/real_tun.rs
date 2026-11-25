@@ -158,5 +158,8 @@ fn kernel_ping_through_the_real_helper_gets_its_answer() {
         thread::sleep(Duration::from_millis(100));
     };
     assert_eq!(verdict, "PING_OK", "ping not answered; stderr: {log:?}");
-    assert!(status.success(), "helper exit status {status:?}; stderr: {log:?}");
+    assert!(
+        status.success(),
+        "helper exit status {status:?}; stderr: {log:?}"
+    );
 }

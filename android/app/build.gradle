@@ -5,6 +5,15 @@ plugins {
 }
 
 def billingTestHooks = project.findProperty('billingTestHooks') == 'true'
+// -PdistChannel=play (publish-play.yml, the Play bundle): no direct-purchase flow at all in that build
+// (Play payments policy), even if Android ever misreports the installer. Every other build (the APK on
+// errant.solutions / GitHub) sells Pro directly when Google Play didn't install it (docs/PRO-DIRECT.md).
+def distChannel = (project.findProperty('distChannel') ?: 'direct').toString()
+if (!(distChannel in ['direct', 'play'])) throw new GradleException("distChannel must be direct or play, not ${distChannel}")
+// ETPH Pro license keys (docs/PRO-DIRECT.md): PUBLIC Ed25519 keys, committed. Release builds accept
+// live keys only; debug/QA builds also the test-mode key (Stripe test purchases).
+def proKey = { String mode -> def f = file("pro-license-${mode}.pub"); f.exists() ? f.text.trim() : '' }
+def proUrl = { String name, String dflt -> (project.findProperty(name) ?: dflt).toString() }
 
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
@@ -48,12 +57,22 @@ android {
         // or Pro without Google Play. Off (receiver disabled in the manifest AND the code refuses)
         // in every other build; publish-play.yml refuses a bundle with it enabled.
         buildConfigField "boolean", "BILLING_TEST_HOOKS", "${billingTestHooks}"
+        buildConfigField "boolean", "DIRECT_PRO", "${distChannel == 'direct'}"
+        buildConfigField "String", "PRO_LICENSE_KEYS", "\"live:${proKey('live')}\""
+        // -PproBuyUrl / -PproRevocationUrl: the defaults are the real errant.solutions endpoints.
+        buildConfigField "String", "PRO_DIRECT_PRICE", "\"${proUrl('proDirectPrice', 'US$15')}\""
+        buildConfigField "String", "PRO_BUY_URL", "\"${proUrl('proBuyUrl', 'https://errant.solutions/etphonehome/pro/')}\""
+        buildConfigField "String", "PRO_RECOVER_URL", "\"${proUrl('proRecoverUrl', 'https://errant.solutions/etphonehome/pro/#recover')}\""
+        buildConfigField "String", "PRO_REVOCATION_URL", "\"${proUrl('proRevocationUrl', 'https://errant.solutions/api/pro/revocations')}\""
         manifestPlaceholders = [billingTestHooks: billingTestHooks.toString()]
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        debug {
+            buildConfigField "String", "PRO_LICENSE_KEYS", "\"live:${proKey('live')},test:${proKey('test')}\""
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'

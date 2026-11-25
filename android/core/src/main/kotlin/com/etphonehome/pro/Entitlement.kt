@@ -36,12 +36,23 @@ interface EntitlementStore {
 
     /** Test builds only (`-PbillingTestHooks=true`): forced Pro (true) / Free (false), or null. */
     fun override(): Boolean? = null
+
+    /** A direct-purchase license key (DIRECT copies, docs/PRO-DIRECT.md) and when it was entered. */
+    data class StoredLicense(val token: String, val activatedAtMs: Long)
+
+    /** The last verified revocation list: revoked purchase ids, its server time, when it was fetched. */
+    data class Revocations(val ids: Set<String>, val issuedAtSec: Long, val checkedAtMs: Long)
+
+    fun loadLicense(): StoredLicense? = null
+    fun saveLicense(license: StoredLicense?) {}
+    fun loadRevocations(): Revocations? = null
+    fun saveRevocations(r: Revocations) {}
 }
 
 data class Entitlement(val status: Status, val message: String? = null) {
-    enum class Status { CHECKING, FREE, PRO, PRO_OFFLINE, PENDING, UNAVAILABLE, TEST_PRO, TEST_FREE }
+    enum class Status { CHECKING, FREE, PRO, PRO_OFFLINE, PRO_LICENSE, PENDING, UNAVAILABLE, TEST_PRO, TEST_FREE }
 
-    val isPro: Boolean get() = status == Status.PRO || status == Status.PRO_OFFLINE || status == Status.TEST_PRO
+    val isPro: Boolean get() = status == Status.PRO || status == Status.PRO_OFFLINE || status == Status.PRO_LICENSE || status == Status.TEST_PRO
 }
 
 /**
@@ -66,6 +77,14 @@ class EntitlementEngine(
     private val store: EntitlementStore,
     private val now: () -> Long = System::currentTimeMillis,
     private val offlineGraceMs: Long = 30L * 24 * 3600 * 1000,
+    /**
+     * Direct-purchase license keys (DIRECT copies only; null = not accepted, e.g. Play-installed
+     * copies, which must use Play Billing). A valid key gives Pro offline; the revocation list is
+     * re-checked when online, and a key whose last successful check (or activation) is older than
+     * [licenseRecheckMs] waits for one check before it counts again.
+     */
+    private val licenses: LicenseVerifier? = null,
+    private val licenseRecheckMs: Long = 60L * 24 * 3600 * 1000,
 ) {
     private val lock = Mutex()
     private val _state = MutableStateFlow(Entitlement(Entitlement.Status.CHECKING))
@@ -75,6 +94,7 @@ class EntitlementEngine(
      *  can start in Pro right away after a reboot. */
     fun initial(): Entitlement {
         store.override()?.let { return set(testState(it)) }
+        if (licenses != null) fromLicense()?.let { return set(it) }
         return set(fromCache(null) ?: Entitlement(Entitlement.Status.CHECKING))
     }
 
@@ -98,7 +118,87 @@ class EntitlementEngine(
      */
     suspend fun withoutPlay(): Entitlement = lock.withLock {
         store.override()?.let { return@withLock set(testState(it)) }
+        set(fromLicense() ?: fromCache(null) ?: licenseProblem() ?: Entitlement(Entitlement.Status.FREE))
+    }
+
+    /** The current license (verified), if one is stored. */
+    fun license(): LicenseVerifier.License? {
+        val v = licenses ?: return null
+        val l = store.loadLicense() ?: return null
+        return (v.verify(l.token) as? LicenseVerifier.Result.Valid)?.license
+    }
+
+    sealed class Activation {
+        data class Done(val license: LicenseVerifier.License, val entitlement: Entitlement) : Activation()
+        data class Refused(val why: String) : Activation()
+    }
+
+    /** "Enter license key": verify offline, refuse a key on the known revocation list, keep it. */
+    suspend fun activate(input: String): Activation = lock.withLock {
+        val v = licenses ?: return@withLock Activation.Refused("This copy of ETPH gets Pro through Google Play.")
+        when (val r = v.verify(input)) {
+            is LicenseVerifier.Result.Invalid -> Activation.Refused("Not activated: ${r.why}.")
+            is LicenseVerifier.Result.Valid -> {
+                if (r.license.id in revokedIds()) return@withLock Activation.Refused("Not activated: this key was refunded or revoked.")
+                store.saveLicense(EntitlementStore.StoredLicense(r.license.token, now()))
+                Activation.Done(r.license, set(fromLicense() ?: Entitlement(Entitlement.Status.FREE)))
+            }
+        }
+    }
+
+    /** Removes the stored key (Pro screen "Remove license"). */
+    suspend fun removeLicense(): Entitlement = lock.withLock {
+        store.saveLicense(null)
         set(fromCache(null) ?: Entitlement(Entitlement.Status.FREE))
+    }
+
+    /**
+     * A revocation list fetched from the server: applied only if it verifies for the license's
+     * mode and is not older than the one already kept (a replayed old list can't un-revoke).
+     * Returns false if it was refused.
+     */
+    suspend fun applyRevocations(text: String): Boolean = lock.withLock {
+        val v = licenses ?: return@withLock false
+        val mode = license()?.mode ?: "live"
+        val list = v.verifyRevocations(text, mode) ?: return@withLock false
+        val prev = store.loadRevocations()
+        if (prev != null && list.issuedAtSec < prev.issuedAtSec) return@withLock false
+        store.saveRevocations(EntitlementStore.Revocations(list.ids, list.issuedAtSec, now()))
+        if (store.override() == null && licenses != null) {
+            set(fromLicense() ?: fromCache(null) ?: licenseProblem() ?: Entitlement(Entitlement.Status.FREE))
+        }
+        true
+    }
+
+    /** True when the license's revocation list should be fetched again (daily while online). */
+    fun revocationCheckDue(intervalMs: Long = 24L * 3600 * 1000): Boolean {
+        if (licenses == null || store.loadLicense() == null) return false
+        val r = store.loadRevocations() ?: return true
+        val age = now() - r.checkedAtMs
+        return age < 0 || age >= intervalMs
+    }
+
+    private fun revokedIds(): Set<String> = store.loadRevocations()?.ids.orEmpty()
+
+    private fun fromLicense(): Entitlement? {
+        val stored = store.loadLicense() ?: return null
+        val lic = license() ?: return null
+        if (lic.id in revokedIds()) return null
+        val lastCheck = maxOf(stored.activatedAtMs, store.loadRevocations()?.checkedAtMs ?: 0L)
+        val age = now() - lastCheck
+        if (age > licenseRecheckMs) return null
+        return Entitlement(Entitlement.Status.PRO_LICENSE, "License ${lic.id}")
+    }
+
+    /** Why a stored key doesn't give Pro (shown on the Pro screen), or null if there is none. */
+    private fun licenseProblem(): Entitlement? {
+        val stored = store.loadLicense() ?: return null
+        val lic = license() ?: return Entitlement(Entitlement.Status.FREE, "The saved license key is not valid in this build.")
+        if (lic.id in revokedIds()) return Entitlement(Entitlement.Status.FREE, "License ${lic.id} was refunded or revoked.")
+        if (now() - maxOf(stored.activatedAtMs, store.loadRevocations()?.checkedAtMs ?: 0L) > licenseRecheckMs) {
+            return Entitlement(Entitlement.Status.FREE, "License ${lic.id}: connect this phone to the internet once so ETPH can re-check it.")
+        }
+        return null
     }
 
     /** New purchases pushed by Play (the purchase flow finished, or a pending one completed). */

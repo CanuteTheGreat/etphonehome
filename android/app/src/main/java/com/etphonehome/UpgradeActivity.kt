@@ -6,6 +6,9 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
@@ -18,6 +21,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.etphonehome.billing.PlayBillingGateway
 import com.etphonehome.billing.Pro
 import com.etphonehome.pro.Entitlement
+import com.etphonehome.pro.EntitlementEngine
 import com.etphonehome.pro.ProFeature
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -100,28 +104,136 @@ class UpgradeActivity : AppCompatActivity() {
         ).distinct().joinToString("\n")
     }
 
-    // DIRECT-PRO: copies installed outside Google Play. The direct purchase (buy in the browser,
-    // enter a licence key) plugs in here; until then the only way offered is Play's own listing.
+    // DIRECT-PRO: copies installed outside Google Play (docs/PRO-DIRECT.md): buy on errant.solutions
+    // in the browser, then enter the license key (or tap the key page's "Activate on this phone"
+    // link, which arrives here as etph://activate?key=...). The Play bundle (DIRECT_PRO false)
+    // keeps pointing at Play's listing instead.
     private fun showDirect() {
         findViewById<Button>(R.id.restoreButton).visibility = View.GONE
-        findViewById<TextView>(R.id.upgradeFinePrint).text = getString(R.string.pro_direct_fine_print)
-        buy.isEnabled = true
-        buy.text = getString(R.string.pro_direct_open_play)
-        buy.setOnClickListener { openPlayListing() }
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                Pro.state.collect { e ->
-                    if (e.isPro) {
-                        status.text = getString(R.string.pro_owned)
-                        buy.visibility = View.GONE
-                    } else {
-                        status.text = listOfNotNull(getString(R.string.pro_direct_status), e.message).joinToString("\n")
-                        buy.visibility = View.VISIBLE
+        if (!Pro.directPurchaseAvailable) {
+            findViewById<TextView>(R.id.upgradeFinePrint).text = getString(R.string.pro_direct_fine_print)
+            buy.isEnabled = true
+            buy.text = getString(R.string.pro_direct_open_play)
+            buy.setOnClickListener { openPlayListing() }
+            lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    Pro.state.collect { e ->
+                        status.text = if (e.isPro) getString(R.string.pro_owned) else listOfNotNull(getString(R.string.pro_direct_status), e.message).joinToString("\n")
+                        buy.visibility = if (e.isPro) View.GONE else View.VISIBLE
                     }
                 }
             }
+            Pro.refreshAsync()
+            return
+        }
+        val license = findViewById<Button>(R.id.licenseButton)
+        val recover = findViewById<Button>(R.id.recoverButton)
+        findViewById<TextView>(R.id.upgradeFinePrint).text = getString(R.string.pro_direct_fine_print_key)
+        buy.isEnabled = true
+        buy.text = getString(R.string.pro_direct_buy, BuildConfig.PRO_DIRECT_PRICE)
+        buy.setOnClickListener { openUrl(BuildConfig.PRO_BUY_URL) }
+        recover.setOnClickListener { openUrl(BuildConfig.PRO_RECOVER_URL) }
+        license.visibility = View.VISIBLE
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                Pro.state.collect { e -> renderDirect(e, license, recover) }
+            }
         }
         Pro.refreshAsync()
+        handleActivationLink(intent)
+    }
+
+    private fun renderDirect(e: Entitlement, license: Button, recover: Button) {
+        val lic = Pro.license()
+        if (e.isPro) {
+            status.text = if (lic != null && e.status == Entitlement.Status.PRO_LICENSE) {
+                getString(R.string.pro_direct_owned_license, lic.id)
+            } else {
+                getString(R.string.pro_owned)
+            }
+            buy.visibility = View.GONE
+            recover.visibility = View.GONE
+        } else {
+            status.text = listOfNotNull(getString(R.string.pro_direct_buy_status), e.message).distinct().joinToString("\n")
+            buy.visibility = View.VISIBLE
+            recover.visibility = View.VISIBLE
+        }
+        if (lic != null) {
+            license.text = getString(R.string.pro_direct_remove_key)
+            license.setOnClickListener { confirmRemove() }
+        } else {
+            license.text = getString(R.string.pro_direct_enter_key)
+            license.setOnClickListener { askForKey(null) }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (Pro.directPurchaseAvailable) handleActivationLink(intent)
+    }
+
+    /** etph://activate?key=ETPH1... : prefilled confirm dialog, never a silent activation. */
+    private fun handleActivationLink(i: Intent?) {
+        val data = i?.data ?: return
+        if (i.action != Intent.ACTION_VIEW || data.scheme != "etph" || data.host != "activate") return
+        val key = data.getQueryParameter("key") ?: data.fragment ?: return
+        i.data = null
+        askForKey(key)
+    }
+
+    private fun askForKey(prefill: String?) {
+        val input = EditText(this)
+        input.hint = getString(R.string.pro_direct_key_hint)
+        input.minLines = 3
+        input.setHorizontallyScrolling(false)
+        input.id = R.id.licenseInput
+        if (prefill != null) input.setText(prefill)
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, 0, pad, 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(if (prefill != null) R.string.pro_direct_link_title else R.string.pro_direct_paste_title)
+            .setMessage(R.string.pro_direct_paste_message)
+            .setView(box)
+            .setPositiveButton(R.string.pro_direct_activate) { _, _ -> activate(input.text.toString()) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun activate(key: String) {
+        lifecycleScope.launch {
+            when (val r = Pro.activateLicense(key)) {
+                is EntitlementEngine.Activation.Done -> {
+                    val msg = if (r.entitlement.isPro) getString(R.string.pro_direct_activated, r.license.id) else (r.entitlement.message ?: "")
+                    Toast.makeText(this@UpgradeActivity, msg, Toast.LENGTH_LONG).show()
+                }
+                is EntitlementEngine.Activation.Refused -> AlertDialog.Builder(this@UpgradeActivity)
+                    .setTitle(R.string.pro_direct_paste_title)
+                    .setMessage(r.why)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+            }
+        }
+    }
+
+    private fun confirmRemove() {
+        AlertDialog.Builder(this)
+            .setMessage(R.string.pro_direct_remove_confirm)
+            .setPositiveButton(R.string.pro_direct_remove_key) { _, _ -> lifecycleScope.launch { Pro.removeLicense() } }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun openUrl(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, getString(R.string.pro_direct_no_browser, url), Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun openPlayListing() {

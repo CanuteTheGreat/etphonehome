@@ -44,6 +44,21 @@
     <string name="pro_owned">You have ETPH Pro. Thank you!</string>
     <string name="pro_direct_status">This copy of ETPH wasn\'t installed from Google Play, so Google Play can\'t sell ETPH Pro to it.</string>
     <string name="pro_direct_open_play">Get ETPH from Google Play</string>
+    <string name="pro_direct_buy">Buy ETPH Pro (%1$s, one time)</string>
+    <string name="pro_direct_buy_status">Buy ETPH Pro on errant.solutions (card payment through Stripe). You get a license key on the page and by email: enter it here.</string>
+    <string name="pro_direct_enter_key">Enter license key</string>
+    <string name="pro_direct_lost_key">Lost your key? Send it again</string>
+    <string name="pro_direct_remove_key">Remove license key</string>
+    <string name="pro_direct_key_hint">ETPH1.…</string>
+    <string name="pro_direct_activate">Activate</string>
+    <string name="pro_direct_activated">ETPH Pro is active (license %1$s). Thank you!</string>
+    <string name="pro_direct_owned_license">You have ETPH Pro (license %1$s). Thank you!</string>
+    <string name="pro_direct_paste_title">Enter your ETPH Pro license key</string>
+    <string name="pro_direct_paste_message">Paste the whole key from the purchase page or email. It is checked on this phone, no account needed.</string>
+    <string name="pro_direct_link_title">Activate this license key?</string>
+    <string name="pro_direct_remove_confirm">Remove the license key from this phone? You can enter it again at any time.</string>
+    <string name="pro_direct_no_browser">No web browser found. Open %1$s on any device to buy ETPH Pro.</string>
+    <string name="pro_direct_fine_print_key">One key = ETPH Pro for you, on your phones. It works offline; when online, ETPH checks once a day whether the purchase was refunded. Refunds: email support@errant.solutions within 30 days. Payment data is handled by Stripe; Errant Solutions never sees your card.</string>
     <string name="pro_direct_fine_print">Pro bought on Google Play belongs to the Google account and works in the copy installed from Google Play.</string>
     <string name="pro_fine_print">Bought with the Google account on this phone. A new phone or a reinstall gets Pro back automatically (or tap Restore purchase). Refunds go through Google Play.</string>
     <string name="auto_start">Start when the computer asks (USB)</string>

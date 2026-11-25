@@ -13,6 +13,7 @@ object ProText {
     fun statusLine(e: Entitlement): String = when (e.status) {
         Entitlement.Status.PRO -> "ETPH Pro"
         Entitlement.Status.PRO_OFFLINE -> "ETPH Pro (Google Play not reachable, using the saved purchase)"
+        Entitlement.Status.PRO_LICENSE -> "ETPH Pro (license key)"
         Entitlement.Status.TEST_PRO -> "ETPH Pro (test build)"
         Entitlement.Status.PENDING -> "Free: purchase pending in Google Play"
         Entitlement.Status.CHECKING -> "Checking ETPH Pro…"

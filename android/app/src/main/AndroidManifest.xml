@@ -72,9 +72,20 @@
         <!-- ETPH Pro screen (Upgrade to Pro). -->
         <activity
             android:name=".UpgradeActivity"
-            android:exported="false"
+            android:exported="true"
             android:label="@string/pro_title"
-            android:theme="@style/Theme.ETPhoneHome" />
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.ETPhoneHome">
+            <!-- etph://activate?key=ETPH1... : the "Activate on this phone" link of the license
+                 page/email (errant.solutions/etphonehome/pro/activate hands the key over). The
+                 activity only verifies and saves a key after the user confirms it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="etph" android:host="activate" />
+            </intent-filter>
+        </activity>
 
         <!-- Open-source licenses (build-time generated list, see app/build.gradle aboutLibraries). -->
         <activity

@@ -46,6 +46,36 @@ class ProStore(context: Context) : EntitlementStore {
         return prefs.getBoolean(KEY_TEST_OVERRIDE, false)
     }
 
+    // --- direct-purchase license key (DIRECT copies, docs/PRO-DIRECT.md) ------------------
+    override fun loadLicense(): EntitlementStore.StoredLicense? {
+        val t = prefs.getString(KEY_LICENSE, null) ?: return null
+        return EntitlementStore.StoredLicense(t, prefs.getLong(KEY_LICENSE_AT, 0L))
+    }
+
+    override fun saveLicense(license: EntitlementStore.StoredLicense?) {
+        prefs.edit().apply {
+            if (license == null) {
+                remove(KEY_LICENSE); remove(KEY_LICENSE_AT)
+            } else {
+                putString(KEY_LICENSE, license.token)
+                putLong(KEY_LICENSE_AT, license.activatedAtMs)
+            }
+        }.commit()
+    }
+
+    override fun loadRevocations(): EntitlementStore.Revocations? {
+        if (!prefs.contains(KEY_REVOKED_AT)) return null
+        return EntitlementStore.Revocations(
+            prefs.getStringSet(KEY_REVOKED, emptySet()).orEmpty().toSet(),
+            prefs.getLong(KEY_REVOKED_IAT, 0L),
+            prefs.getLong(KEY_REVOKED_AT, 0L),
+        )
+    }
+
+    override fun saveRevocations(r: EntitlementStore.Revocations) {
+        prefs.edit().putStringSet(KEY_REVOKED, r.ids).putLong(KEY_REVOKED_IAT, r.issuedAtSec).putLong(KEY_REVOKED_AT, r.checkedAtMs).apply()
+    }
+
     /** Test builds only (TestHookReceiver). */
     fun setTestOverride(pro: Boolean?) {
         if (!BuildConfig.BILLING_TEST_HOOKS) return
@@ -125,5 +155,10 @@ class ProStore(context: Context) : EntitlementStore {
         private const val KEY_USAGE = "usage_ledger"
         private const val KEY_LIMIT = "monthly_limit"
         private const val KEY_AUTOSTART = "auto_start"
+        private const val KEY_LICENSE = "license_key"
+        private const val KEY_LICENSE_AT = "license_activated_ms"
+        private const val KEY_REVOKED = "license_revoked_ids"
+        private const val KEY_REVOKED_IAT = "license_revoked_iat"
+        private const val KEY_REVOKED_AT = "license_revoked_checked_ms"
     }
 }

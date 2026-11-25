@@ -103,7 +103,8 @@ jobs:
           export PATH="$PATH:$ANDROID_HOME/platform-tools"
           chmod +x ./gradlew
           test ! -e keystore.properties
-          ./gradlew :app:bundleRelease -PunsignedRelease=true --console=plain --max-workers=2 \
+          # -PdistChannel=play: the Play bundle has no direct-purchase flow at all (Play payments policy, docs/PRO-DIRECT.md).
+          ./gradlew :app:bundleRelease -PunsignedRelease=true -PdistChannel=play --console=plain --max-workers=2 \
             -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m"
       - name: Checksum, version, app id
         id: out

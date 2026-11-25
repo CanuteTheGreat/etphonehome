@@ -22,9 +22,9 @@ fn required() -> bool {
 
 /// None = usable; Some(reason) = this machine cannot run the test.
 fn unavailable() -> Option<String> {
+    let probe_script = "command -v ping >/dev/null && ip tuntap add dev probe0 mode tun";
     let probe = Command::new("unshare")
-        .args(["-rn", "sh", "-c",
-            "command -v ping >/dev/null && ip tuntap add dev probe0 mode tun && ip link del probe0"])
+        .args(["-rn", "sh", "-c", probe_script])
         .output();
     match probe {
         Ok(o) if o.status.success() => None,
@@ -121,12 +121,13 @@ fn kernel_ping_through_the_real_helper_gets_its_answer() {
     let mut seen = 0;
     let mut answered = false;
     while !answered {
-        let pkt = frx
-            .recv_timeout(Duration::from_secs(20))
-            .unwrap_or_else(|_| panic!("the helper never delivered an echo request ({seen} other packets)"));
+        let pkt = match frx.recv_timeout(Duration::from_secs(20)) {
+            Ok(p) => p,
+            Err(_) => panic!("no echo request from the helper ({seen} other packets)"),
+        };
         match echo_reply(&pkt) {
             Some(reply) => {
-                assert_eq!(&pkt[16..20], &[10, 0, 0, 1], "echo request must target the neighbour");
+                assert_eq!(&pkt[16..20], &[10, 0, 0, 1], "wrong echo target");
                 write_frame(&mut to_helper, &reply).expect("frame the reply into the helper");
                 answered = true;
             }
@@ -156,6 +157,6 @@ fn kernel_ping_through_the_real_helper_gets_its_answer() {
         }
         thread::sleep(Duration::from_millis(100));
     };
-    assert_eq!(verdict, "PING_OK", "kernel ping not answered through the helper; stderr: {log:?}");
+    assert_eq!(verdict, "PING_OK", "ping not answered; stderr: {log:?}");
     assert!(status.success(), "helper exit status {status:?}; stderr: {log:?}");
 }

@@ -87,7 +87,7 @@ usage	README.md	Data usage (Pro)	android/core/src/test/kotlin/com/etphonehome/re
 usage	README.md	Data usage (Pro)	.forgejo/scripts/android-emulator-e2e.sh	pro: data usage per computer and by kind of traffic
 listing-free-pro	store/listing-en-US-full-description.txt	Free: share over USB with one computer, with no speed cap and no time limit.	.forgejo/scripts/desktop-e2e-inner.sh	pro: free phone gives the first computer USB internet
 listing-free-pro	store/listing-en-US-full-description.txt	- WiFi and Bluetooth sharing	android/core/src/test/kotlin/com/etphonehome/pro/ProGateTest.kt	fun freeAllowsUsbButNotWifiOrBluetooth
-listing-free-pro	store/listing-en-US-full-description.txt	- Routers: the phone as the internet uplink of an OpenWrt or GL.iNet router	android/core/src/test/kotlin/com/etphonehome/pro/ProGateTest.kt	fun freeRefusesRoutersEvenAsTheOnlyDevice
+listing-free-pro	store/listing-en-US-full-description.txt	- Routers and firewalls: the phone as the internet uplink of an OpenWrt or GL.iNet router	android/core/src/test/kotlin/com/etphonehome/pro/ProGateTest.kt	fun freeRefusesRoutersEvenAsTheOnlyDevice
 listing-free-pro	store/listing-en-US-full-description.txt	- Several computers and routers instead of one	android/core/src/test/kotlin/com/etphonehome/pro/ProGateTest.kt	fun proAdmitsSeveralComputersAndRouters
 listing-free-pro	store/listing-en-US-full-description.txt	- Auto-start: sharing starts when the computer asks over USB	.forgejo/scripts/android-emulator-e2e.sh	pro: auto-start: 'am start AutoStartActivity'
 listing-free-pro	store/listing-en-US-full-description.txt	- Data usage history per computer/router and by kind of traffic	.forgejo/scripts/android-emulator-e2e.sh	pro: data usage per computer and by kind of traffic

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-11-24
+
+### Added
+- **Monthly data limit (Pro):** set a monthly limit on the phone (off, 1 to 50 GB); the usage view warns at 80% and when the limit is reached.
+- **New Wi-Fi/Bluetooth token:** long-press the token to make a new one (asks first; not while sharing), so old computers have to pair again.
+- **Root mode for rooted phones (opt-in, off by default):** shares through the kernel's NAT instead of the app's relay; if the phone isn't rooted it falls back to the normal relay. A killed session can no longer leave forwarding switched on.
+- **Open-source licenses screen** in the app.
+
+### Changed
+- **Android app follows the device's light/dark setting:** brand colors now have night variants (the primary/secondary colors were hard to read in dark mode), the banner uses a color resource, and switching the system theme while the app is open restores the matching theme immediately.
+- **ETPH Pro is bought where the app came from:** the copy installed from Google Play buys and restores Pro through Google Play only; copies installed from errant.solutions, GitHub or adb never call Google Play Billing (Play refuses to sell to them, which showed "not available in your country") and offer the direct purchase instead (docs/pro.md "Where Pro is bought").
+- **Clearer Wi-Fi pairing panel:** the pairing token is shown once with a tap-to-copy command, and the encryption switch says that TLS is required while sharing.
+
 ### Added
 - **Structured logging with levels:** every client binary (router, desktop, GUI, tray) and the Android app now write `key=value` lines (`ts= level= target= msg=`), filterable with `ETPH_LOG` / `RUST_LOG` / the OpenWrt `loglevel` option; router hook lines carry `level= source= event=`. Log locations and the line format are in `docs/LOGGING.md`, with tests asserting the lines on Rust, Android core and router scripts.
 
@@ -21,7 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Signed releases and SBOM:** every release now ships `SHA256SUMS.asc` (detached OpenPGP signature over `SHA256SUMS`, public key in `keys/release-signing.asc`) and a CycloneDX SBOM `etphonehome-<tag>.cdx.json` generated from the release's resolved Cargo dependencies and the Gradle lockfile; the release fails if signing fails. `SECURITY.md` documents reporting and verification.
 
 ### Changed
-- **Android app follows the device's light/dark setting:** brand colors now have night variants (the primary/secondary colors were hard to read in dark mode), the banner uses a color resource, and switching the system theme while the app is open restores the matching theme immediately. Shipped to Google Play internal testing as versionCode 15 (0.9.3).
 - **macOS support now follows Apple:** the client supports every macOS version Apple still security-patches (15 Sequoia and newer today, Apple silicon and Intel, one universal `.pkg`) and drops a version when Apple stops patching it. The deployment target, `LSMinimumSystemVersion` and the installer's allowed-os-versions are 15.0 (was 11.0); the installer refuses older macOS with a clear message. Asset names are unchanged (`etph-macos-<version>.pkg`).
 
 ## [0.9.2] - 2026-10-22

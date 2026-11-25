@@ -1,12 +1,12 @@
 Errant Solutions ETPH (ET Phone Home) lets your computer use your Android phone's internet connection over USB, WiFi or Bluetooth. No root, no VPN on the phone, and the phone keeps its own internet the whole time.
 
-You need the free ETPH desktop client on the computer (Linux or Windows), from https://errant.solutions/etphonehome/
+You need the free ETPH client on the computer (Linux, Windows, macOS or FreeBSD), the router (OpenWrt, GL.iNet) or the firewall (OPNsense, pfSense), from https://errant.solutions/etphonehome/
 
 FREE AND PRO
 Free: share over USB with one computer, with no speed cap and no time limit. You start and stop sharing on the phone.
 ETPH Pro, a one-time purchase in the app (no subscription), adds:
 - WiFi and Bluetooth sharing
-- Routers: the phone as the internet uplink of an OpenWrt or GL.iNet router
+- Routers and firewalls: the phone as the internet uplink of an OpenWrt or GL.iNet router, or as a WAN (failover) interface on OPNsense or pfSense
 - Several computers and routers instead of one
 - Auto-start: sharing starts when the computer asks over USB, and the phone keeps waiting for the computer after a disconnect
 - Data usage history per computer/router and by kind of traffic (web, DNS, email, calls)
@@ -18,7 +18,7 @@ The desktop client creates a network adapter on the computer and sends its traff
 CONNECTION MODES
 - USB: the fastest and most reliable mode, through adb port forwarding (USB debugging).
 - WiFi (Pro): token-authenticated and encrypted by default with TLS 1.3 pinned to the pairing token. Unencrypted connections are refused unless you switch that off.
-- Bluetooth (Pro): works with the Linux client (the Windows client has no Bluetooth).
+- Bluetooth (Pro): works with the Linux client.
 
 ON THE PHONE
 - Live status: whether a computer is connected, how, and whether the link is encrypted.

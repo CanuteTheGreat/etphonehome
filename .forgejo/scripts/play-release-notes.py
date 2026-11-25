@@ -17,7 +17,7 @@ for head, bullet in re.findall(r"^(?:### (.+)|- (.+))$", m.group(2), re.M):
     b = re.match(r"\*\*(.+?)\*\*", bullet)
     title = b.group(1) if b else re.split(r": |\. ", bullet)[0]
     prefix = "Fixed: " if section == "Fixed" else ""
-    lines.append("- " + prefix + title.replace("`", "").rstrip(".")[:120])
+    lines.append("- " + prefix + title.replace("`", "").rstrip(".:")[:120])
 out = f"Version {m.group(1)}\n"
 for line in lines:
     if len(out) + len(line) + 1 > 500:

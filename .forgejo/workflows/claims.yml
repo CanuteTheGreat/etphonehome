@@ -34,3 +34,5 @@ jobs:
         run: python3 .forgejo/scripts/check-no-internal-hosts.py
       - name: App follows the device's light/dark setting (no forced day/night)
         run: python3 .forgejo/scripts/check-no-forced-theme.py
+      - name: Play release notes never mention the direct (non-Play) Pro purchase (Play payments policy)
+        run: python3 .forgejo/scripts/test_play_release_notes.py

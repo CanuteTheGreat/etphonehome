@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.5] - 2026-11-24
 
 ### Added
-- **ETPH Pro for copies not installed from Google Play:** the APK from errant.solutions or GitHub can now buy ETPH Pro (US$15, one time) on https://errant.solutions/etphonehome/pro/ (card payment through Stripe) and unlock it with a license key: Upgrade to Pro > Enter license key, or the "Activate on this phone" link from the key page and email. The key is checked on the phone (Ed25519 signature, no account, works offline); refunded keys stop working once the phone is online again (signed list checked about once a day, 60 days offline grace). Same Pro features as the Google Play purchase. Lost keys are emailed again from the website. Copies installed from Google Play keep buying Pro in Google Play only. Details: `docs/PRO-DIRECT.md`.
+- <!-- not-play --> **ETPH Pro for copies not installed from Google Play:** the APK from errant.solutions or GitHub can now buy ETPH Pro (US$15, one time) on https://errant.solutions/etphonehome/pro/ (card payment through Stripe) and unlock it with a license key: Upgrade to Pro > Enter license key, or the "Activate on this phone" link from the key page and email. The key is checked on the phone (Ed25519 signature, no account, works offline); refunded keys stop working once the phone is online again (signed list checked about once a day, 60 days offline grace). Same Pro features as the Google Play purchase. Lost keys are emailed again from the website. Copies installed from Google Play keep buying Pro in Google Play only. Details: `docs/PRO-DIRECT.md`.
 
 ## [0.9.4] - 2026-11-24
 
@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Android app follows the device's light/dark setting:** brand colors now have night variants (the primary/secondary colors were hard to read in dark mode), the banner uses a color resource, and switching the system theme while the app is open restores the matching theme immediately.
-- **ETPH Pro is bought where the app came from:** the copy installed from Google Play buys and restores Pro through Google Play only; copies installed from errant.solutions, GitHub or adb never call Google Play Billing (Play refuses to sell to them, which showed "not available in your country") and offer the direct purchase instead (docs/pro.md "Where Pro is bought").
+- <!-- not-play --> **ETPH Pro is bought where the app came from:** the copy installed from Google Play buys and restores Pro through Google Play only; copies installed from errant.solutions, GitHub or adb never call Google Play Billing (Play refuses to sell to them, which showed "not available in your country") and offer the direct purchase instead (docs/pro.md "Where Pro is bought").
 - **Clearer Wi-Fi pairing panel:** the pairing token is shown once with a tap-to-copy command, and the encryption switch says that TLS is required while sharing.
 
 ### Added

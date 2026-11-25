@@ -22,6 +22,7 @@ import com.etphonehome.billing.PlayBillingGateway
 import com.etphonehome.billing.Pro
 import com.etphonehome.pro.Entitlement
 import com.etphonehome.pro.EntitlementEngine
+import com.etphonehome.pro.InstallChannel
 import com.etphonehome.pro.ProFeature
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -97,9 +98,10 @@ class UpgradeActivity : AppCompatActivity() {
                 buy.text = getString(R.string.pro_title)
             }
         }
+        val why = (p as? PlayBillingGateway.Product.Unavailable)?.why
         status.text = listOfNotNull(
             e.message,
-            (p as? PlayBillingGateway.Product.Unavailable)?.why,
+            why?.takeUnless { w -> e.message?.contains(w) == true },
             flowMessage?.replaceFirstChar { it.uppercase() },
         ).distinct().joinToString("\n")
     }
@@ -237,7 +239,10 @@ class UpgradeActivity : AppCompatActivity() {
     }
 
     private fun openPlayListing() {
+        // Straight to the Play Store app (a bare market:// link opens a chooser when another store
+        // also handles it); the web listing where there is no Play Store.
         val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName"))
+            .setPackage(InstallChannel.PLAY_STORE_PACKAGE)
         try {
             startActivity(market)
         } catch (e: ActivityNotFoundException) {

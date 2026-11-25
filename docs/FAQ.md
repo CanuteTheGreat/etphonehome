@@ -21,7 +21,7 @@ ET Phone Home is an open-source tethering solution that allows you to share your
 
 ### Does it require root access?
 
-No. The app relays the computer's traffic through ordinary app sockets on the phone, which needs no root and no VPN. The phone keeps its own internet while tethering. (An old, non-working root mode was removed in v0.6.0.)
+No. The app relays the computer's traffic through ordinary app sockets on the phone, which needs no root and no VPN. The phone keeps its own internet while tethering. (There is an experimental, off-by-default root mode for rooted phones, kernel NAT; it falls back to the same userspace relay if `su` is refused. See docs/SETUP.md.)
 
 ### What platforms are supported?
 
@@ -421,7 +421,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for details.
 - ✅ Desktop GUI (Linux build)
 
 **Not done:**
-- Root mode (kernel NAT on rooted phones) - removed in v0.6.0 until it is done properly
+- Root mode (kernel NAT on rooted phones) - in the app as an experimental switch; kernel plan tested in CI, not yet run on a rooted phone
 - Bluetooth in the Windows client, macOS client, Windows GUI build
 - Multi-device support, data usage limits, mobile data usage tracking
 

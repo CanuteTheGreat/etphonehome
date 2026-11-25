@@ -490,7 +490,7 @@ You can run multiple instances with different interface names and ports (though 
 
 ## Root Mode
 
-There is no root mode. The app relays the computer's traffic in user space without root; an earlier root mode that could not be started (and whose iptables rules would have redirected the phone's own traffic) was removed in v0.6.0.
+Root is never needed: by default the app relays the computer's traffic in user space. The app also has an experimental, off-by-default "Root mode: kernel NAT" switch (rooted phones only). When on, the app asks for `su`, then sets up a tun device, `ip_forward` and a MASQUERADE rule scoped to the tether subnet, and removes all of it when you stop (the original `ip_forward` value is saved so even a killed app cannot leave forwarding on). If `su` is refused it falls back to the userspace relay. The kernel plan is tested in CI against a real kernel; it has not yet been run on a rooted phone, so treat it as experimental.
 
 ## Uninstalling
 

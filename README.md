@@ -70,7 +70,7 @@ One app, two tiers. **Free** shares the phone's internet over USB with one compu
 
 ### Planned Features
 
-- 🔲 Root mode (kernel NAT on rooted phones). It is **not** in the app: an earlier, unreachable and wrongly designed implementation was removed in v0.6.0
+- 🔲 Root mode (kernel NAT on rooted phones) is in the app as an off-by-default switch, **experimental**: the plan is tested against a real Linux kernel in CI (forwarding works only while it is enabled and is fully removed afterwards), but it has not yet run on a rooted phone. Without root (su refused) the app keeps using the userspace relay, which stays the supported mode
 - 🔲 Bluetooth in the Windows client
 - 🔲 Several computers at the same time (Pro pairs several, but the phone serves one at a time)
 

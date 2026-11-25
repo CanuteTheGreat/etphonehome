@@ -12,6 +12,7 @@ import com.android.billingclient.api.BillingResult
 import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
+import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.QueryPurchasesParams
 import com.etphonehome.pro.BillingGateway
@@ -27,17 +28,32 @@ import kotlin.coroutines.resume
  * every decision is made by [com.etphonehome.pro.EntitlementEngine] in the core, which is tested
  * on the JVM with a fake gateway; this class only translates Play's types to plain data.
  */
-class PlayBillingGateway(
-    private val context: Context,
+class PlayBillingGateway internal constructor(
     private val productId: String,
+    makeClient: (PurchasesUpdatedListener) -> BillingClient,
+    private val billingServicePresent: () -> Boolean,
     onPurchasesUpdated: (BillingResult, List<Purchase>?) -> Unit,
 ) : BillingGateway {
 
-    private val client: BillingClient = BillingClient.newBuilder(context.applicationContext)
-        .setListener { result, purchases -> onPurchasesUpdated(result, purchases) }
-        .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
-        .enableAutoServiceReconnection()
-        .build()
+    constructor(
+        context: Context,
+        productId: String,
+        onPurchasesUpdated: (BillingResult, List<Purchase>?) -> Unit,
+    ) : this(
+        productId,
+        { listener ->
+            BillingClient.newBuilder(context.applicationContext)
+                .setListener(listener)
+                .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
+                .enableAutoServiceReconnection()
+                .build()
+        },
+        { playBillingServicePresent(context) },
+        onPurchasesUpdated,
+    )
+
+    /** Built once; PlayBillingGatewayTest passes a scripted BillingClient instead of Play's. */
+    private val client: BillingClient = makeClient { result, purchases -> onPurchasesUpdated(result, purchases) }
 
     private val connectLock = Mutex()
 
@@ -139,22 +155,13 @@ class PlayBillingGateway(
      */
     private fun normalize(r: BillingResult): BillingResult =
         if (r.responseCode == BillingResponseCode.OK || r.responseCode == BillingResponseCode.USER_CANCELED ||
-            r.responseCode == BillingResponseCode.ITEM_ALREADY_OWNED || playBillingServicePresent()
+            r.responseCode == BillingResponseCode.ITEM_ALREADY_OWNED || billingServicePresent()
         ) {
             r
         } else {
             BillingResult.newBuilder().setResponseCode(BillingResponseCode.BILLING_UNAVAILABLE)
                 .setDebugMessage("no Google Play billing service on this phone").build()
         }
-
-    /** The Play Store's billing service, the one the Billing Library binds to. */
-    @Suppress("DEPRECATION") // queryIntentServices(Intent, Int): the flags overload works on every API level
-    private fun playBillingServicePresent(): Boolean = try {
-        val bind = Intent(BILLING_BIND_ACTION).setPackage(PLAY_STORE)
-        context.packageManager.queryIntentServices(bind, 0).isNotEmpty()
-    } catch (e: Exception) {
-        true // can't tell: keep Play's own answer
-    }
 
     private fun ok() = BillingResult.newBuilder().setResponseCode(BillingResponseCode.OK).build()
 
@@ -165,6 +172,15 @@ class PlayBillingGateway(
         /** The Play Store app; visible to this app through the <queries> entry in the manifest. */
         const val PLAY_STORE = "com.android.vending"
         const val BILLING_BIND_ACTION = "com.android.vending.billing.InAppBillingService.BIND"
+
+        /** The Play Store's billing service, the one the Billing Library binds to. */
+        @Suppress("DEPRECATION") // queryIntentServices(Intent, Int): the flags overload works on every API level
+        private fun playBillingServicePresent(context: Context): Boolean = try {
+            val bind = Intent(BILLING_BIND_ACTION).setPackage(PLAY_STORE)
+            context.packageManager.queryIntentServices(bind, 0).isNotEmpty()
+        } catch (e: Exception) {
+            true // can't tell: keep Play's own answer
+        }
 
         fun describe(r: BillingResult): String = when (r.responseCode) {
             BillingResponseCode.BILLING_UNAVAILABLE -> "Google Play billing isn't available on this phone"

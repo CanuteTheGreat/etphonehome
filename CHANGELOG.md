@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Monthly data limit (Pro):** set a monthly limit on the phone (off, 1 to 50 GB); the usage view warns at 80% and when the limit is reached.
 - **New Wi-Fi/Bluetooth token:** long-press the token to make a new one (asks first; not while sharing), so old computers have to pair again.
-- **Root mode for rooted phones (opt-in, off by default):** shares through the kernel's NAT instead of the app's relay; if the phone isn't rooted it falls back to the normal relay. A killed session can no longer leave forwarding switched on.
+- **Root mode for rooted phones (experimental, off by default):** shares through the kernel's NAT instead of the app's relay; if the phone isn't rooted it falls back to the normal relay. A killed session can no longer leave forwarding switched on.
 - **Open-source licenses screen** in the app.
 
 ### Changed

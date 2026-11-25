@@ -128,3 +128,8 @@ and without paying:
     adb shell am broadcast -n solutions.errant.etph/com.etphonehome.billing.TestHookReceiver --es pro clear   # ask Play again
 
 `etph-build-info.txt` in the artifact records `billing_test_hooks=true` and the commit.
+
+## Bought directly (copies not installed from Google Play)
+
+Since 0.9.5 the APK from errant.solutions / GitHub sells ETPH Pro on errant.solutions (Stripe) and unlocks it with an
+Ed25519-signed license key verified on the phone: `docs/PRO-DIRECT.md`.

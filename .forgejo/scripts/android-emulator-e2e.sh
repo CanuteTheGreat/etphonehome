@@ -617,7 +617,29 @@ fi
 UST=$(text_of upgradeStatus)
 # adb installs have no installer, so this copy is DIRECT: Play Billing is never called and the
 # Upgrade screen says why (docs/pro.md "Where Pro is bought").
-grep -q "wasn't installed from Google Play" <<<"$UST" && pass "free: an adb-installed copy says Google Play can't sell Pro to it ($UST)" || fail "free: Upgrade status ('$UST')"
+grep -q "Buy ETPH Pro on errant.solutions" <<<"$UST" && pass "free: an adb-installed copy offers the direct purchase ($UST)" || fail "free: Upgrade status ('$UST')"
+# Direct purchase (docs/PRO-DIRECT.md): Buy (browser), Enter license key, Lost key; never Play's Restore.
+BT=$(text_of buyButton)
+grep -q "Buy ETPH Pro (US\$15" <<<"$BT" && pass "free: DIRECT Buy button '$BT'" || fail "free: DIRECT Buy button ('$BT')"
+ui licenseButton >/dev/null && pass "free: DIRECT shows Enter license key" || fail "free: no Enter license key button"
+ui restoreButton >/dev/null && fail "free: DIRECT shows Play's Restore purchase" || pass "free: DIRECT hides Play's Restore purchase"
+# A bad key is refused on the phone, offline, with a reason; nothing is unlocked.
+tap licenseButton
+sleep 1
+tap licenseInput
+adb shell input text "ETPH1.not-a-real-key.AAAA"
+dump
+tap button1
+sleep 2
+dump
+grep -q "Not activated" "$LOG/ui.xml" && pass "free: a forged license key is refused ('Not activated: ...')" || fail "free: forged key not refused (see ui.xml)"
+adb shell input keyevent KEYCODE_BACK
+# The key page's link (etph://activate?key=...) opens the confirm dialog, prefilled, never a silent activation.
+adb shell am start -a android.intent.action.VIEW -d "etph://activate?key=ETPH1.e2e.link" "$PKG" >/dev/null
+sleep 2
+dump
+grep -q "Activate this license key?" "$LOG/ui.xml" && pass "free: etph://activate link opens the confirm dialog" || fail "free: activation link dialog (see ui.xml)"
+adb shell input keyevent KEYCODE_BACK
 adb shell input keyevent KEYCODE_BACK
 adb shell am force-stop $PKG
 adb logcat -c

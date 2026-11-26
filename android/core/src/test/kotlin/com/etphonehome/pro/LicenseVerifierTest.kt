@@ -146,6 +146,23 @@ class LicenseEngineTest {
     }
 
     @Test
+    fun revocationUrlReportsOnlyTheLicenseIdAndVersion() = runBlocking {
+        val base = "https://errant.solutions/api/pro/revocations"
+        val e = engine()
+        assertEquals("no license stored: nothing reported", base, e.revocationUrl(base, "0.9.6"))
+        val key = LicenseTestKeys.license(seed, "comp-20261125-2")
+        assertTrue(e.activate(key) is EntitlementEngine.Activation.Done)
+        val url = e.revocationUrl(base, "0.9.6")
+        assertEquals("$base?id=comp-20261125-2&v=0.9.6", url)
+        assertFalse("the key itself is never sent", url.contains(key.substringAfter('.')))
+        assertEquals("$base?x=1&id=comp-20261125-2&v=0.9.6", e.revocationUrl("$base?x=1", "0.9.6"))
+        assertEquals("a version with odd characters is dropped", "$base?id=comp-20261125-2", e.revocationUrl(base, "1 2&x"))
+        assertEquals("a copy that does not take license keys reports nothing", base, engine(licenses = false).revocationUrl(base, "0.9.6"))
+        e.removeLicense()
+        assertEquals("removed license: nothing reported", base, e.revocationUrl(base, "0.9.6"))
+    }
+
+    @Test
     fun refundRevokesAndRevokedKeyCannotBeReentered() = runBlocking {
         val e = engine()
         e.activate(LicenseTestKeys.license(seed, "EP-REFUND"))

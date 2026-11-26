@@ -128,6 +128,18 @@ class EntitlementEngine(
         return (v.verify(l.token) as? LicenseVerifier.Result.Valid)?.license
     }
 
+    /**
+     * The revocation list URL with the stored license's public purchase id and the app version appended
+     * (`?id=EP-...&v=0.9.6`), so the server can tell that a key is in use. Only the id from the key's payload
+     * (the purchase id printed in the receipt) and the version are sent: never the key, never a device id.
+     * No stored/valid license (or an odd-looking id): the plain URL, so nothing is reported.
+     */
+    fun revocationUrl(base: String, appVersion: String): String {
+        val id = license()?.id?.takeIf { Regex("[A-Za-z0-9-]{3,40}").matches(it) } ?: return base
+        val v = appVersion.takeIf { Regex("[0-9A-Za-z.+_-]{1,24}").matches(it) }
+        return base + (if ('?' in base) "&" else "?") + "id=" + id + (if (v != null) "&v=$v" else "")
+    }
+
     sealed class Activation {
         data class Done(val license: LicenseVerifier.License, val entitlement: Entitlement) : Activation()
         data class Refused(val why: String) : Activation()

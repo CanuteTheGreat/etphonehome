@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-11-25
+
+### Changed
+- <!-- not-play --> **License keys report that they are in use:** the daily check of the refunded-keys list now also sends the license's public purchase id (never the key) and the app version, so Errant Solutions can tell whether a key was activated and is still in use, and answer support questions. No device id, no account. Nothing is sent when no key is stored. Privacy policy updated.
+
 ## [0.9.5] - 2026-11-24
 
 ### Added

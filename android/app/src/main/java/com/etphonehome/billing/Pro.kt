@@ -162,7 +162,7 @@ object Pro {
      */
     private suspend fun fetchRevocations(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val c = URL(BuildConfig.PRO_REVOCATION_URL).openConnection() as HttpURLConnection
+            val c = URL(engine.revocationUrl(BuildConfig.PRO_REVOCATION_URL, BuildConfig.VERSION_NAME)).openConnection() as HttpURLConnection
             c.connectTimeout = 10_000
             c.readTimeout = 10_000
             c.setRequestProperty("User-Agent", "ETPH/${BuildConfig.VERSION_NAME} (Android)")

@@ -54,6 +54,11 @@ with a `LicenseVerifier`; Play-installed copies and the Play bundle don't, so a 
   The app fetches it on app start / Start / Pro screen when the last check is a day old, applies it only if it
   verifies for the key's mode and is not older than the kept one (no rollback). A refund (full `charge.refunded`),
   a chargeback (`charge.dispute.created`; reinstated if the dispute is won) or an admin revoke puts the id on it.
+- Activation signal (0.9.6+): the same request carries `?id=<license id>&v=<app version>` (`EntitlementEngine.revocationUrl`).
+  The id is the public purchase id from the key's payload (`EP-...` / `comp-YYYYMMDD-N`), never the key, no device id.
+  errant-pro records first_seen / last_seen / count / app version on that license row (only for ids it issued); admin query:
+  `~/.hermes/scripts/pro-key-status.py <id|text from the comp reason>` on crystalcave. Older apps just don't report
+  (their requests show up only in the web server log as `ETPH/<ver> (Android)`). Nothing is sent when no key is stored.
 - Offline grace: the key keeps Pro offline; after 60 days without one successful check (or since activation) it
   waits for one check ("connect this phone to the internet once so ETPH can re-check it"). Play's own offline grace
   is 30 days; keys are more lenient because the phone is often the only uplink.

@@ -17,6 +17,7 @@
 #   app killed  force-stop mid-transfer: desktop drops the tunnel, no
 #               leftovers; relaunch + Start: desktop reconnects by itself
 #   Stop        the UI Stop button ends the session and the service
+#   Root mode   switch on without root for the app: falls back to the userspace relay, the details' Path line says so, real internet works
 #   WiFi TLS    (images with WiFi) token from the UI, TLS 1.3 on ART
 #   Free/Pro    (APK built with -PbillingTestHooks=true; no Play Store on these images, so the
 #               app is Free): Pro line, Wi-Fi refused with the Pro note + the Upgrade screen,
@@ -550,6 +551,38 @@ else
   fail "no tunnel over the real app (USB)"
 fi
 client_stop
+
+# --- Root mode switch on a phone without root for the app -------------------------------
+# These images are not rooted for the app uid (`su` refuses it, or is absent), so switching Root
+# mode on must fall back to the userspace relay, say so in the Connected details (the "Path:"
+# line: a silent fallback would look like kernel NAT), and still give the desktop real internet.
+# Kernel NAT itself needs a rooted device; if an image does grant su, the line says kernel NAT.
+launch
+tap rootModeSwitch || fail "root mode: switch not found"
+adb logcat -c
+start_mode radioUsb
+wait_log "USB server listening" 20
+adb forward tcp:8888 tcp:8888 >/dev/null
+client rootmode usb --interface etph0 --reconnect --max-retries 0
+if wait_iface 30; then
+  sleep 2
+  ST=$(text_of statusText)
+  grep -Eq "Path: (kernel NAT \(root mode\)|userspace relay \(root mode unavailable)" <<<"$ST" \
+    && pass "root mode on: the details name the path in use ($(grep -m1 '^Path:' <<<"$ST"))" \
+    || fail "root mode on: no Path line in the details ('$ST')"
+  CODE=$(D "curl -sS -m 30 -o /dev/null -w '%{http_code}' https://example.com/")
+  [ "$CODE" = 200 ] && pass "root mode on: public HTTPS 200 through the phone (fallback or kernel NAT)" || fail "root mode on: HTTPS ($CODE)"
+else
+  tail -20 "$LOG/rootmode.log"
+  fail "root mode on: no tunnel"
+fi
+launch
+tap stopButton
+wait_iface_gone 15 || fail "root mode: tunnel still up after Stop"
+client_stop
+launch
+tap rootModeSwitch || fail "root mode: switch not found to turn it off"
+no_service_within 10 || fail "root mode: service still running after Stop"
 
 
 # --- Free vs Pro (the phone enforces the split) ------------------------------------

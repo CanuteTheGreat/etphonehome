@@ -97,7 +97,7 @@ boot_emulator() { # one emulator boot, 0 = booted
   local dns=()
   [ "${BOOT_ATTEMPT:-1}" -gt 1 ] && dns=(-dns-server 1.1.1.1,9.9.9.9)
   emulator -avd "etph$API" -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics \
-    -gpu swiftshader_indirect -accel on -memory 3072 -cores 2 -port 5554 "${dns[@]}" >"$LOG/emulator.log" 2>&1 &
+    -writable-system -gpu swiftshader_indirect -accel on -memory 3072 -cores 2 -port 5554 "${dns[@]}" >"$LOG/emulator.log" 2>&1 &
   PIDS+=($!)
   export ANDROID_SERIAL=emulator-5554
   adb start-server >/dev/null
@@ -583,6 +583,74 @@ client_stop
 launch
 tap rootModeSwitch || fail "root mode: switch not found to turn it off"
 no_service_within 10 || fail "root mode: service still running after Stop"
+
+# --- Kernel NAT for real: give the app uid a working `su` ---------------------------------
+# google_apis images grant root to the adb shell only. Bridge it: `tun-pipe su-serve` runs as
+# root (adb root, SELinux permissive) and /system/xbin/su becomes a shim that forwards
+# `su -c <cmd>` (stdio + exit code) to it. The app then really creates the tun, turns on
+# ip_forward, adds MASQUERADE and runs the root helper. Setup trouble (no writable /system on
+# this image, no x86 helper) skips the phase with a message; once su works, everything is asserted.
+ABI=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')
+SUOK=0
+if unzip -p "$APK" "lib/$ABI/libtun_pipe.so" >"$LOG/tp" 2>/dev/null && [ -s "$LOG/tp" ]; then
+  adb root >/dev/null 2>&1; sleep 3; adb wait-for-device
+  if [ "$(adb shell id -u | tr -d '\r')" = 0 ] && adb remount >"$LOG/remount.log" 2>&1 \
+      && adb shell touch /system/xbin/.rw 2>/dev/null; then
+    adb shell rm -f /system/xbin/.rw
+    adb push "$LOG/tp" /data/local/tmp/tp >/dev/null && adb shell chmod 755 /data/local/tmp/tp
+    adb shell 'cp /system/xbin/su /data/local/tmp/su.orig 2>/dev/null; true'
+    printf '#!/system/bin/sh\nexec /data/local/tmp/tp su-client /data/local/tmp/su.sock "$@"\n' >"$LOG/su"
+    adb push "$LOG/su" /system/xbin/su >/dev/null && adb shell chmod 755 /system/xbin/su
+    adb shell setenforce 0
+    adb shell 'nohup /data/local/tmp/tp su-serve /data/local/tmp/su.sock >/data/local/tmp/su-serve.log 2>&1 &'
+    sleep 2
+    # The shim and the bridge must round-trip a command and answer uid=0 (the app's own use is asserted below).
+    SUID=$(adb shell "/system/xbin/su -c id" 2>&1 | tr -d '\r')
+    if grep -q "uid=0" <<<"$SUID"; then SUOK=1; pass "kernel NAT: the su bridge answers uid=0 ($SUID)"; else
+      echo "su bridge self-check: $SUID"; adb shell cat /data/local/tmp/su-serve.log; fi
+  else
+    echo "SKIP: kernel NAT phase: no writable /system on this image ($(tr '\n' ' ' <"$LOG/remount.log"))"
+  fi
+else
+  echo "SKIP: kernel NAT phase: no lib/$ABI/libtun_pipe.so in the APK"
+fi
+if [ "$SUOK" = 1 ]; then
+  launch
+  tap rootModeSwitch || fail "kernel NAT: switch not found"
+  adb logcat -c
+  start_mode radioUsb
+  wait_log "USB server listening" 20
+  adb forward tcp:8888 tcp:8888 >/dev/null
+  client kernelnat usb --interface etph0 --reconnect --max-retries 0
+  if wait_iface 30; then
+    sleep 3
+    ST=$(text_of statusText)
+    grep -q "Path: kernel NAT (root mode)" <<<"$ST" \
+      && pass "kernel NAT: the details say kernel NAT (root mode)" \
+      || { adb logcat -d -s ETPhoneHome:* | tail -30; fail "kernel NAT: not on the kernel path ('$(grep -m1 '^Path:' <<<"$ST")')"; }
+    CODE=$(D "curl -sS -m 30 -o /dev/null -w '%{http_code}' https://example.com/")
+    [ "$CODE" = 200 ] && pass "kernel NAT: public HTTPS 200 through the phone's kernel NAT" || fail "kernel NAT: HTTPS ($CODE)"
+  else
+    tail -20 "$LOG/kernelnat.log"
+    adb logcat -d -s ETPhoneHome:* | tail -30
+    fail "kernel NAT: no tunnel"
+  fi
+  launch
+  tap stopButton
+  wait_iface_gone 15 || fail "kernel NAT: tunnel still up after Stop"
+  client_stop
+  launch
+  tap rootModeSwitch || fail "kernel NAT: switch not found to turn it off"
+  no_service_within 10 || fail "kernel NAT: service still running after Stop"
+  # Teardown must leave no rule behind: ip_forward restored and no MASQUERADE left from the session.
+  LEFT=$(adb shell "iptables -t nat -S POSTROUTING 2>/dev/null | grep -c MASQUERADE" | tr -d '\r')
+  [ "${LEFT:-0}" = 0 ] && pass "kernel NAT: teardown left no MASQUERADE rule" || fail "kernel NAT: $LEFT MASQUERADE rule(s) left after Stop"
+fi
+if [ "$ABI" != "" ] && [ -n "$(adb shell 'ls /data/local/tmp/tp 2>/dev/null' | tr -d '\r')" ]; then
+  adb shell 'pkill -f "tp su-serve"; rm -f /data/local/tmp/su.sock /data/local/tmp/tp'
+  adb shell 'if [ -f /data/local/tmp/su.orig ]; then cp /data/local/tmp/su.orig /system/xbin/su; else rm -f /system/xbin/su; fi'
+  adb unroot >/dev/null 2>&1; sleep 3; adb wait-for-device
+fi
 
 
 # --- Free vs Pro (the phone enforces the split) ------------------------------------

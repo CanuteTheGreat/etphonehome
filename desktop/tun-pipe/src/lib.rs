@@ -7,6 +7,9 @@
 //! A frame length of 0, or a stream that ends inside a frame, is a protocol
 //! error; a clean end between frames is end of stream.
 
+#[cfg(unix)]
+pub mod su_bridge;
+
 use std::io::{self, Read, Write};
 use std::sync::mpsc;
 use std::thread;

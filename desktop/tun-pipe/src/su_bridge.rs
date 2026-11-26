@@ -55,7 +55,10 @@ pub fn serve_conn(mut conn: UnixStream) -> io::Result<()> {
     conn.read_exact(&mut len)?;
     let len = u32::from_be_bytes(len) as usize;
     if len == 0 || len > MAX_CMD {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "bad command length"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "bad command length",
+        ));
     }
     let mut cmd = vec![0u8; len];
     conn.read_exact(&mut cmd)?;
@@ -174,17 +177,27 @@ mod tests {
         let code = client(&path, cmd, Cursor::new(stdin.to_vec()), &mut o, &mut e).unwrap();
         server.join().unwrap();
         let _ = std::fs::remove_file(&path);
-        (code, String::from_utf8(o).unwrap(), String::from_utf8(e).unwrap())
+        (
+            code,
+            String::from_utf8(o).unwrap(),
+            String::from_utf8(e).unwrap(),
+        )
     }
 
     #[test]
     fn exit_code_stdout_and_stderr_come_back_separately() {
-        assert_eq!(run("printf hi; printf err >&2; exit 3", b""), (3, "hi".into(), "err".into()));
+        assert_eq!(
+            run("printf hi; printf err >&2; exit 3", b""),
+            (3, "hi".into(), "err".into())
+        );
     }
 
     #[test]
     fn stdin_reaches_the_command_and_its_eof_ends_it() {
-        assert_eq!(run("cat", b"abc\ndef"), (0, "abc\ndef".into(), String::new()));
+        assert_eq!(
+            run("cat", b"abc\ndef"),
+            (0, "abc\ndef".into(), String::new())
+        );
     }
 
     #[test]

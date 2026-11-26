@@ -188,6 +188,26 @@ class TetherSessionRootTest {
     }
 
     @Test
+    fun `the session reports whether kernel NAT took or fell back`() {
+        fun path(uid: String): String? {
+            val seen = java.util.concurrent.atomic.AtomicReference<SessionInfo?>()
+            val root = FakeRoot(uid)
+            val r = serve(listener = object : SessionListener { override fun onConnected(info: SessionInfo) { seen.set(info) } }) { toDesktop ->
+                RootNatSession.start(RootNatSession.Config(helperPath = "/lib/libtun_pipe.so"), root, toDesktop, { Helper() })
+            }
+            val deadline = System.currentTimeMillis() + 5000
+            while (seen.get() == null && System.currentTimeMillis() < deadline) Thread.sleep(20)
+            r.desk.write(Disconnect("bye"))
+            r.server.join(5000)
+            r.sock.close()
+            return seen.get()?.path
+        }
+        assertEquals("kernel NAT (root mode)", path("0"))
+        val fell = path("10123")
+        assertTrue(fell, fell != null && fell.startsWith("userspace relay (root mode unavailable: "))
+    }
+
+    @Test
     fun `no root falls back to the userspace relay`() {
         val root = FakeRoot("10123")
         val r = serve { toDesktop ->

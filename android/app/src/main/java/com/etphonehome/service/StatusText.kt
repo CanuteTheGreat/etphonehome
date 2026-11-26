@@ -32,6 +32,7 @@ object StatusText {
                 } else {
                     appendLine("${if (c.router) "Router" else "Desktop"}: ${c.name} · ${state.info.peer}")
                 }
+                state.info.path?.let { appendLine("Path: $it") }
                 if (s == null) {
                     append("Starting…")
                 } else {

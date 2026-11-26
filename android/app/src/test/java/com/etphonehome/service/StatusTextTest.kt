@@ -46,6 +46,16 @@ class StatusTextTest {
     }
 
     @Test
+    fun `root mode shows whether kernel NAT took or fell back`() {
+        val on = TetherState.Connected("USB", info.copy(path = "kernel NAT (root mode)"), stats)
+        assertTrue(StatusText.details(on), StatusText.details(on).contains("Path: kernel NAT (root mode)"))
+        val off = TetherState.Connected("USB", info.copy(path = "userspace relay (root mode unavailable: su refused)"), stats)
+        assertTrue(StatusText.details(off).contains("Path: userspace relay (root mode unavailable: su refused)"))
+        // Root mode off (the default): no Path line at all.
+        assertFalse(StatusText.details(TetherState.Connected("USB", info, stats)).contains("Path:"))
+    }
+
+    @Test
     fun `plaintext session says so`() {
         val st = TetherState.Connected("USB", info.copy(encrypted = false))
         assertEquals("Desktop connected (USB, not encrypted)", StatusText.status(st))

@@ -116,11 +116,16 @@ class TetherSession(
         // refusal falls back to the userspace relay, so a phone without root,
         // or with a broken su, tethers exactly as before.
         val toDesktop: (ByteArray) -> Unit = { pkt -> stream.write(IpPacket(pkt)) }
+        var path: String? = null
         val root = options.rootStart?.let { start ->
             when (val r = start(toDesktop)) {
-                is RootNatSession.Start.Ready -> r.session
+                is RootNatSession.Start.Ready -> {
+                    path = "kernel NAT (root mode)"
+                    r.session
+                }
                 is RootNatSession.Start.Unavailable -> {
                     Log.i(tag, "Root mode unavailable (${r.reason}): using the userspace relay")
+                    path = "userspace relay (root mode unavailable: ${r.reason})"
                     null
                 }
             }
@@ -137,6 +142,7 @@ class TetherSession(
             SessionInfo(
                 options.peer, options.encrypted, request.token != null,
                 client = ClientIdentity.of(request),
+                path = path,
             ),
         )
 
@@ -367,6 +373,8 @@ data class SessionInfo(
     val encrypted: Boolean,
     val authenticated: Boolean,
     val client: ClientIdentity = ClientIdentity.UNKNOWN,
+    /** How traffic leaves the phone; set only when Root mode was switched on, so the user sees whether it took or fell back. */
+    val path: String? = null,
 )
 
 /**

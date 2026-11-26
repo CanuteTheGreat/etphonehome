@@ -1,6 +1,7 @@
 package com.etphonehome.relay
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -174,6 +175,21 @@ class RootNatSessionTest {
         val deadline = System.currentTimeMillis() + 5000
         while (!cond() && System.currentTimeMillis() < deadline) Thread.sleep(10)
         assertTrue(what, cond())
+    }
+
+    @Test fun aliveIsTrueWhileRunningAndFalseAfterCloseOrWhenTheHelperDies() {
+        val s = (RootNatSession.start(cfg, FakeRoot(), {}, { LiveHelper() }) as RootNatSession.Start.Ready).session
+        assertTrue(s.alive)
+        s.close()
+        assertFalse(s.alive)
+
+        // the helper's stream ends (su killed, tun-pipe crashed) without anyone closing the session
+        val dying = LiveHelper()
+        val s2 = (RootNatSession.start(cfg, FakeRoot(), {}, { dying }) as RootNatSession.Start.Ready).session
+        assertTrue(s2.alive)
+        dying.destroy()
+        waitFor("session notices the dead helper") { !s2.alive }
+        s2.close()
     }
 
     @Test fun trafficCountersFilterAndTeardownOfARunningSession() {

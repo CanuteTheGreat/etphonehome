@@ -127,6 +127,22 @@ class LicenseEngineMutationTest {
     }
 
     @Test
+    fun revocationListIsCheckedForTheModeOfTheStoredLicense() = runBlocking {
+        val testSeed = LicenseTestKeys.seed(24)
+        val e = EntitlementEngine(
+            PurchaseVerifier(null), "solutions.errant.etph", "pro", store, { clock },
+            licenses = LicenseVerifier(mapOf("live" to listOf(LicenseTestKeys.pub(seed)), "test" to listOf(LicenseTestKeys.pub(testSeed)))),
+            licenseRecheckMs = 60 * day,
+        )
+        assertTrue(e.activate(LicenseTestKeys.license(testSeed, "EP-T", mode = "test")) is EntitlementEngine.Activation.Done)
+        // a live-mode list is not valid for a test-mode license; its own mode's list is
+        assertFalse(e.applyRevocations(LicenseTestKeys.revocations(seed, listOf("EP-T"), 1_800_000_000, mode = "live")))
+        assertEquals(Entitlement.Status.PRO_LICENSE, e.state.value.status)
+        assertTrue(e.applyRevocations(LicenseTestKeys.revocations(testSeed, listOf("EP-T"), 1_800_000_000, mode = "test")))
+        assertEquals(Entitlement.Status.FREE, e.state.value.status)
+    }
+
+    @Test
     fun recheckWindowEdgesAndProblemTexts() = runBlocking {
         val e = engine()
         e.activate(LicenseTestKeys.license(seed, "EP-1"))

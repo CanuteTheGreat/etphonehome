@@ -566,7 +566,7 @@ adb forward tcp:8888 tcp:8888 >/dev/null
 client rootmode usb --interface etph0 --reconnect --max-retries 0
 if wait_iface 30; then
   sleep 2
-  ST=$(text_of statusText)
+  ST=$(text_of statsText)
   grep -Eq "Path: (kernel NAT \(root mode\)|userspace relay \(root mode unavailable)" <<<"$ST" \
     && pass "root mode on: the details name the path in use ($(grep -m1 '^Path:' <<<"$ST"))" \
     || fail "root mode on: no Path line in the details ('$ST')"
@@ -624,7 +624,7 @@ if [ "$SUOK" = 1 ]; then
   client kernelnat usb --interface etph0 --reconnect --max-retries 0
   if wait_iface 30; then
     sleep 3
-    ST=$(text_of statusText)
+    ST=$(text_of statsText)
     grep -q "Path: kernel NAT (root mode)" <<<"$ST" \
       && pass "kernel NAT: the details say kernel NAT (root mode)" \
       || { adb logcat -d -s ETPhoneHome:* | tail -30; fail "kernel NAT: not on the kernel path ('$(grep -m1 '^Path:' <<<"$ST")')"; }

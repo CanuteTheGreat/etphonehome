@@ -43,7 +43,13 @@ fn client(args: &[String]) -> std::io::Result<i32> {
     let Some(cmd) = args.get(i + 1) else {
         return Err(std::io::Error::other("su-client: -c needs a command"));
     };
-    tun_pipe::su_bridge::client(sock, cmd, std::io::stdin(), &mut std::io::stdout(), &mut std::io::stderr())
+    tun_pipe::su_bridge::client(
+        sock,
+        cmd,
+        std::io::stdin(),
+        &mut std::io::stdout(),
+        &mut std::io::stderr(),
+    )
 }
 
 #[cfg(not(unix))]

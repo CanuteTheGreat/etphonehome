@@ -29,7 +29,11 @@ fn send(w: &Mutex<UnixStream>, tag: u8, data: &[u8]) -> io::Result<()> {
     s.write_all(data)
 }
 
-fn forward<R: Read + Send + 'static>(mut r: R, tag: u8, w: Arc<Mutex<UnixStream>>) -> JoinHandle<()> {
+fn forward<R: Read + Send + 'static>(
+    mut r: R,
+    tag: u8,
+    w: Arc<Mutex<UnixStream>>,
+) -> JoinHandle<()> {
     thread::spawn(move || {
         let mut buf = [0u8; 16384];
         loop {
@@ -55,7 +59,8 @@ pub fn serve_conn(mut conn: UnixStream) -> io::Result<()> {
     }
     let mut cmd = vec![0u8; len];
     conn.read_exact(&mut cmd)?;
-    let cmd = String::from_utf8(cmd).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "command is not UTF-8"))?;
+    let cmd = String::from_utf8(cmd)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "command is not UTF-8"))?;
     let mut child = Command::new("sh")
         .arg("-c")
         .arg(&cmd)
@@ -119,7 +124,10 @@ where
         let mut head = [0u8; 5];
         s.read_exact(&mut head).map_err(|e| {
             if e.kind() == io::ErrorKind::UnexpectedEof {
-                io::Error::new(io::ErrorKind::UnexpectedEof, "su server closed before the exit code")
+                io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "su server closed before the exit code",
+                )
             } else {
                 e
             }
@@ -137,7 +145,12 @@ where
                 err.flush()?;
             }
             EXIT if n == 4 => return Ok(i32::from_be_bytes([data[0], data[1], data[2], data[3]])),
-            t => return Err(io::Error::new(io::ErrorKind::InvalidData, format!("bad record tag {t}"))),
+            t => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("bad record tag {t}"),
+                ))
+            }
         }
     }
 }
@@ -148,7 +161,11 @@ mod tests {
     use std::io::Cursor;
 
     fn run(cmd: &str, stdin: &[u8]) -> (i32, String, String) {
-        let path = std::env::temp_dir().join(format!("su-bridge-{}-{}.sock", std::process::id(), cmd.len()));
+        let path = std::env::temp_dir().join(format!(
+            "su-bridge-{}-{}.sock",
+            std::process::id(),
+            cmd.len()
+        ));
         let path = path.to_str().unwrap().to_string();
         let _ = std::fs::remove_file(&path);
         let l = UnixListener::bind(&path).unwrap();

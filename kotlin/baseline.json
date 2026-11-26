@@ -1,7 +1,7 @@
 {
  "id": "kotlin",
  "last_full": "2026-11-20",
- "sha": "491e55aba348c16184d592f523b02bdec062c395",
+ "sha": "4ca5aa617055d5f89ac72b5a01448bee363df8ca",
  "survivors": [
   "com.etphonehome.filter.FilterConfigKt.parseWireRule$ports: org.pitest.mutationtest.engine.gregor.mutators.returns.EmptyObjectReturnValsMutator: replaced return value with Collections.emptyList for com/etphonehome/filter/FilterConfigKt::parseWireRule$ports",
   "com.etphonehome.filter.FilterConfigKt.parseWireRule: org.pitest.mutationtest.engine.gregor.mutators.NegateConditionalsMutator: negated conditional",

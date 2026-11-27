@@ -629,7 +629,19 @@ if [ "$SUOK" = 1 ]; then
       && pass "kernel NAT: the details say kernel NAT (root mode)" \
       || { adb logcat -d -s ETPhoneHome:* | tail -30; fail "kernel NAT: not on the kernel path ('$(grep -m1 '^Path:' <<<"$ST")')"; }
     CODE=$(D "curl -sS -m 30 -o /dev/null -w '%{http_code}' https://example.com/")
-    [ "$CODE" = 200 ] && pass "kernel NAT: public HTTPS 200 through the phone's kernel NAT" || fail "kernel NAT: HTTPS ($CODE)"
+    if [ "$CODE" = 200 ]; then
+      pass "kernel NAT: public HTTPS 200 through the phone's kernel NAT"
+    else
+      # Split DNS from forwarding: a TCP connection to an address needs no resolver. If this works
+      # while the name lookup failed, the kernel path forwards fine and only UDP/53 to the
+      # handshake's DNS server (8.8.8.8) does not get out of this emulator.
+      RAW=$(D "curl -sS -k -m 20 -o /dev/null -w '%{http_code}' https://1.1.1.1/" 2>&1 | tail -1)
+      echo "kernel NAT diag: raw HTTPS to 1.1.1.1 -> $RAW"
+      echo "kernel NAT diag: desktop resolver: $(D 'cat /etc/resolv.conf; resolvectl dns etph0 2>&1' | tr '\n' ' ')"
+      echo "kernel NAT diag: DNS query via 8.8.8.8: $(D 'getent hosts example.com 2>&1; dig +time=3 +tries=1 @8.8.8.8 example.com 2>&1 | tail -3' | tr '\n' ' ')"
+      adb shell "iptables -t nat -L -v -n; iptables -L ETPH_FWD -v -n; ip rule; ip route get 8.8.8.8 from 10.0.0.1 iif etph0; cat /proc/sys/net/ipv4/ip_forward" 2>&1 | head -50
+      fail "kernel NAT: HTTPS ($CODE; raw IP $RAW)"
+    fi
   else
     tail -20 "$LOG/kernelnat.log"
     adb logcat -d -s ETPhoneHome:* | tail -30

@@ -34,6 +34,19 @@ wait_for_iface() {
   return 1
 }
 
+# The address appears before the client has installed the routes: retry a refused/unreachable
+# connection (curl exit 7) for a few seconds instead of failing on the race (run 1657).
+tunnel_curl() {
+  local rc=0 n
+  for n in 1 2 3 4 5 6 7 8 9 10; do
+    curl -sS -m 20 -o /dev/null "$@" && return 0
+    rc=$?
+    [ "$rc" = 7 ] || return "$rc"
+    sleep 1
+  done
+  return "$rc"
+}
+
 wait_gone() {
   for _ in $(seq 1 100); do
     ip link show "$1" >/dev/null 2>&1 || return 0
@@ -197,7 +210,7 @@ fi
 # --- 4. plaintext where the phone allows it; wrong token rejected ----------
 etphonehome wifi --host "$PHONE_IP" --port 9001 --token PlainTok123 --no-tls --interface etph0 >"$LOGS/client-plain.log" 2>&1 &
 CLI=$!
-if wait_for_iface etph0 && curl -sS -m 20 -o /dev/null "http://$TARGET_IP:8080/blob.sha256" \
+if wait_for_iface etph0 && tunnel_curl "http://$TARGET_IP:8080/blob.sha256" \
   && grep -q "PLAINTEXT" "$LOGS/client-plain.log"; then
   pass "wifi --no-tls (phone switch off): relayed HTTP works, reported as PLAINTEXT"
 else
@@ -340,7 +353,7 @@ mkdir -p /e2e/qs/desktop/target/release
 cp /e2e/bin/etphonehome /e2e/qs/desktop/target/release/etphonehome
 (echo "" | bash /e2e/qs/scripts/quick-start-linux.sh >"$LOGS/quickstart.log" 2>&1; echo "exit=$?" >>"$LOGS/quickstart.log") &
 QS=$!
-if wait_for_iface etph0 && curl -sS -m 20 -o /dev/null "http://$TARGET_IP:8080/blob.sha256"; then
+if wait_for_iface etph0 && tunnel_curl "http://$TARGET_IP:8080/blob.sha256"; then
   pass "quick-start-linux.sh: adb forward + tunnel up, HTTP through the phone"
 else
   dump "$LOGS/quickstart.log"
@@ -363,7 +376,7 @@ fi
 # ERR_PRO_REQUIRED, and the client explains that Pro is bought on the phone.
 ETPH_CLIENT_ID=e2e-computer-a ETPH_CLIENT_NAME=laptop-a etphonehome usb --port 8891 --interface etph0 >"$LOGS/pro-free-a.log" 2>&1 &
 CLI=$!
-if wait_for_iface etph0 && curl -sS -m 20 -o /dev/null "http://$TARGET_IP:8080/blob.sha256"; then
+if wait_for_iface etph0 && tunnel_curl "http://$TARGET_IP:8080/blob.sha256"; then
   sleep 1
   grep -q "Phone: free version" "$LOGS/pro-free-a.log" \
     && pass "pro: free phone gives the first computer USB internet (client logs 'Phone: free version')" \
@@ -390,7 +403,7 @@ else
 fi
 ETPH_CLIENT_ID=e2e-router etphonehome --router usb --port 8890 --interface etph0 >"$LOGS/pro-router.log" 2>&1 &
 CLI=$!
-if wait_for_iface etph0 && curl -sS -m 20 -o /dev/null "http://$TARGET_IP:8080/blob.sha256"; then
+if wait_for_iface etph0 && tunnel_curl "http://$TARGET_IP:8080/blob.sha256"; then
   sleep 1
   grep -q "Phone: ETPH Pro" "$LOGS/pro-router.log" && grep -q "client e2e-router\|admitted" "$PEER/usb2.log" \
     && pass "pro: a phone with Pro admits the router (--router) and the client logs 'Phone: ETPH Pro'" \

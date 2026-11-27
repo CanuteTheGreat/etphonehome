@@ -150,10 +150,20 @@ class KernelNatPlanTest {
     }
 
     @Test
-    fun noTableMeansNoPolicyRule() {
+    fun noTableMeansNoEgressPolicyRuleButRepliesStillRoute() {
         val q = p.copy(upstreamTable = null)
-        assertTrue(KernelNatPlan.enable(q).none { it.argv.first() == "ip" })
-        assertTrue(KernelNatPlan.disable(q).none { it.argv.first() == "ip" })
+        val en = KernelNatPlan.enable(q).map { it.toString() }
+        assertTrue(en.none { it.startsWith("ip rule add from") })
+        // replies to the desktop must find the tunnel's connected route even where Android has no
+        // catch-all "lookup main" rule (API 26), or the de-NATed reply hits "unreachable"
+        assertTrue(en.contains("ip rule add to 10.0.0.0/30 lookup main priority 10999"))
+        assertTrue(KernelNatPlan.disable(q).any { it.toString().contains("ip rule del priority 10999") })
+        assertTrue(KernelNatPlan.disable(q).none { it.toString().startsWith("ip rule del from") })
+    }
+
+    @Test
+    fun returnRuleIsAddedWithATableToo() {
+        assertTrue(KernelNatPlan.enable(p).map { it.toString() }.contains("ip rule add to 10.0.0.0/30 lookup main priority 10999"))
     }
 
     @Test

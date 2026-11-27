@@ -21,6 +21,14 @@ object KernelNatPlan {
     const val MSS_CHAIN = "ETPH_MSS"
     const val RULE_PRIORITY = 11000
 
+    /**
+     * Policy rule that sends replies for the tunnel subnet to the main table, where the kernel put the
+     * connected route over the tunnel. Android 8 (API 26) has no catch-all "lookup main" rule, so without
+     * it the de-NATed reply to 10.0.0.2 falls through to the final "unreachable" rule and is dropped
+     * (emulator run 1659: MASQUERADE hit, ETPH_FWD return rule 0 packets, no HTTPS).
+     */
+    const val RETURN_RULE_PRIORITY = 10999
+
     /** One command to run as root. [ignoreFailure] is for teardown steps that may already be undone. */
     data class Step(val argv: List<String>, val ignoreFailure: Boolean = false) {
         override fun toString() = argv.joinToString(" ")
@@ -107,6 +115,7 @@ object KernelNatPlan {
                 "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu", ignore = true)
         }
         steps += ipt("-t", "mangle", "-I", "FORWARD", "1", "-j", MSS_CHAIN, ignore = true)
+        steps += Step(listOf("ip", "rule", "add", "to", p.subnet, "lookup", "main", "priority", RETURN_RULE_PRIORITY.toString()))
         if (p.upstreamTable != null) {
             steps += Step(listOf("ip", "rule", "add", "from", p.subnet, "lookup", p.upstreamTable.toString(), "priority", RULE_PRIORITY.toString()))
         }
@@ -124,6 +133,7 @@ object KernelNatPlan {
         steps += sweep(null, "FORWARD", FWD_CHAIN)
         steps += sweep("mangle", "FORWARD", MSS_CHAIN)
         steps += Step(listOf("sh", "-c", "for i in 1 2 3 4 5 6 7 8; do ip rule del priority $RULE_PRIORITY 2>/dev/null || break; done; true"), true)
+        steps += Step(listOf("sh", "-c", "for i in 1 2 3 4 5 6 7 8; do ip rule del priority $RETURN_RULE_PRIORITY 2>/dev/null || break; done; true"), true)
         if (p.upstreamTable != null) {
             steps += Step(listOf("ip", "rule", "del", "from", p.subnet, "lookup", p.upstreamTable.toString(), "priority", RULE_PRIORITY.toString()), true)
         }

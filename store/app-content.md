@@ -7,19 +7,22 @@ release build really does (AndroidManifest.xml, build.gradle, store/data-safety.
 | Section | Answer |
 |---|---|
 | Privacy policy | `https://errant.solutions/privacy.html` |
-| App access | "All functionality is available without special access" (no account, no login) |
+| Sign in details (was "App access") | **No** part restricted (no account, no login). The "Yes" path requires ticking "sign in details provide full access ... including paid content", which an account-less one-time purchase cannot truthfully claim; same answer as the other Errant apps with a one-time unlock |
 | Ads | "No, my app does not contain ads" |
 | Content rating | IARC questionnaire, category **Utility, Productivity, Communication, or Other**; email support@errant.solutions; answer **No** to every content question (no violence, sexuality, language, controlled substances, gambling; users cannot interact or share content with each other through the app; no location sharing), but **Yes** to "digital purchases" (the one-time in-app product ETPH Pro, sold through Google Play Billing) -> rated Everyone / PEGI 3 with "In-App Purchases" |
 | Target audience and content | Age groups **18 and over** only; "Could your store listing unintentionally appeal to children?" **No** |
 | News app | No |
 | COVID-19 contact tracing / status | My app is not a publicly available COVID-19 contact tracing or status app |
+| App category | Store settings: App, **Tools** |
+| Production countries | All countries / regions plus rest of world |
 | Data safety | Already submitted through the API (`store/data-safety.csv`: no data collected or shared) |
 | Government apps | No |
 | Financial features | "My app doesn't provide any financial features" |
 | Health | "My app does not have any health features" |
 | Advertising ID | "No" (the app doesn't use the advertising ID; no AD_ID permission) |
-| Foreground service permissions | Type **Special use**. Description: "ETPH shares the phone's internet connection with a computer or router the user connects over USB, Wi-Fi or Bluetooth (tethering without root or VPN). The foreground service keeps the relay running while the user's computer uses the connection; it starts only when the user taps Start and stops when they tap Stop or disconnect, with a persistent notification the whole time." Video link: optional, leave empty unless Play asks |
+| Foreground service permissions | Type **Special use**. Description: "ETPH shares the phone's internet connection with a computer or router the user connects over USB, Wi-Fi or Bluetooth (tethering without root or VPN). The foreground service keeps the relay running while the user's computer uses the connection; it starts only when the user taps Start and stops when they tap Stop or disconnect, with a persistent notification the whole time." Video link: REQUIRED by the form (Save stays disabled without it): https://errant.solutions/etphonehome/media/etph-foreground-service-demo.mp4 (real phone: Start, persistent notification, a computer using the connection over USB also with the app in the background, Stop ends it) |
 
+All of the above were entered and sent for review together with the production release 0.9.5 (vc 17).
 After these and the store listing (title, descriptions, icon, feature graphic, 4+ phone
 screenshots: `set-play-listing-<n>`) are complete, Publishing overview > **Send changes for review**
 publishes the internal-testing release; until then testers' opt-in link answers 404 and Internal

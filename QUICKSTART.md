@@ -310,7 +310,7 @@ sudo etphonehome bluetooth --address AA:BB:CC:DD:EE:FF
 cp config.example.toml config.toml
 
 # Edit settings
-nano config.toml
+vim config.toml
 
 # Run with config (future feature)
 sudo etphonehome --config config.toml usb

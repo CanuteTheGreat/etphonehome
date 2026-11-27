@@ -58,6 +58,11 @@ jobs:
           ls -l /dev/kvm
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
+      - name: Cross-build the root-mode helper (tun-pipe) so the APK carries lib/x86_64/libtun_pipe.so
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          export CARGO_BUILD_JOBS=2
+          bash .forgejo/scripts/build-tun-pipe-android.sh
       - name: Build this release APK and the desktop client
         run: |
           export ANDROID_HOME="$HOME/android-sdk"

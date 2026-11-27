@@ -202,6 +202,11 @@ jobs:
       # "node: executable file not found", see android-ci.yml.)
       - name: Set up Android SDK
         run: .forgejo/scripts/setup-android-sdk.sh
+      - name: Cross-build the root-mode helper (tun-pipe), shipped as lib/<abi>/libtun_pipe.so
+        run: |
+          export ANDROID_HOME="$HOME/android-sdk"
+          export CARGO_BUILD_JOBS=2
+          bash .forgejo/scripts/build-tun-pipe-android.sh
       # UNSIGNED here (no secrets on build runners); sign-android signs it with the ETPH release
       # key on the dedicated signer. Before 0.7.0 the release APK carried the committed debug key.
       - name: Build UNSIGNED release APK

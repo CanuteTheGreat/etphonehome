@@ -23,6 +23,9 @@ object TunDevicePlan {
         val mtu: Int = 1400,
     )
 
+    internal const val LINK_DEV_TUN =
+        "[ -e /dev/net/tun ] || { [ -e /dev/tun ] && mkdir -p /dev/net && ln -s /dev/tun /dev/net/tun; }"
+
     private val IFACE = Regex("^[A-Za-z0-9_.-]{1,15}$")
     private val IP = Regex("^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$")
 
@@ -54,6 +57,10 @@ object TunDevicePlan {
     fun enable(p: Params): List<KernelNatPlan.Step> {
         check(p)
         return disable(p) + listOf(
+            // Android before ~API 29 only has /dev/tun; `ip tuntap` hardcodes /dev/net/tun and fails
+            // with "open: No such file or directory" (emulator API 26). Best effort: if tuntap then
+            // still fails, its own error is the one reported.
+            KernelNatPlan.Step(listOf("sh", "-c", LINK_DEV_TUN), ignoreFailure = true),
             KernelNatPlan.Step(listOf("ip", "tuntap", "add", "dev", p.tunInterface, "mode", "tun")),
             KernelNatPlan.Step(listOf("ip", "addr", "add", "${p.phoneAddress}/${prefix(p)}", "dev", p.tunInterface)),
             KernelNatPlan.Step(listOf("ip", "link", "set", "dev", p.tunInterface, "mtu", p.mtu.toString(), "up")),

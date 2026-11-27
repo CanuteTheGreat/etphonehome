@@ -56,6 +56,7 @@ class TunDevicePlanTest {
         assertEquals(
             listOf(
                 "ip link del dev etph0",
+                "sh -c ${TunDevicePlan.LINK_DEV_TUN}",
                 "ip tuntap add dev etph0 mode tun",
                 "ip addr add 10.0.0.1/30 dev etph0",
                 "ip link set dev etph0 mtu 1400 up",
@@ -63,7 +64,8 @@ class TunDevicePlanTest {
             steps,
         )
         assertTrue(TunDevicePlan.enable(p).first().ignoreFailure)
-        assertTrue(TunDevicePlan.enable(p).drop(1).none { it.ignoreFailure })
+        assertTrue("the /dev/net/tun shim is best effort", TunDevicePlan.enable(p)[1].ignoreFailure)
+        assertTrue(TunDevicePlan.enable(p).drop(2).none { it.ignoreFailure })
     }
 
     @Test

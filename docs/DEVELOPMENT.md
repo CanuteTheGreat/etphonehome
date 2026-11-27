@@ -477,8 +477,9 @@ Not implemented (also disclosed in the README):
 
 - [~] Root mode (kernel NAT): experimental switch in the app (RootNatSession,
       tun helper, crash-safe ip_forward); the plan is tested against a real
-      kernel in CI (Root-mode NAT plan vs a real kernel). Not yet run on a
-      rooted phone, so not claimed as working (see STATUS.md)
+      kernel in CI (Root-mode NAT plan vs a real kernel). Also run end to end on
+      rooted emulators (API 26/34/36, real HTTPS). Not yet run on a
+      physical rooted phone, so still experimental (see STATUS.md)
 - [ ] IPv6 through the tunnel on Windows, macOS, FreeBSD and routers (Linux computers have it)
 - [ ] Several computers at the same time (several are paired, the phone
       serves one at a time)

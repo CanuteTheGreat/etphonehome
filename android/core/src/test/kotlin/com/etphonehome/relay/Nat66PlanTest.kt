@@ -84,4 +84,10 @@ class Nat66PlanTest {
         assertTrue(Nat66Plan.NAT_CHAIN != KernelNatPlan.NAT_CHAIN)
         assertTrue(Nat66Plan.FWD_CHAIN != KernelNatPlan.FWD_CHAIN)
     }
+
+    @Test fun tunAddressIsTheFirstHostOfThePrefix() {
+        assertEquals("fd00:e7:70:1::1", Nat66Plan.phoneAddress("fd00:e7:70:1::/64"))
+        assertEquals(listOf("ip", "-6", "addr", "replace", "fd00:e7:70:1::1/64", "dev", "etph0", "nodad"),
+            Nat66Plan.addressSteps(p).single().argv)
+    }
 }

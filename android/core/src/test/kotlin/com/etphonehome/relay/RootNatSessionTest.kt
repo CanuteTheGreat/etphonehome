@@ -288,4 +288,44 @@ class RootNatSessionTest {
         assertEquals(false, s.refreshUpstream())
         s.close()
     }
+
+    @Test fun ipv6IsOffUnlessAskedFor() {
+        val root = FakeRoot()
+        val r = RootNatSession.start(cfg, root, {}, { FakeProcess() }) as RootNatSession.Start.Ready
+        assertFalse(r.session.ipv6)
+        assertFalse(root.log.any { it.contains("ip6tables") || it.contains("ipv6") })
+        r.session.close()
+    }
+
+    @Test fun ipv6NatIsAppliedAfterV4AndRemovedBeforeIt() {
+        val root = FakeRoot()
+        val r = RootNatSession.start(cfg.copy(subnet6 = "fd00:e7:70:1::/64"), root, {}, { FakeProcess() }) as RootNatSession.Start.Ready
+        assertTrue(r.session.ipv6)
+        val addr = root.log.indexOfFirst { it == "ip -6 addr replace fd00:e7:70:1::1/64 dev etph0 nodad" }
+        val v4 = root.log.indexOfFirst { it.contains("iptables") && it.contains("MASQUERADE") && !it.contains("ip6tables") }
+        val v6 = root.log.indexOfFirst { it.contains("ip6tables") && it.contains("MASQUERADE") }
+        assertTrue("v4 NAT first: $v4 < $addr < $v6", v4 in 0 until addr && addr < v6)
+        r.session.close()
+        val del6 = root.log.indexOfLast { it.contains("ip6tables") }
+        val del4 = root.log.indexOfLast { it.contains("iptables") && !it.contains("ip6tables") }
+        assertTrue("v6 undone before v4", del6 < del4)
+        assertTrue(root.log.last().startsWith("ip link del dev etph0"))
+    }
+
+    @Test fun failedIpv6SetupDegradesToIpv4OnlyInsteadOfFailingTheSession() {
+        val root = FakeRoot(failOn = "ip6tables -w -t nat -A ETPH_NAT6")
+        val r = RootNatSession.start(cfg.copy(subnet6 = "fd00:e7:70:1::/64"), root, {}, { FakeProcess() })
+        val ready = r as RootNatSession.Start.Ready
+        assertFalse(ready.session.ipv6)
+        assertTrue("v6 rolled back", root.log.any { it.contains("ip6tables") && it.contains("-X ETPH_NAT6") })
+        ready.session.close()
+    }
+
+    @Test fun badSubnet6DegradesToIpv4OnlyAndRunsNoV6Command() {
+        val root = FakeRoot()
+        val r = RootNatSession.start(cfg.copy(subnet6 = "2001:db8::/64"), root, {}, { FakeProcess() }) as RootNatSession.Start.Ready
+        assertFalse(r.session.ipv6)
+        assertFalse(root.log.any { it.contains("ip6tables") })
+        r.session.close()
+    }
 }

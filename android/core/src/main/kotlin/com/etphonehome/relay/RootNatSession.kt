@@ -17,6 +17,7 @@ class RootNatSession private constructor(
     private val tun: TunDevicePlan.Params,
     private val exec: CommandExecutor,
     private val stateFile: java.io.File? = null,
+    nat6: Nat66Plan.Params? = null,
 ) : Closeable {
 
     sealed class Start {
@@ -37,9 +38,15 @@ class RootNatSession private constructor(
          * read that leaked "1" as the original and never turn it back off. null = not persisted.
          */
         val stateFile: java.io.File? = null,
+        /** ULA /64 to NAT66 (see [Nat66Plan]); null = IPv4 only. If its setup fails the session runs IPv4-only. */
+        val subnet6: String? = null,
     )
 
     @Volatile private var nat = nat
+    @Volatile private var nat6 = nat6
+
+    /** True when the desktop's IPv6 is NAT66'd by the kernel (false = IPv4 only, v6 gets ICMPv6 no-route). */
+    val ipv6 get() = nat6 != null
 
     /**
      * The phone's uplink can change mid-session (WiFi <-> mobile data): the MASQUERADE rule and the
@@ -62,6 +69,12 @@ class RootNatSession private constructor(
             return false
         }
         nat = next
+        nat6?.let { old ->
+            val moved = old.copy(upstreamInterface = up.interfaceName)
+            // v6 follows the uplink; if that fails v6 stays off and IPv4 keeps working.
+            for (t in Nat66Plan.disable(old)) exec.run(t.argv)
+            if (applyNat6(moved, exec)) nat6 = moved else nat6 = null
+        }
         return true
     }
 
@@ -88,12 +101,24 @@ class RootNatSession private constructor(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         pump.close()
+        nat6?.let { for (t in Nat66Plan.disable(it)) exec.run(t.argv) }
         PlanRunner.disable(nat, exec)
         PlanRunner.disableTun(tun, exec)
         stateFile?.delete()
     }
 
     companion object {
+    private fun applyNat6(p: Nat66Plan.Params, exec: CommandExecutor): Boolean {
+        for (step in Nat66Plan.addressSteps(p) + Nat66Plan.enable(p)) {
+            val r = exec.run(step.argv)
+            if (!r.ok && !step.ignoreFailure) {
+                for (t in Nat66Plan.disable(p)) exec.run(t.argv)
+                return false
+            }
+        }
+        return true
+    }
+
         fun start(
             cfg: Config,
             exec: CommandExecutor,
@@ -125,16 +150,24 @@ class RootNatSession private constructor(
                 forgetState()
                 return Start.Unavailable("NAT setup failed at '${it.step}': ${it.result.output}")
             }
+            var nat6P: Nat66Plan.Params? = null
+            cfg.subnet6?.let { s6 ->
+                val fw6 = exec.run(listOf("cat", "/proc/sys/net/ipv6/conf/all/forwarding"))
+                val prev6 = fw6.output.trim().lines().lastOrNull()?.trim()?.takeIf { fw6.ok && (it == "0" || it == "1") } ?: "0"
+                val p6 = Nat66Plan.Params(cfg.tunInterface, up.interfaceName, s6, prev6)
+                if (Nat66Plan.validate(p6) == null && applyNat6(p6, exec)) nat6P = p6
+            }
             val port = try {
                 RootTunHelper.open(cfg.helperPath, cfg.tunInterface, starter, su)
             } catch (e: IOException) {
+                nat6P?.let { for (t in Nat66Plan.disable(it)) exec.run(t.argv) }
                 PlanRunner.disable(natP, exec); PlanRunner.disableTun(tunP, exec)
                 forgetState()
                 return Start.Unavailable(e.message ?: "root tun helper failed")
             }
-            val pump = TunPump(port, cfg.subnet, toDesktop, cfg.mtu)
+            val pump = TunPump(port, cfg.subnet, toDesktop, cfg.mtu, nat6P?.subnet6)
             pump.start()
-            return Start.Ready(RootNatSession(pump, natP, tunP, exec, cfg.stateFile))
+            return Start.Ready(RootNatSession(pump, natP, tunP, exec, cfg.stateFile, nat6P))
         }
     }
 }

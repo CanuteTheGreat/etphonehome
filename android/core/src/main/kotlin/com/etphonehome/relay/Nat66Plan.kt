@@ -72,6 +72,15 @@ object Nat66Plan {
         return s
     }
 
+    /** The phone's own address on the tunnel: first host of the /64 (fd00:e7:70:1::/64 -> fd00:e7:70:1::1). */
+    fun phoneAddress(subnet6: String) = subnet6.removeSuffix("/64") + "1"
+
+    /** Gives the tun device its v6 address, which also installs the on-link route replies to the desktop need. */
+    fun addressSteps(p: Params): List<KernelNatPlan.Step> {
+        check(p)
+        return listOf(KernelNatPlan.Step(listOf("ip", "-6", "addr", "replace", phoneAddress(p.subnet6) + "/64", "dev", p.tunInterface, "nodad")))
+    }
+
     /** Undoes [enable] in reverse; safe to run when nothing was set up. */
     fun disable(p: Params): List<KernelNatPlan.Step> {
         check(p)

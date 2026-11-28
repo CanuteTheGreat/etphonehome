@@ -181,4 +181,28 @@ object Ipv6Builder {
         buf.put16(Ipv6Packet.HEADER + 2, c)
         return buf
     }
+
+    /**
+     * ICMPv6 destination unreachable / no route (type 1, code 0, RFC 4443) for [req], sent back to
+     * its source as if from its destination, quoting as much of [req] as fits in 1280 bytes. Null
+     * (never answer) for multicast or unspecified sources, multicast destinations and ICMPv6 error
+     * messages, so it can't loop or amplify.
+     */
+    fun noRoute(req: Ipv6Packet): ByteArray? {
+        if (req.src[0] == 0xff.toByte() || req.dst[0] == 0xff.toByte()) return null
+        if (req.src.all { it == 0.toByte() }) return null
+        if (req.protocol == Ipv6Proto.ICMPV6 && req.payloadLength >= 1 &&
+            req.data.u8(req.payloadOffset) < Ipv6Proto.ECHO_REQUEST) return null
+        val quoted = minOf(req.length, 1280 - Ipv6Packet.HEADER - 8)
+        val n = 8 + quoted
+        val buf = ByteArray(Ipv6Packet.HEADER + n)
+        header(buf, n, Ipv6Proto.ICMPV6, req.dst, req.src)
+        buf[Ipv6Packet.HEADER] = 1
+        System.arraycopy(req.data, 0, buf, Ipv6Packet.HEADER + 8, quoted)
+        val c = Checksum.finish(
+            Checksum.sum(buf, Ipv6Packet.HEADER, n, pseudoSum(req.dst, req.src, Ipv6Proto.ICMPV6, n)),
+        )
+        buf.put16(Ipv6Packet.HEADER + 2, c)
+        return buf
+    }
 }

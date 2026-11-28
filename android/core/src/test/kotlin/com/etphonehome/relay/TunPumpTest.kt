@@ -238,4 +238,32 @@ class TunPumpTest {
         TunPump(tun, "10.0.0.0/30", {}).close()
         assertTrue(tun.closed)
     }
+
+    @Test
+    fun ipv6FromTheDesktopGetsAnIcmpv6NoRouteBackAndNeverReachesTheKernel() {
+        val tun = FakeTun(); val out = mutableListOf<ByteArray>(); val p = pump(tun, out)
+        val src = ByteArray(16).also { it[0] = 0xfd.toByte(); it[15] = 1 }
+        val dst = ByteArray(16).also { it[0] = 0x20; it[1] = 0x01; it[15] = 9 }
+        val pkt = Ipv6Builder.udp(src, 5000, dst, 53, ByteArray(10), 0, 10)
+        assertFalse(p.fromDesktop(pkt))
+        assertEquals(0, tun.written.size)
+        assertEquals(1, p.dropped)
+        assertEquals(1, out.size)
+        val r = Ipv6Packet.parse(out[0])!!
+        assertEquals(Ipv6Proto.ICMPV6, r.protocol)
+        assertArrayEquals(src, r.dst)
+        assertArrayEquals(dst, r.src)
+        assertEquals(1, out[0][40].toInt())            // destination unreachable
+        assertEquals(0, out[0][41].toInt())            // no route
+        assertArrayEquals(pkt, out[0].copyOfRange(48, 48 + pkt.size))   // quotes the offender
+        var s = Ipv6Builder.pseudoSum(r.src, r.dst, Ipv6Proto.ICMPV6, r.payloadLength)
+        s = Checksum.sum(out[0], 40, r.payloadLength, s)
+        assertEquals(0, Checksum.finish(s))
+        // the error itself is never answered (no loops), nor multicast destinations
+        assertFalse(p.fromDesktop(out[0]))
+        val mc = ByteArray(16).also { it[0] = 0xff.toByte(); it[1] = 2; it[15] = 2 }
+        assertFalse(p.fromDesktop(Ipv6Builder.udp(src, 1, mc, 1, ByteArray(1), 0, 1)))
+        assertEquals(1, out.size)
+        p.close()
+    }
 }

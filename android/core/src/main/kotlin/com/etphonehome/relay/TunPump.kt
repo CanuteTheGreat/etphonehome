@@ -23,8 +23,8 @@ interface PacketPort : Closeable {
  * Packets from the desktop are checked before they reach the kernel: valid
  * IPv4 header, length consistent with the buffer, and a source address inside
  * the tether subnet. Anything else is dropped and counted, so a desktop cannot
- * inject spoofed sources into the phone's network stack. IPv6 is dropped:
- * root mode NATs IPv4 only.
+ * inject spoofed sources into the phone's network stack. IPv6 is dropped
+ * (root mode NATs IPv4 only) and answered with ICMPv6 no-route.
  */
 class TunPump(
     private val tun: PacketPort,
@@ -80,6 +80,7 @@ class TunPump(
     fun fromDesktop(packet: ByteArray): Boolean {
         if (!running || !acceptable(packet)) {
             drops.incrementAndGet()
+            refuseIpv6(packet)
             return false
         }
         if (packetFilter?.invoke(packet) == false) {
@@ -95,6 +96,16 @@ class TunPump(
             drops.incrementAndGet()
             false
         }
+    }
+
+    /**
+     * Root mode NATs IPv4 only, but the desktop routes IPv6 into the tunnel: answer it with ICMPv6
+     * "no route" so the computer falls back to IPv4 at once instead of waiting for a timeout.
+     */
+    private fun refuseIpv6(p: ByteArray) {
+        if (p.isEmpty() || (p[0].toInt() and 0xf0) != 0x60) return
+        val reply = Ipv6Packet.parse(p)?.let { Ipv6Builder.noRoute(it) } ?: return
+        toDesktop(reply)
     }
 
     private fun acceptable(p: ByteArray): Boolean {

@@ -266,4 +266,34 @@ class TunPumpTest {
         assertEquals(1, out.size)
         p.close()
     }
+
+    @Test
+    fun withASubnet6TheDesktopsIpv6InsideItReachesTheKernelAndOthersAreRefused() {
+        val tun = FakeTun(); val out = mutableListOf<ByteArray>()
+        val p = TunPump(tun, "10.0.0.0/30", { out += it }, subnet6 = "fd00:e7:70:1::/64")
+        val ours = ByteArray(16).also { it[0] = 0xfd.toByte(); it[2] = 0; it[3] = 0xe7.toByte(); it[5] = 0x70; it[7] = 1; it[15] = 5 }
+        val dst = ByteArray(16).also { it[0] = 0x20; it[1] = 0x01; it[15] = 9 }
+        val pkt = Ipv6Builder.udp(ours, 5000, dst, 53, ByteArray(10), 0, 10)
+        p.start()
+        assertTrue(p.fromDesktop(pkt))
+        assertEquals(1, tun.written.size)
+        assertArrayEquals(pkt, tun.written[0])
+        // spoofed source outside the /64: refused with no-route, never forwarded
+        val spoof = ByteArray(16).also { it[0] = 0xfd.toByte(); it[7] = 2 }
+        assertFalse(p.fromDesktop(Ipv6Builder.udp(spoof, 1, dst, 1, ByteArray(4), 0, 4)))
+        assertEquals(1, out.size)
+        // link-local destination is not forwarded; length lie is dropped
+        val ll = ByteArray(16).also { it[0] = 0xfe.toByte(); it[1] = 0x80.toByte(); it[15] = 1 }
+        assertFalse(p.fromDesktop(Ipv6Builder.udp(ours, 1, ll, 1, ByteArray(4), 0, 4)))
+        val lie = pkt.copyOf(); lie[5] = (lie[5] + 1).toByte()
+        assertFalse(p.fromDesktop(lie))
+        assertEquals(1, tun.written.size)
+        p.close()
+    }
+
+    @Test
+    fun badSubnet6IsRejectedAtConstruction() {
+        try { TunPump(FakeTun(), "10.0.0.0/30", {}, subnet6 = "2001:db8::/64"); org.junit.Assert.fail() }
+        catch (e: IllegalArgumentException) { /* ok */ }
+    }
 }

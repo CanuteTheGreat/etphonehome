@@ -31,7 +31,16 @@ class TunPump(
     subnet: String,
     private val toDesktop: (ByteArray) -> Unit,
     private val mtu: Int = 1400,
+    /** ULA /64 NAT66'd by [Nat66Plan]; null = root mode is IPv4 only and IPv6 gets ICMPv6 no-route. */
+    subnet6: String? = null,
 ) : Closeable {
+
+    private val prefix6: ByteArray? = subnet6?.let {
+        val err = Nat66Plan.validate(Nat66Plan.Params("etph0", "upstream0", it))
+        require(err == null) { err ?: "" }
+        // The plan's regex only admits hex groups and colons, so this is a literal parse, never a DNS lookup.
+        java.net.InetAddress.getByName(it.substringBefore("/")).address.copyOf(8)
+    }
 
     private val net: Long
     private val mask: Long
@@ -78,7 +87,7 @@ class TunPump(
 
     /** Desktop -> kernel. Returns true when the packet was handed to the tun device. */
     fun fromDesktop(packet: ByteArray): Boolean {
-        if (!running || !acceptable(packet)) {
+        if (!running || !(acceptable(packet) || acceptable6(packet))) {
             drops.incrementAndGet()
             refuseIpv6(packet)
             return false
@@ -106,6 +115,20 @@ class TunPump(
         if (p.isEmpty() || (p[0].toInt() and 0xf0) != 0x60) return
         val reply = Ipv6Packet.parse(p)?.let { Ipv6Builder.noRoute(it) } ?: return
         toDesktop(reply)
+    }
+
+    /** IPv6 from the desktop: well-formed, length matches, source inside our /64, unicast global destination. */
+    private fun acceptable6(p: ByteArray): Boolean {
+        val pre = prefix6 ?: return false
+        if (p.size < Ipv6Packet.HEADER || p.size > mtu + 100) return false
+        if ((p[0].toInt() and 0xf0) != 0x60) return false
+        val payload = ((p[4].toInt() and 0xff) shl 8) or (p[5].toInt() and 0xff)
+        if (Ipv6Packet.HEADER + payload != p.size) return false
+        for (i in 0 until 8) if (p[8 + i] != pre[i]) return false
+        val d0 = p[24].toInt() and 0xff
+        if (d0 == 0xff) return false                                   // multicast stays on the tunnel
+        if (d0 == 0xfe && (p[25].toInt() and 0xc0) == 0x80) return false   // link-local
+        return true
     }
 
     private fun acceptable(p: ByteArray): Boolean {
